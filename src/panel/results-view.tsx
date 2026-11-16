@@ -38,6 +38,7 @@ import {
   previousPage,
   recount,
   rowKey,
+  say,
   selectedDocs,
   setPageSize,
   sortBy,
@@ -46,6 +47,7 @@ import {
   type Path,
   type ResultView
 } from './collection-state'
+import { copyToClipboard } from './data-state'
 import { guard } from './guard'
 
 const MAX_COLUMNS = 40
@@ -239,12 +241,19 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
   if (docs.length === 0) return <Text muted size="xs">{t.readOnly ? 'Select a row to look at it in the Tree view.' : 'Select rows to edit, clone or delete. Enter on a row edits it.'}</Text>
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
+  const copy = hasId && !t.shell ? (
+    <IconButton icon="copy" label={`Copy ${docs.length === 1 ? 'this document' : `these ${docs.length} documents`}, to paste into another collection`} size="sm" variant="ghost" onPress={() => {
+      copyToClipboard({ kind: 'documents', ns: t.ns, ids: docs.map((d) => d._id!) })
+      say(t.id, 'neutral', `Copied ${docs.length} document${docs.length === 1 ? '' : 's'}. Select a collection or database in the tree and press Paste.`)
+    }} />
+  ) : null
   if (t.readOnly) {
-    return one ? (
+    return (
       <Toolbar label="Row actions" gap="xs">
-        <Button size="sm" icon="search" onPress={() => change(t.id, (x) => ({ resultView: 'tree' as const, treeExpanded: [treeKey(x.page!.docs.indexOf(one), [])], treeSelected: treeKey(x.page!.docs.indexOf(one), []) }))}>Show in Tree</Button>
+        {one ? <Button size="sm" icon="search" onPress={() => change(t.id, (x) => ({ resultView: 'tree' as const, treeExpanded: [treeKey(x.page!.docs.indexOf(one), [])], treeSelected: treeKey(x.page!.docs.indexOf(one), []) }))}>Show in Tree</Button> : null}
+        {copy}
       </Toolbar>
-    ) : null
+    )
   }
   const fields = one ? Object.keys(one).filter((k) => k !== '_id') : []
   return (
@@ -257,6 +266,7 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
             {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}
           </Button>
         ) : null}
+        {copy}
       </Toolbar>
       {one && hasId ? (
         <Row gap="xs" align="end" wrap>

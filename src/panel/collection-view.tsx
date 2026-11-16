@@ -19,6 +19,9 @@ import {
 } from 'orca'
 import type { QueryText } from '../protocol'
 import { openManage } from './manage-state'
+import { openCompare } from './compare-state'
+import { openExport, queryText } from './export-state'
+import { openImport } from './import-state'
 import { openSchema } from './schema-state'
 import { stagesFromFind } from '../shared/pipeline'
 import { needsValue, newCondition, emptyGroup, mapGroup, OPERATORS, removeItem, updateCondition, countConditions, type Condition, type Group, type Operator } from '../shared/query-builder'
@@ -233,6 +236,11 @@ function openAsAggregation(t: CollTab): Promise<void> {
   return openAggregation(t.ns, t.kind, typed ? stagesFromFind(spec) : undefined, typed ? 'the query bar' : undefined)
 }
 
+/** The Export tab, with the query in the bar (as typed: it is checked there). */
+function exportQuery(t: CollTab): void {
+  openExport({ kind: 'query', ns: t.ns, collKind: t.kind }, queryText(t.text))
+}
+
 const KIND_LABEL: Partial<Record<CollTab['kind'], string>> = { view: 'View · read only', timeseries: 'Time-series' }
 
 export function CollectionTab({ id }: { id: string }): OrcaNode {
@@ -258,6 +266,9 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
         {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
         {!t.readOnly ? <Button icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
+        {t.shell ? null : <IconButton icon="download" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
+        {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" onPress={() => openImport(t.ns)} />}
+        {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
       </Toolbar>
       <Builder t={t} />
       {t.notice ? (

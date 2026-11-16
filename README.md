@@ -4,8 +4,8 @@ A MongoDB client for Orca, built from Orca's own components so it follows every 
 has no AI features.
 
 **Status:** Phases 1 (connections and navigation), 2 (querying and data viewing), 3 (shell and
-code), 4 (aggregation and explain) and 5 (administration and schema) are done. Later phases add
-data movement and saved tasks.
+code), 4 (aggregation and explain), 5 (administration and schema) and 6 (data movement) are done.
+Phase 7 adds saved tasks and a read-only flag per connection.
 
 ## What Phase 1 does
 
@@ -160,6 +160,42 @@ Each of these is a tab next to the collection tabs, opened from the tree's actio
   `$jsonSchema` validator (sent to the Manage tab with "Use as validator") or a JSON Schema
   (draft 2020-12), saved with Save as file.
 
+## What Phase 6 does
+
+Data moves as **jobs** in the worker: a tab starts one and follows its progress (documents or
+bytes, the current step, Cancel), then lists the first 50 errors with the record or namespace they
+came from. Files come in as pasted text or a path the worker reads, and go out through Orca's save
+dialog (up to 64 MiB) or to a path the worker writes (as `<name>.part`, renamed when complete).
+
+- **Import** (upload button on a database, a collection or a collection tab):
+  - JSON: an array, one document per line (mongoexport), or documents one after another;
+    relaxed or canonical Extended JSON.
+  - CSV and TSV: a preview reads the columns and infers each one's type (Int32, Int64, Double,
+    Decimal128, Boolean, Date, ObjectId, Extended JSON or String; numbers with leading zeros stay
+    text). Change any column's field (dotted fields make sub-documents) or type, or skip it.
+    Headers typed as mongoimport writes them (`age.int32()`) are read.
+  - BSON: a mongodump `.bson` file, or a dump folder (one collection per file), `.gz` included;
+    `.metadata.json` brings back indexes, collection options and views.
+  - Insert, replace by `_id`, or merge fields by `_id`; drop the collection first (asked, with
+    its count); stop at the first error.
+- **Export** (download button on a collection, a database, a collection tab with its query, or an
+  aggregation tab with its pipeline): JSON (lines or array, relaxed or canonical, indented),
+  CSV (columns picked from sampled fields, in any order; arrays and sub-documents as Extended JSON),
+  BSON with `.metadata.json` as mongodump writes it. A whole database goes to a folder.
+- **Copy and paste** (copy button on a collection, a database or selected documents; Paste on a
+  connection, database or collection, on any connection): opens the Export tab set to "Another
+  collection". Copies keep every BSON type, and can copy indexes and collection options (capped,
+  validation, collation, time series). A database copy recreates views. Insert, replace or merge
+  by `_id`, or drop the target first (asked, with its count).
+- **Compare and sync** (branch button on a collection or a collection tab): two collections on
+  the same or different connections, matched by `_id`, with a filter for both sides, fields to
+  leave out and whether field order counts. Counts of documents that are the same, differ, or are
+  only on one side; the `_id`s of each kind; a pair's differences field by field. Sync makes one
+  side like the other (insert, replace, delete, each optional), asked first with the counts.
+- **GridFS** ("Browse files" on a bucket): files by name, newest first, paged; details, chunk
+  check and a text preview of the first 64 KB; download (save dialog or a path), upload (a path or
+  pasted text, with content type and metadata), rename, delete (asked first).
+
 ### Size limits
 
 Orca refuses a panel request or answer past 1 MiB, 10,000 objects or arrays, or 100 levels deep.
@@ -192,6 +228,9 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 | `src/panel/manage-*`, `database-*`, `users-*`, `server-*`, `schema-*` | The Manage, Database, Users and roles, Server and Schema tabs |
 | `src/worker/admin.ts`, `users.ts`, `server.ts`, `schema.ts` | Indexes, collections, databases, profiler; users and roles; server status and operations; schema sampling |
 | `src/shared/index-spec.ts`, `schema.ts` | The index form, and the schema analysis, histograms and JSON Schema export |
+| `src/panel/import-*`, `export-*`, `compare-*`, `gridfs-*`, `data-state.ts`, `job-view.tsx` | The Import, Export/Copy, Compare and GridFS tabs; following jobs, downloads, the clipboard |
+| `src/worker/jobs.ts`, `import.ts`, `export.ts`, `writer.ts`, `compare.ts`, `gridfs.ts` | Jobs, uploads and file sinks; import, export and copy, batched writes, compare and sync, GridFS |
+| `src/shared/csv.ts`, `json-records.ts`, `compare.ts`, `base64.ts` | CSV reading, types and writing; splitting JSON into documents; document comparison; base64 for downloads |
 | `src/shared/` | Pure code both sides use: connection model, URI parser/builder, import/export, tree keys, the shell literal parser, Extended JSON views, the Query Builder and field-editor models |
 | `test/` | Integration tests against the docker databases |
 | `dev/` | Docker databases, seed data and test fixtures |
@@ -265,6 +304,14 @@ npm run test:enterprise
   tables with text bars. Histograms are built from up to 5,000 values per field and scaled.
 - Live server status refreshes while the tab stays open; it waits in the worker between readings,
   since a components panel has no timers.
+- Imports and exports read and write paths on this computer only. mongodump's `--archive`
+  format is not read; give the dump folder instead. CSV dates are ISO 8601 or milliseconds (no
+  custom layouts), and mongoimport's `binary()` and `date(layout)` header types are read as
+  inferred types.
+- Compare matches documents by `_id` only, and lists at most 1,000 `_id`s of each kind (the
+  counts are complete). Sync replaces whole documents, fields left out of the comparison included.
+- The save dialog takes at most 64 MiB, and the worker keeps a download in memory until the
+  panel has fetched it; bigger exports and files go to a path.
 - The plugin isn't packaged for installation yet. Installed plugins don't run `npm install`,
   so a release needs a bundled worker plus the Kerberos binary for each platform. Until then,
   load the folder with `orca plugin dev load`.

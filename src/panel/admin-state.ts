@@ -22,9 +22,14 @@ import type { IndexDraft } from '../shared/index-spec'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import type { SchemaFlavor, SchemaReport } from '../shared/schema'
 import { closeTab, collTabs, tabOrder, type TabNotice } from './collection-state'
+import type { CompareTab } from './compare-state'
+import type { ExportTab } from './export-state'
+import type { GridfsTab } from './gridfs-state'
+import type { ImportTab } from './import-state'
+import { dropDownload } from './data-state'
 import { connections, errorText, nodeIndex, notice, refreshNode, view } from './state'
 
-export type AdminKind = 'manage' | 'database' | 'users' | 'server' | 'schema'
+export type AdminKind = 'manage' | 'database' | 'users' | 'server' | 'schema' | 'import' | 'export' | 'compare' | 'gridfs'
 
 type Base = { id: string; connectionId: string; title: string; notice?: TabNotice }
 
@@ -167,7 +172,7 @@ export type SchemaTab = Base & {
   token: number
 }
 
-export type AdminTab = ManageTab | DatabaseTab | UsersTab | ServerTab | SchemaTab
+export type AdminTab = ManageTab | DatabaseTab | UsersTab | ServerTab | SchemaTab | ImportTab | ExportTab | CompareTab | GridfsTab
 
 export const adminTabs = atom<Record<string, AdminTab>>({})
 
@@ -231,6 +236,9 @@ export function showOrAdd(tab: AdminTab): boolean {
 export function closeAdmin(id: string): void {
   const t = adminTab(id)
   if (t?.kind === 'server') changeAdmin(id, 'server', (s) => ({ live: false, liveToken: s.liveToken + 1 }))
+  // A running job keeps going in the worker; its tab just stops following it.
+  if (t?.kind === 'export') dropDownload(t.job)
+  if (t?.kind === 'gridfs') dropDownload(t.download.job)
   const order = read(tabOrder)
   const at = order.indexOf(id)
   const rest = order.filter((x) => x !== id)

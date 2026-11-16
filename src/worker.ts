@@ -2,7 +2,7 @@
 // answers the panel through the typed protocol in src/protocol.ts. Orca transpiles it on load.
 import { randomUUID } from 'node:crypto'
 import type { OrcaWorkerApi } from 'orca/worker'
-import type { ConnectionsState, ImportReport, SaveResult } from './protocol'
+import type { CollectionKind, ConnectionsState, ImportReport, SaveResult } from './protocol'
 import { cloneDef, connectionSubtitle, emptyConnection, validateConnection, type ConnectionDef } from './shared/model'
 import { exportConnections, importConnections } from './shared/transfer'
 import {
@@ -34,10 +34,16 @@ import { ShellService } from './worker/shell'
 import { ConnectionStore } from './worker/store'
 import { treeChildren, treeDetails, type TreeContext } from './worker/tree'
 import { dropRole, dropUser, listUsers, saveRole, saveUser } from './worker/users'
+import { diffPair, runCompare, runSync } from './worker/compare'
+import { runExport, sampleFields } from './worker/export'
+import { deleteFile, downloadFile, listFiles, previewFile, renameFile, uploadFile } from './worker/gridfs'
+import { previewImport, runImport } from './worker/import'
+import { Jobs, Uploads } from './worker/jobs'
 
 let pool: ClientPool | undefined
 let queries: QuerySessions | undefined
 let shell: ShellService | undefined
+let jobs: Jobs | undefined
 
 function invalid(message: string): Error {
   return Object.assign(new Error(message), { code: 'invalid_params' })
@@ -347,6 +353,78 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('schema.analyze', async ({ ns, size, filter }) => analyzeSchema(await clientFor(ns.connectionId), ns, size, filter))
 
+  // ---- Data movement ----
+
+  const running = new Jobs((message) => orca.log(message))
+  jobs = running
+  const uploads = new Uploads()
+  const nsOf = (ns: { connectionId: string; db: string; collection: string }) => clientFor(ns.connectionId)
+
+  orca.panels.handle('import.upload', ({ uploadId, chunk }) => uploads.append(uploadId, chunk))
+  orca.panels.handle('import.preview', ({ source, options, size }) => previewImport(source, options, size, uploads))
+  orca.panels.handle('import.start', async ({ source, options, ns }) => {
+    const client = await nsOf(ns)
+    return { jobId: running.start('import', 'bytes', (job) => runImport(client, source, options, ns, uploads, job)) }
+  })
+  orca.panels.handle('export.start', async ({ source, options, destination }) => {
+    const client = await clientFor(source.kind === 'database' ? source.connectionId : source.ns.connectionId)
+    if (options.format === 'collection' && options.collection) await requireDef(options.collection.connectionId)
+    const kind = options.format === 'collection' ? 'copy' : 'export'
+    return { jobId: running.start(kind, 'documents', (job) => runExport(client, (id) => clientFor(id), source, options, destination, job)) }
+  })
+  orca.panels.handle('export.fields', async ({ ns, filter }) => ({ fields: await sampleFields(await nsOf(ns), ns, filter) }))
+  orca.panels.handle('data.count', async ({ ns }) => {
+    const client = await nsOf(ns)
+    const db = client.db(ns.db)
+    const info = (await db.listCollections({ name: ns.collection }, { authorizedCollections: true }).toArray())[0] as { type?: string } | undefined
+    if (!info) return { exists: false, count: null }
+    const kind: CollectionKind = info.type === 'view' ? 'view' : info.type === 'timeseries' ? 'timeseries' : 'collection'
+    const count = kind === 'view' ? null : await db.collection(ns.collection).estimatedDocumentCount({ maxTimeMS: 10_000 }).catch(() => null)
+    return { exists: true, count, kind }
+  })
+  orca.panels.handle('data.collections', async ({ connectionId, db }) => {
+    const client = await clientFor(connectionId)
+    const names = (await client.db(db).listCollections({}, { nameOnly: true, authorizedCollections: true }).toArray()).map((c) => c.name).filter((n) => !n.startsWith('system.'))
+    return { names: names.sort((a, b) => a.localeCompare(b)) }
+  })
+  orca.panels.handle('job.poll', ({ jobId, version, waitMs }, { signal }) => running.poll(jobId, version, waitMs, signal))
+  orca.panels.handle('job.cancel', ({ jobId }) => {
+    running.cancel(jobId)
+    return null
+  })
+  orca.panels.handle('job.read', ({ jobId, offset, size }) => running.read(jobId, offset, size))
+  orca.panels.handle('job.close', ({ jobId }) => {
+    running.close(jobId)
+    return null
+  })
+  orca.panels.handle('compare.start', async ({ a, b, filter, rules }) => {
+    const [ca, cb] = await Promise.all([nsOf(a), nsOf(b)])
+    return { jobId: running.start('compare', 'documents', (job) => runCompare(ca, cb, a, b, filter, rules, job)) }
+  })
+  orca.panels.handle('compare.diff', async ({ a, b, id, rules }) => diffPair(await nsOf(a), await nsOf(b), a, b, id, rules))
+  orca.panels.handle('compare.sync', async ({ from, to, filter, rules, insert, replace, remove }) => {
+    const [cf, ct] = await Promise.all([nsOf(from), nsOf(to)])
+    return { jobId: running.start('sync', 'documents', (job) => runSync(cf, ct, from, to, filter, rules, { insert, replace, remove }, job)) }
+  })
+  orca.panels.handle('gridfs.list', async ({ connectionId, db, bucket, filename, skip, limit }) => listFiles(await clientFor(connectionId), { connectionId, db, bucket }, filename, skip, limit))
+  orca.panels.handle('gridfs.preview', async ({ connectionId, db, bucket, id }) => previewFile(await clientFor(connectionId), { connectionId, db, bucket }, id))
+  orca.panels.handle('gridfs.download', async ({ connectionId, db, bucket, id, destination }) => {
+    const client = await clientFor(connectionId)
+    return { jobId: running.start('gridfs-download', 'bytes', (job) => downloadFile(client, { connectionId, db, bucket }, id, destination, job)) }
+  })
+  orca.panels.handle('gridfs.upload', async ({ connectionId, db, bucket, source, filename, contentType, metadata }) => {
+    const client = await clientFor(connectionId)
+    return { jobId: running.start('gridfs-upload', 'bytes', (job) => uploadFile(client, { connectionId, db, bucket }, source, filename, contentType, metadata, uploads, job)) }
+  })
+  orca.panels.handle('gridfs.rename', async ({ connectionId, db, bucket, id, filename }) => {
+    await renameFile(await clientFor(connectionId), { connectionId, db, bucket }, id, filename)
+    return null
+  })
+  orca.panels.handle('gridfs.delete', async ({ connectionId, db, bucket, id }) => {
+    await deleteFile(await clientFor(connectionId), { connectionId, db, bucket }, id)
+    return null
+  })
+
   orca.panels.handle('history.list', ({ ns }) => library.read(ns))
   orca.panels.handle('history.clear', ({ ns }) => library.clearHistory(ns))
   orca.panels.handle('saved.save', ({ ns, name, query }) => library.save(ns, name, query, Date.now()))
@@ -402,6 +480,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 }
 
 export async function deactivate(): Promise<void> {
+  jobs?.closeAll()
   await shell?.closeAll()
   await queries?.closeAll()
   await pool?.disconnectAll()

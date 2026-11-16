@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2, p4 and p5.
+# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2, p4, p5 and p6.
 #
 # `orca plugin shot --act/--scenario/--theme` only works while Orca's window is hidden or
 # minimized. Hide it (or switch to a session whose compositor can minimize it), run this, and keep
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 ORCA=(env ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js)
 KEY=local.orca-mongo-studio
 WIDTH=${WIDTH:-420}
-mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5
+mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5 .orca/shots/p6
 
 CONN=$("${ORCA[@]}" plugin dev request . connections.state --json |
   node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));const c=r.result.result.connections.find(c=>c.name==="Local dev (rs0)");if(!c)process.exit(1);process.stdout.write("conn:"+encodeURIComponent(c.id))')
@@ -98,3 +98,22 @@ shot p5 user-form "$(at_db shop),{\"press\":{\"text\":\"Users\"}},{\"press\":{\"
 shot p5 server "{\"selectItem\":$T,\"key\":\"$CONN\"},{\"press\":{\"label\":\"Server status and operations\"}}"
 shot p5 schema "$(at_coll shop orders coll),$SCHEMA,{\"selectItem\":{\"type\":\"Tree\",\"label\":\"Fields\"},\"key\":\"f:total\"}"
 shot p5 schema-export "$(at_coll shop orders coll),$SCHEMA,{\"toggle\":{\"label\":\"Export the schema\"}}"
+
+# ---- Phase 6 ----
+IMPORT='{"press":{"label":"Import into this collection"}}'
+EXPORT='{"press":{"label":"Export: JSON, CSV, BSON or another collection"}}'
+COMPARE='{"press":{"label":"Compare with another collection"}}'
+CSV="name,age,joined,zip\\nAda,36,2026-01-02,01234\\nGrace,45,2026-02-03,75001\\n"
+shot p6 import "$(at_coll shop customers coll),$IMPORT"
+shot p6 import-csv "$(at_coll shop customers coll),$IMPORT,{\"type\":{\"label\":\"Documents\"},\"text\":\"$CSV\"},{\"press\":{\"text\":\"Preview\"}},{\"selectRows\":{\"type\":\"Table\",\"label\":\"Columns\"},\"keys\":[\"age\"]}"
+shot p6 import-folder "$(at_db shop),{\"press\":{\"label\":\"Import into this database: a file, pasted documents or a mongodump folder\"}},{\"select\":{\"label\":\"Source\"},\"value\":\"path\"}"
+shot p6 export-json "$(at_coll shop orders coll),$EXPORT"
+shot p6 export-csv "$(at_coll shop orders coll),$EXPORT,{\"select\":{\"label\":\"Format\"},\"value\":\"csv\"},{\"press\":{\"text\":\"Load the fields\"}}"
+shot p6 export-done "$(at_coll shop orders coll),$EXPORT,{\"type\":{\"label\":\"Limit\"},\"text\":\"100\"},{\"press\":{\"type\":\"Button\",\"text\":\"Export\"}}"
+shot p6 copy "$(at_coll shop orders coll),$EXPORT,{\"select\":{\"label\":\"Format\"},\"value\":\"collection\"}"
+shot p6 export-db "$(at_db shop),{\"press\":{\"label\":\"Export or copy the whole database\"}}"
+shot p6 paste "$(at_coll shop customers coll),{\"press\":{\"label\":\"Copy, to paste into another database or connection\"}},{\"selectItem\":$T,\"key\":\"$CONN/db:shop\"}"
+shot p6 compare "$(at_coll shop customers coll),$COMPARE,{\"type\":{\"label\":\"Collection\"},\"text\":\"gold_customers\"},{\"press\":{\"type\":\"Button\",\"text\":\"Compare\"}}"
+shot p6 compare-sync "$(at_coll shop customers coll),$COMPARE,{\"type\":{\"label\":\"Collection\"},\"text\":\"gold_customers\"},{\"press\":{\"type\":\"Button\",\"text\":\"Compare\"}},{\"toggle\":{\"label\":\"Sync\"}}"
+shot p6 gridfs "{\"expand\":$T,\"key\":\"$CONN\"},{\"expand\":$T,\"key\":\"$CONN/db:shop\"},{\"selectItem\":$T,\"key\":\"$CONN/db:shop/bucket:attachments\"},{\"press\":{\"text\":\"Browse files\"}}"
+shot p6 gridfs-upload "{\"expand\":$T,\"key\":\"$CONN\"},{\"expand\":$T,\"key\":\"$CONN/db:shop\"},{\"selectItem\":$T,\"key\":\"$CONN/db:shop/bucket:attachments\"},{\"press\":{\"text\":\"Browse files\"}},{\"toggle\":{\"label\":\"Upload a file\"}}"

@@ -32,6 +32,11 @@ import { openManage } from './manage-state'
 import { openSchema } from './schema-state'
 import { openServer } from './server-state'
 import { openUsers } from './users-state'
+import { openCompare } from './compare-state'
+import { clipboard, clipText, copyToClipboard, type Clip } from './data-state'
+import { openExport, paste, type PasteTarget } from './export-state'
+import { openGridfs } from './gridfs-state'
+import { openImport } from './import-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
@@ -162,6 +167,24 @@ function act(run: () => Promise<void>): () => Promise<void> {
   }
 }
 
+/** A Paste button for what the clipboard holds, when it can land on this node. */
+function pasteButton(at: PasteTarget): OrcaNode {
+  const clip = read(clipboard)
+  if (!clip) return null
+  const fits = at.collection !== undefined ? clip.kind !== 'database' : at.db !== undefined ? true : clip.kind === 'database'
+  if (!fits) return null
+  return (
+    <Button size="sm" icon="copy" variant="ghost" tone="accent" onPress={act(async () => paste(clip, at))}>
+      Paste
+    </Button>
+  )
+}
+
+function copied(clip: Clip): void {
+  copyToClipboard(clip)
+  set(notice, { tone: 'neutral', text: `Copied ${clipText(clip)}. Select a connection, database or collection, on any connection, and press Paste.` })
+}
+
 function actionBar(key: string): OrcaNode {
   const state = read(connections)
   if (key.startsWith(GROUP_PREFIX)) {
@@ -210,6 +233,7 @@ function actionBar(key: string): OrcaNode {
         {connected ? refresh : null}
         {connected ? <IconButton icon="gauge" label="Server status and operations" variant="ghost" size="sm" onPress={act(() => openServer(id))} /> : null}
         {connected ? <IconButton icon="add" label="New database" variant="ghost" size="sm" onPress={act(async () => openNewDatabase(id))} /> : null}
+        {connected ? pasteButton({ connectionId: id }) : null}
         <IconButton icon="delete" label="Delete connection" variant="ghost" tone="danger" size="sm" onPress={() => set(confirmDelete, { id, name: summary?.name ?? '' })} />
       </Toolbar>
     )
@@ -224,6 +248,10 @@ function actionBar(key: string): OrcaNode {
       <Toolbar label={`${meta.label} actions`} gap="xs">
         <Button size="sm" icon="settings" variant="solid" tone="accent" onPress={act(() => openDatabase(id, db))}>Manage</Button>
         <Button size="sm" icon="agent" variant="ghost" onPress={act(() => openUsers(id, db))}>Users</Button>
+        <IconButton icon="upload" label="Import into this database: a file, pasted documents or a mongodump folder" variant="ghost" size="sm" onPress={() => openImport({ connectionId: id, db })} />
+        <IconButton icon="download" label="Export or copy the whole database" variant="ghost" size="sm" onPress={() => openExport({ kind: 'database', connectionId: id, db })} />
+        <IconButton icon="copy" label="Copy the database, to paste on a connection" variant="ghost" size="sm" onPress={() => copied({ kind: 'database', connectionId: id, db })} />
+        {pasteButton({ connectionId: id, db })}
         {refresh}
         {favourite}
       </Toolbar>
@@ -234,6 +262,17 @@ function actionBar(key: string): OrcaNode {
     return (
       <Toolbar label={`${meta.label} actions`} gap="xs">
         <Button size="sm" icon="settings" variant="solid" tone="accent" onPress={act(() => openManage(ns, collKind(), { section: 'indexes', ...(index ? { index } : {}) }))}>Manage indexes</Button>
+        {refresh}
+        {favourite}
+      </Toolbar>
+    )
+  }
+  if (meta.kind === 'bucket' && ns) {
+    const db = ns.db
+    const bucket = ns.collection
+    return (
+      <Toolbar label={`${meta.label} actions`} gap="xs">
+        <Button size="sm" icon="package" variant="solid" tone="accent" onPress={act(() => openGridfs(id, db, bucket))}>Browse files</Button>
         {refresh}
         {favourite}
       </Toolbar>
@@ -264,6 +303,11 @@ function actionBar(key: string): OrcaNode {
       ) : null}
       {openable && ns ? <IconButton icon="settings" label={meta.kind === 'view' ? 'Manage the view' : 'Manage the collection: indexes, validation, rename, drop'} variant="ghost" size="sm" onPress={act(() => openManage(ns, meta.kind))} /> : null}
       {openable && ns ? <IconButton icon="bar-chart-3" label="Schema: sample the fields and their types" variant="ghost" size="sm" onPress={act(() => openSchema(ns, meta.kind))} /> : null}
+      {openable && ns && meta.kind !== 'view' ? <IconButton icon="upload" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(ns)} /> : null}
+      {openable && ns ? <IconButton icon="download" label="Export: JSON, CSV, BSON or another collection" variant="ghost" size="sm" onPress={() => openExport({ kind: 'query', ns, collKind: meta.kind })} /> : null}
+      {openable && ns ? <IconButton icon="branch" label="Compare with another collection" variant="ghost" size="sm" onPress={() => openCompare(ns, meta.kind)} /> : null}
+      {openable && ns ? <IconButton icon="copy" label="Copy, to paste into another database or connection" variant="ghost" size="sm" onPress={() => copied({ kind: 'collection', ns, collKind: meta.kind })} /> : null}
+      {openable && ns && meta.kind !== 'view' ? pasteButton({ connectionId: ns.connectionId, db: ns.db, collection: ns.collection }) : null}
       {refresh}
       {favourite}
     </Toolbar>
@@ -300,6 +344,7 @@ export function TreeView(): OrcaNode {
   const pending = read(confirmDelete)
   const sign = read(oidc)
   const n = read(notice)
+  const clip = read(clipboard)
   return (
     <Box gap="sm">
       <Toolbar label="Connections">
@@ -322,12 +367,18 @@ export function TreeView(): OrcaNode {
         </Callout>
       ) : null}
       {n ? (
-        <Callout tone={n.tone === 'neutral' ? 'neutral' : n.tone} icon={n.tone === 'danger' ? 'error' : 'check'}>
+        <Callout tone={n.tone === 'neutral' ? 'neutral' : n.tone} icon={n.tone === 'danger' ? 'error' : n.tone === 'neutral' ? 'info' : 'check'}>
           <Row justify="between" align="center">
             <Text>{n.text}</Text>
             <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => set(notice, null)} />
           </Row>
         </Callout>
+      ) : null}
+      {clip ? (
+        <Row gap="xs" align="center" justify="between">
+          <Text size="xs" muted truncate>{`Clipboard: ${clipText(clip)}`}</Text>
+          <IconButton icon="close" label="Clear the clipboard" variant="ghost" size="xs" onPress={() => set(clipboard, null)} />
+        </Row>
       ) : null}
       {!state ? (
         <Skeleton lines={5} label="Loading connections" />

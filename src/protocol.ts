@@ -6,6 +6,8 @@ import type { ExplainSummary, ExplainVerbosity } from './shared/explain'
 import type { NodeKind } from './shared/nodes'
 import type { Operation } from './shared/operation'
 import type { StageText } from './shared/pipeline'
+import type { CsvColumn } from './shared/csv'
+import type { CompareRules, FieldDiff } from './shared/compare'
 
 export type ConnectionSummary = {
   id: string
@@ -302,6 +304,169 @@ export type CurrentOp = {
   raw: string
 }
 export type CurrentOpsFilter = { idle: boolean; system: boolean; minSecs?: number; ns?: string }
+
+// ---- Data movement ----
+
+/** Where data comes from: text the panel sent in pieces (`import.upload`), or a file or folder the
+ *  worker reads. */
+export type DataSource = { kind: 'upload'; uploadId: string } | { kind: 'path'; path: string }
+export type ImportFormat = 'json' | 'csv' | 'tsv' | 'bson'
+/** insert: new documents only (a taken `_id` is an error); upsert: replace by `_id`; merge: set the
+ *  file's fields on the document with that `_id`. Documents without `_id` are inserted. */
+export type WriteMode = 'insert' | 'upsert' | 'merge'
+export type ImportOptions = {
+  /** `auto`: from the file name, then the content. */
+  format: ImportFormat | 'auto'
+  csv?: { delimiter: string; header: boolean; ignoreEmpty: boolean; columns?: CsvColumn[] }
+  mode: WriteMode
+  /** Drop the target collection first. */
+  drop: boolean
+  stopOnError: boolean
+  /** BSON: create the indexes of the `.metadata.json` next to the file (or in the folder). */
+  indexes: boolean
+}
+export type ImportPreview = {
+  /** Canonical Extended JSON, shrunk like a page. */
+  docs: JsonObject[]
+  /** CSV: the columns as read, with inferred types and a few values each. */
+  columns?: (CsvColumn & { samples: string[] })[]
+  notes: string[]
+  errors: { record: number; message: string }[]
+  /** Bytes of the source, when known. */
+  bytes?: number
+  /** A folder of a dump: the collections it holds. */
+  folder?: { name: string; file: string; bytes: number; metadata: boolean }[]
+  /** The format read (`auto` resolved). */
+  format: ImportFormat
+  gzip?: boolean
+}
+
+export type JobKind = 'import' | 'export' | 'copy' | 'compare' | 'sync' | 'gridfs-upload' | 'gridfs-download'
+export type JobStatus = 'running' | 'done' | 'failed' | 'cancelled'
+export type JobError = { record?: number; ns?: string; message: string }
+
+export type ImportResult = { kind: 'import'; read: number; inserted: number; updated: number; failed: number; collections: string[] }
+export type ExportResult = {
+  kind: 'export'
+  docs: number
+  collections: number
+  /** Bytes written: to the download, the path, or the target collection (BSON size). */
+  bytes: number
+  /** Ready to fetch with `job.read`, for the save dialog. */
+  download?: { name: string; mimeType: string; size: number }
+  /** Files written by the worker. */
+  written?: string[]
+  /** Copies into a collection. */
+  inserted?: number
+  updated?: number
+  failed?: number
+  indexes?: number
+}
+export type CompareResult = {
+  kind: 'compare'
+  same: number
+  differ: number
+  onlyA: number
+  onlyB: number
+  /** `_id`s (canonical) of each kind, at most COMPARE_ID_MAX each. */
+  ids: { differ: JsonValue[]; onlyA: JsonValue[]; onlyB: JsonValue[] }
+  capped: boolean
+}
+export type SyncResult = { kind: 'sync'; inserted: number; replaced: number; deleted: number; failed: number }
+export type GridUploadResult = { kind: 'gridfs-upload'; id: JsonValue; bytes: number }
+export type JobResult = ImportResult | ExportResult | CompareResult | SyncResult | GridUploadResult
+
+export type JobState = {
+  jobId: string
+  kind: JobKind
+  status: JobStatus
+  /** Rises with each change; `job.poll` waits for a higher one. */
+  version: number
+  /** What it is doing now, in words. */
+  phase: string
+  done: number
+  /** Documents (or bytes, for GridFS) to go, when known. */
+  total: number | null
+  unit: 'documents' | 'bytes'
+  /** The first errors, and how many there were. */
+  errors: JobError[]
+  errorCount: number
+  result?: JobResult
+  /** Why it failed. */
+  message?: string
+  started: number
+  ms: number
+}
+
+/** A find, or a pipeline, on one collection; or every collection of a database. */
+export type ExportSource =
+  | { kind: 'query'; ns: Namespace; spec: QuerySpec }
+  | { kind: 'pipeline'; ns: Namespace; pipeline: JsonObject[]; options: AggOptions }
+  | { kind: 'database'; connectionId: string; db: string; collections?: string[] }
+export type ExportFormat = 'json' | 'csv' | 'bson' | 'collection'
+export type ExportOptions = {
+  format: ExportFormat
+  json?: { layout: 'lines' | 'array'; relaxed: boolean; pretty: boolean }
+  csv?: { fields: string[]; delimiter: string; header: boolean }
+  /** BSON to a path: write `<name>.metadata.json` (indexes and options) as mongodump does. */
+  bson?: { metadata: boolean }
+  /** Copy into a collection, on any saved connection. A database source copies each collection
+   *  into `db`, keeping its name; `collection` is for one source collection. */
+  collection?: { connectionId: string; db: string; collection?: string; mode: WriteMode | 'replace'; indexes: boolean; options: boolean }
+}
+/** download: kept in the worker for the save dialog (64 MiB at most); path: a file, or a folder
+ *  for a database. */
+export type ExportDestination = { kind: 'download' } | { kind: 'path'; path: string; overwrite: boolean }
+
+export type GridFile = {
+  /** Canonical Extended JSON of the file's `_id`. */
+  id: JsonValue
+  filename: string
+  length: number
+  chunkSize: number
+  uploadDate: number
+  contentType?: string
+  /** Relaxed Extended JSON, short. */
+  metadata?: string
+}
+export type GridRef = DbRef & { bucket: string }
+export type GridPreview = { text?: string; cut: boolean; binary: boolean; length: number; chunks: number; expectedChunks: number }
+
+declare module 'orca' {
+  interface PluginRequests {
+    /** Text from the panel, in pieces under the request size. The first piece has no `uploadId`;
+     *  uploads are dropped after 30 minutes. */
+    'import.upload': { input: { uploadId?: string; chunk: string }; output: { uploadId: string; bytes: number } }
+    'import.preview': { input: { source: DataSource; options: ImportOptions; size: number }; output: ImportPreview }
+    /** Starts an import into `ns` (a folder: into `ns.db`, a collection per file). */
+    'import.start': { input: { source: DataSource; options: ImportOptions; ns: Namespace }; output: { jobId: string } }
+    'export.start': { input: { source: ExportSource; options: ExportOptions; destination: ExportDestination }; output: { jobId: string } }
+    /** Dotted field names sampled from a collection (for CSV columns). */
+    'export.fields': { input: { ns: Namespace; filter?: JsonObject }; output: { fields: string[] } }
+    /** Whether a collection exists and how many documents it has (estimated), for confirmations. */
+    'data.count': { input: { ns: Namespace }; output: { exists: boolean; count: number | null; kind?: CollectionKind } }
+    /** Collections of a database, for pickers. */
+    'data.collections': { input: DbRef; output: { names: string[] } }
+    /** A job's state once its version passes `version`, or after `waitMs` (at most 20 s). */
+    'job.poll': { input: { jobId: string; version: number; waitMs: number }; output: JobState }
+    'job.cancel': { input: { jobId: string }; output: null }
+    /** A piece of a finished download, as base64. */
+    'job.read': { input: { jobId: string; offset: number; size: number }; output: { base64: string; total: number } }
+    /** Frees a job's download. */
+    'job.close': { input: { jobId: string }; output: null }
+    'compare.start': { input: { a: Namespace; b: Namespace; filter?: JsonObject; rules: CompareRules }; output: { jobId: string } }
+    'compare.diff': { input: { a: Namespace; b: Namespace; id: JsonValue; rules: CompareRules }; output: { a: JsonObject | null; b: JsonObject | null; diffs: FieldDiff[]; capped: boolean } }
+    /** Makes `to` like `from` (each change optional). */
+    'compare.sync': { input: { from: Namespace; to: Namespace; filter?: JsonObject; rules: CompareRules; insert: boolean; replace: boolean; remove: boolean }; output: { jobId: string } }
+    'gridfs.list': { input: GridRef & { filename?: string; skip: number; limit: number }; output: { files: GridFile[]; total: number; ms: number } }
+    'gridfs.preview': { input: GridRef & { id: JsonValue }; output: GridPreview }
+    /** Starts a download: to the save dialog (`job.read`) or a path. */
+    'gridfs.download': { input: GridRef & { id: JsonValue; destination: ExportDestination }; output: { jobId: string } }
+    'gridfs.upload': { input: GridRef & { source: DataSource; filename: string; contentType?: string; metadata?: JsonObject }; output: { jobId: string } }
+    'gridfs.rename': { input: GridRef & { id: JsonValue; filename: string }; output: null }
+    'gridfs.delete': { input: GridRef & { id: JsonValue }; output: null }
+  }
+}
 
 declare module 'orca' {
   interface PluginRequests {

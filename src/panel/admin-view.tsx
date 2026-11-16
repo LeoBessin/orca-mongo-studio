@@ -6,8 +6,12 @@ import { ManageTabView } from './manage-view'
 import { SchemaTabView } from './schema-view'
 import { ServerTabView } from './server-view'
 import { UsersTabView } from './users-view'
+import { CompareTabView } from './compare-view'
+import { ExportTabView } from './export-view'
+import { GridfsTabView } from './gridfs-view'
+import { ImportTabView } from './import-view'
 
-export const ADMIN_ICONS: Record<AdminKind, IconName> = { manage: 'settings', database: 'layers', users: 'agent', server: 'gauge', schema: 'bar-chart-3' }
+export const ADMIN_ICONS: Record<AdminKind, IconName> = { manage: 'settings', database: 'layers', users: 'agent', server: 'gauge', schema: 'bar-chart-3', import: 'upload', export: 'download', compare: 'branch', gridfs: 'package' }
 
 export function AdminTabView({ id }: { id: string }): OrcaNode {
   const t = read(adminTabs)[id]
@@ -23,5 +27,13 @@ export function AdminTabView({ id }: { id: string }): OrcaNode {
       return <ServerTabView id={id} />
     case 'schema':
       return <SchemaTabView id={id} />
+    case 'import':
+      return <ImportTabView id={id} />
+    case 'export':
+      return <ExportTabView id={id} />
+    case 'compare':
+      return <CompareTabView id={id} />
+    case 'gridfs':
+      return <GridfsTabView id={id} />
   }
 }

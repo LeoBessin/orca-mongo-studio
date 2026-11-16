@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 5).
+Last updated: 2026-11-16 (end of Phase 6).
 
 ## Decisions
 
@@ -25,6 +25,10 @@ Last updated: 2026-11-16 (end of Phase 5).
 | Live server status | The panel loops `server.status` with `waitMs: 5000`; the worker waits (abortable) before reading. A token ends an old loop; a failure turns live off with a notice. | Panels have no timers. Same idea as `shell.poll`. |
 | Schema report | `schema.analyze` answers the report as one JSON string; the panel parses it. Analysis is pure (`src/shared/schema.ts`) on canonical EJSON, histograms from a seeded reservoir of 5,000 values per field. | A report has many small objects; one string costs one object in Orca's measure. |
 | Destructive admin actions | Inline confirmations naming namespace and count (drop and clear collection, drop index, drop user/role, kill op); dropping a database needs its name typed. System databases are refused in the worker. | No modal dialogs in Orca. |
+| Data jobs | Imports, exports, copies, compares, syncs and GridFS transfers are worker jobs (`src/worker/jobs.ts`): the start request answers a job id, `job.poll` waits (up to 20 s) for the next version, `job.cancel` aborts. | Jobs outlast the 120 s request limit, and the panel has no timers. |
+| Files in and out | In: pasted text sent in 200 K-character pieces (`import.upload`), or a path the worker streams. Out: a download kept in the worker (64 MiB, the save dialog's limit) and read by the panel in 600 KB base64 pieces (`job.read`), or a path the worker writes as `.part` and renames. | Orca has no open dialog; requests and answers stop at 1 MiB; one string is cheap in Orca's measure. |
+| Copy and paste | A panel clipboard (collection, database or selected documents); Paste opens the Export tab set to "Another collection". | No system clipboard API in panels; one copy engine for export, copy and paste. |
+| Compare | Two passes in batches by `_id` (A's documents looked up in B, then B's ids in A); equality on canonical Extended JSON. Sync makes the same passes and writes. | Memory stays small; no BSON ordering to reproduce for a merge join. |
 | CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
 ## Status
@@ -326,6 +330,70 @@ Checked live through the real host (`orca plugin dev request`: `admin.indexes`, 
 5. User editing doesn't cover authentication restrictions (`authenticationRestrictions`) or
    password digestion options; roles don't cover `authenticationRestrictions` either.
 
+### Done: Phase 6, data movement
+
+Checked live through the real host (`orca plugin dev request`: a CSV export to a path, its import
+preview with inferred types, `gridfs.list`, a BSON download read back with `job.read`).
+
+- **Jobs** (`src/worker/jobs.ts`): job registry with versioned polling, cancel, the first 50 errors;
+  staged uploads (64 MiB, 30 minutes); `Outbox` (download, 64 MiB) and `FileSink` (`.part`, then
+  rename; refuses to overwrite unless asked). Batched writes (`src/worker/writer.ts`): insert,
+  replace by `_id`, merge by `_id`, unordered unless "stop at the first error", errors tied to
+  record numbers.
+- **Import** (`src/worker/import.ts`, `src/panel/import-*`): JSON split by `src/shared/json-records.ts`
+  (array, lines, or one after another; relaxed or canonical), CSV/TSV (`src/shared/csv.ts`:
+  incremental reader, type inference from 1,000 rows, mongoimport typed headers, dotted fields),
+  BSON files and dump folders (`.gz` too) with `.metadata.json` (indexes, options, views). Preview
+  with the column mapping; drop first (confirmed with the count).
+- **Export and copy** (`src/worker/export.ts`, `src/panel/export-*`): a find, a pipeline (writes
+  refused) or a database; JSON, CSV (sampled fields, ordered; others as Extended JSON), BSON with
+  metadata; to the save dialog or a path (a folder for a database); into a collection on any
+  connection, with indexes and creation options, views recreated, drop first (confirmed).
+- **Copy and paste**: tree Copy on a collection or database, "Copy" on selected rows; Paste on a
+  connection (database), database or collection.
+- **Compare and sync** (`src/worker/compare.ts`, `src/shared/compare.ts`, `src/panel/compare-*`):
+  filter, fields left out, field order; counts and id lists (capped by count and size), a pair's
+  field differences; sync with insert/replace/delete, confirmed with counts.
+- **GridFS** (`src/worker/gridfs.ts`, `src/panel/gridfs-*`): files paged and filtered, details,
+  chunk check, text preview (64 KB), download, upload (content type in `metadata.contentType`),
+  rename, delete (confirmed).
+- Entry points: tree action bar (collection: Import, Export, Compare, Copy, Paste; database:
+  Import, Export, Copy, Paste; connection: Paste; bucket: Browse files), collection tab toolbar
+  (Export with its query, Import, Compare), result rows (Copy), aggregation tab (Export).
+
+**Tests:** 421 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass.
+
+- CSV reading in pieces, inference, cells, typed headers, mapping problems, writing and reading
+  back (`csv.test.ts`); JSON splitting in pieces (`json-records.test.ts`); document comparison and
+  base64 (`compare.test.ts`).
+- 11 panel tests (`panel-data.test.tsx`): pasted CSV with mapping, drop confirmation, export to
+  the save dialog (bytes checked), CSV columns, database to a folder, paste of a collection to
+  another connection with drop confirmation, paste of selected documents, compare/diff/sync,
+  GridFS end to end, a failed job.
+- Live (`test/data.test.ts`): JSON exports; every BSON type through BSON and canonical JSON files;
+  CSV export/import with types; import modes and errors; a database to a dump folder and back
+  (indexes, validator, view); reading real `mongodump --gzip` and `mongoexport` (JSON and CSV)
+  output from the container; copies across connections (indexes, options, time series, pasted ids);
+  compare, diff and sync; GridFS; cancel leaves no file.
+
+### Open items from Phase 6
+
+1. **Screenshots (blocked, as before).** `dev/shots.sh` has a Phase 6 section writing to
+   `.orca/shots/p6/` (import, CSV mapping, dump folder, export JSON/CSV/done, copy, database,
+   paste, compare, sync, GridFS, upload). Look in particular at the import Columns table, the
+   export format RadioGroup with descriptions, and the compare results at 420 px.
+2. Not read: mongodump `--archive`, mongoimport `binary()`/`date(layout)` types (inferred
+   instead), CSV with custom date layouts. Compare matches by `_id` only.
+3. Checked by hand both ways (not in the test suite: it needs `docker cp` into the container):
+   `mongorestore` of a dump folder written by Export restores every `shop` collection with its
+   indexes and both views; `mongoimport` reads our canonical JSON of `types_zoo.everything`
+   identically, and our CSV of 20,000 orders.
+4. A database copy writes collections one after another; a big database would gain from a few in
+   parallel.
+5. Phase 7 could reuse jobs for saved tasks (an export or copy saved with its options and run on
+   demand).
+
 ### Open items from Phase 3
 
 1. **Screenshots (blocked, as before).** Editor shots work only without `--act` while Orca's
@@ -411,15 +479,7 @@ collections, every index kind, GridFS, users and roles.
 
 ## Later phases (from the brief)
 
-- **Phase 6, data movement (next; ask before starting)**
-  - Import from JSON, mongoexport, CSV (with mapping and type inference) and BSON/mongodump.
-  - Export to JSON, CSV, BSON or another collection.
-  - Copy and paste between connections.
-  - Compare and sync two collections.
-  - GridFS browser.
-  - Files come in by pasting or reading a path in the worker, and go out through `files.saveAs`
-    (64 MiB maximum) or a path written by the worker.
-- **Phase 7, workflow:** saved tasks run on demand (not Orca automations). A read-only flag per
+- **Phase 7, workflow (next; ask before starting):** saved tasks run on demand (not Orca automations). A read-only flag per
   connection, enforced in the worker. Destructive confirmations show the namespace and document
   count. Keybindings must not clash with Orca's.
 

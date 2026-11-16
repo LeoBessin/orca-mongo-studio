@@ -9,6 +9,7 @@ import { nodeKey, nodeTarget, type NodeKind } from '../shared/nodes'
 import type { AggregateOperation } from '../shared/operation'
 import {
   cloneStages,
+  hasWriteStage,
   newStage,
   parsePipelineText,
   pipelineOf,
@@ -21,6 +22,7 @@ import {
   type StageDraft
 } from '../shared/pipeline'
 import { collTabs, change, newTab, nsLabel, openNamespace, recount, say, tab, tabIdFor, tabOrder, type AggState, type CollTab } from './collection-state'
+import { openExport } from './export-state'
 import { errorText, nodeIndex, refreshNode, view } from './state'
 
 export const PREVIEW_SIZES = [5, 10, 20, 50, 100]
@@ -224,6 +226,18 @@ function parsed(id: string): JsonObject[] | undefined {
   changeAgg(id, (x) => ({ errors: { ...x.errors, ...errors }, ...(first ? { selected: first.id } : {}) }))
   say(id, 'danger', `Stage ${a.stages.indexOf(first!) + 1} (${first!.op}) does not parse: ${errors[first!.id]}`)
   return undefined
+}
+
+/** Opens the Export tab with the enabled stages, as they are now. */
+export function exportPipeline(id: string): void {
+  const t = tab(id)
+  const a = t?.agg
+  if (!t || !a) return
+  if (a.textMode) throw new Error('Apply the text first, then export.')
+  const pipeline = parsed(id)
+  if (!pipeline) return
+  if (hasWriteStage(pipeline)) throw new Error('This pipeline writes with $out or $merge: run it, then export the collection it writes.')
+  openExport({ kind: 'pipeline', ns: t.ns, pipeline, options: options(a) })
 }
 
 /** Runs the enabled stages. A pipeline that writes asks first; `confirmed` is the answer. */
