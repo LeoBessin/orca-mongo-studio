@@ -8,6 +8,7 @@ import { CODE_LANGUAGES, generateCode, type CodeLanguage } from '../shared/codeg
 import { statementAt } from '../shared/js-scan'
 import { ShellCallError, operationFromStatement } from '../shared/shell-call'
 import { SqlError, sqlToMql } from '../shared/sql-to-mql'
+import { framePlatform, SHELL_EDITOR_KEYS, withoutOrcaKeys } from '../shared/keys'
 import { cachedNames, shellCompletions, type NameSource } from './complete'
 import { readHeader, startSync, writeHeader, type ScriptTarget } from './header'
 import { editorTheme, PAGE_CSS } from './style'
@@ -260,11 +261,12 @@ const view = new EditorView({
       readOnly.of(EditorState.readOnly.of(doc.readOnly)),
       Prec.highest(
         keymap.of([
-          { key: 'Mod-Enter', run: () => (void runCurrent(), true) },
-          { key: 'Shift-Mod-Enter', run: () => (void runAll(), true) }
+          { key: SHELL_EDITOR_KEYS.runCurrent, run: () => (void runCurrent(), true) },
+          { key: SHELL_EDITOR_KEYS.runAll, run: () => (void runAll(), true) }
         ])
       ),
-      keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap, indentWithTab]),
+      // CodeMirror's defaults, less the keys Orca uses (Mod+L, and the fold keys that switch tabs).
+      keymap.of(withoutOrcaKeys([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap, indentWithTab], framePlatform(navigator))),
       EditorView.updateListener.of((u) => {
         if (u.docChanged && !applyingOutside) {
           doc.change(u.state.doc.toString())

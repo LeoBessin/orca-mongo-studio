@@ -130,10 +130,11 @@ describe('pipeline: previews and writes', () => {
   })
 
   test('write targets', () => {
-    assert.deepEqual(writeTarget([{ $match: {} }, { $out: 'copy' }], 'shop'), { stage: '$out', target: 'shop.copy' })
-    assert.deepEqual(writeTarget([{ $out: { db: 'other', coll: 'x' } }], 'shop'), { stage: '$out', target: 'other.x' })
-    assert.deepEqual(writeTarget([{ $merge: { into: 'x' } }], 'shop'), { stage: '$merge', target: 'shop.x' })
-    assert.deepEqual(writeTarget([{ $merge: 'x' }], 'shop'), { stage: '$merge', target: 'another collection' })
+    assert.deepEqual(writeTarget([{ $match: {} }, { $out: 'copy' }], 'shop'), { stage: '$out', target: 'shop.copy', ns: { db: 'shop', collection: 'copy' } })
+    assert.deepEqual(writeTarget([{ $out: { db: 'other', coll: 'x' } }], 'shop'), { stage: '$out', target: 'other.x', ns: { db: 'other', collection: 'x' } })
+    assert.deepEqual(writeTarget([{ $merge: { into: 'x' } }], 'shop'), { stage: '$merge', target: 'shop.x', ns: { db: 'shop', collection: 'x' } })
+    assert.deepEqual(writeTarget([{ $merge: 'x' }], 'shop'), { stage: '$merge', target: 'shop.x', ns: { db: 'shop', collection: 'x' } })
+    assert.deepEqual(writeTarget([{ $merge: { into: { db: 'archive' } } }], 'shop'), { stage: '$merge', target: 'another collection' })
     assert.equal(writeTarget([{ $match: {} }], 'shop'), undefined)
     assert.equal(writeTarget([], 'shop'), undefined)
     assert.equal(hasWriteStage([{ $out: 'x' }, { $match: {} }]), true)

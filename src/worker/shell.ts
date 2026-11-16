@@ -12,6 +12,7 @@ import { bsonType, fieldPaths, isObject, toShell, toShellInline, type JsonObject
 import { hostSize } from '../shared/host-size'
 import type { Operation } from '../shared/operation'
 import { prepareStatements } from '../shared/shell-prepare'
+import { shellCallWrites } from '../shared/read-only'
 import { PAGE_BYTE_BUDGET, PAGE_OBJECT_BUDGET, pageCanonical, toCanonical } from './query'
 
 const EXACT = { promoteValues: false, promoteLongs: false, bsonRegExp: true } as const
@@ -121,6 +122,8 @@ type Session = {
 export type ShellHost = {
   client(connectionId: string): Promise<MongoClient>
   connectionName(connectionId: string): Promise<string>
+  /** Throws when the connection is read only (`action` names the refused change). */
+  checkWrite(connectionId: string, action: string): Promise<void>
   /** Tells open panels that a run has results. */
   announce(summary: ShellRunSummary): void
   log(message: string): void
@@ -549,6 +552,9 @@ export class ShellService {
 
   private async dispatch(session: Session, method: string, args: unknown[]): Promise<{ value?: unknown; docs?: Uint8Array[] }> {
     session.lastUsed = Date.now()
+    // Only calls that write look the connection up, so reads in a loop cost nothing more.
+    const writes = shellCallWrites(method, args)
+    if (writes) await this.host.checkWrite(session.connectionId, `${writes} from the shell`)
     const client = await this.host.client(session.connectionId)
     const target = (t: unknown): { db: string; collection: string | null } => {
       const o = t as { db?: unknown; collection?: unknown }

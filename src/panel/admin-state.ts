@@ -56,6 +56,8 @@ export type ManageTab = Base & {
   rename: { to: string; toDb: string; dropTarget: boolean }
   cappedSize: string
   confirm?: ConfirmAction
+  /** Renaming over a collection that exists: it is dropped first. */
+  confirmRename?: { target: string; count: number | null }
 }
 
 export type CollectionDraft = {

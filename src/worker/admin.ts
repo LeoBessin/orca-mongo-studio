@@ -289,7 +289,7 @@ export async function databaseInfo(client: MongoClient, ref: DbRef): Promise<Dat
       return { name: c.name, kind }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
-  return { stats, collections }
+  return { stats, collections, documents: s && s.objects !== undefined ? Number(s.objects) : null }
 }
 
 function positiveInt(v: unknown, what: string, min = 0): number {

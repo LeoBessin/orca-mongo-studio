@@ -8,6 +8,7 @@ import type { Operation } from './shared/operation'
 import type { StageText } from './shared/pipeline'
 import type { CsvColumn } from './shared/csv'
 import type { CompareRules, FieldDiff } from './shared/compare'
+import type { Task, TaskRequest } from './shared/tasks'
 
 export type ConnectionSummary = {
   id: string
@@ -16,6 +17,8 @@ export type ConnectionSummary = {
   subtitle: string
   topology: ConnectionDef['topology']
   connected: boolean
+  /** Changes through it are refused by the worker. */
+  readOnly: boolean
 }
 
 export type ConnectionsState = {
@@ -25,6 +28,9 @@ export type ConnectionsState = {
   /** `unavailable`: Orca can't encrypt secrets here, so they last only until the worker stops. */
   secretsProtection: 'os-keyring' | 'unavailable'
 }
+
+/** What a palette command asks the panel to show. */
+export type NavigateView = 'new' | 'import' | 'export' | 'tree' | 'shell' | 'tasks'
 
 export type FavouriteNode = { key: string; label: string; kind: NodeKind; path: string }
 
@@ -239,7 +245,12 @@ export type CreateCollectionSpec = {
   collation?: JsonObject
 }
 
-export type DatabaseInfo = { stats: DetailItem[]; collections: { name: string; kind: CollectionKind | 'bucket' }[] }
+export type DatabaseInfo = {
+  stats: DetailItem[]
+  collections: { name: string; kind: CollectionKind | 'bucket' }[]
+  /** Documents in the database (dbStats), for confirmations; null when the user can't read it. */
+  documents: number | null
+}
 
 export type ProfilerStatus = { level: number; slowms: number; sampleRate: number; filter?: string; note?: string }
 export type ProfileFilter = { op?: string; minMs?: number; ns?: string }
@@ -432,6 +443,27 @@ export type GridFile = {
 export type GridRef = DbRef & { bucket: string }
 export type GridPreview = { text?: string; cut: boolean; binary: boolean; length: number; chunks: number; expectedChunks: number }
 
+// ---- Saved tasks ----
+
+export type TasksState = { tasks: Task[] }
+
+declare module 'orca' {
+  interface PluginRequests {
+    'tasks.list': { output: TasksState }
+    /** Saves a new task, or (with `id`) changes one. Answers the task's id. */
+    'tasks.save': { input: { id?: string; name: string; request: TaskRequest }; output: TasksState & { id: string } }
+    'tasks.rename': { input: { id: string; name: string }; output: TasksState }
+    'tasks.duplicate': { input: { id: string }; output: TasksState & { id: string } }
+    'tasks.delete': { input: { id: string }; output: TasksState }
+    /** Starts the task's job; its outcome is kept as the task's last run. */
+    'tasks.run': { input: { id: string }; output: { jobId: string } }
+  }
+  interface PluginPanelEvents {
+    /** Tasks were saved, changed, deleted, or one finished a run. */
+    'tasks.changed': TasksState
+  }
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** Text from the panel, in pieces under the request size. The first piece has no `uploadId`;
@@ -572,7 +604,7 @@ declare module 'orca' {
     /** Saved connections, favourites or connection states changed. */
     'connections.changed': ConnectionsState
     /** A command from the palette: show this view. */
-    'ui.navigate': { view: 'new' | 'import' | 'export' | 'tree' | 'shell' }
+    'ui.navigate': { view: NavigateView }
     /** OIDC browser sign-in is waiting for the person to open this page. */
     'oidc.signIn': { connectionId: string; name: string; url: string }
     'oidc.done': { connectionId: string; ok: boolean; message?: string }

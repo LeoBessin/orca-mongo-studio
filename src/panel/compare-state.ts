@@ -33,6 +33,9 @@ export type CompareTab = {
   selected?: string
   diff?: { key: string; loading: boolean; a?: JsonObject | null; b?: JsonObject | null; diffs?: FieldDiff[]; capped?: boolean; error?: string }
   sync: { open: boolean; direction: 'aToB' | 'bToA'; insert: boolean; replace: boolean; remove: boolean; confirm: boolean; job?: JobBox }
+  /** The saved task (a compare or a sync) this tab was opened from, or last saved as. */
+  task?: { id: string; name: string; kind: 'compare' | 'sync' }
+  taskName: string
 }
 
 export function compareTabId(a: Namespace): string {
@@ -53,7 +56,8 @@ export function openCompare(a: Namespace, collKind: NodeKind, b?: Namespace): vo
     ignore: '',
     ignoreOrder: false,
     show: 'differ',
-    sync: { open: false, direction: 'aToB', insert: true, replace: true, remove: false, confirm: false }
+    sync: { open: false, direction: 'aToB', insert: true, replace: true, remove: false, confirm: false },
+    taskName: ''
   })
   if (b) changeAdmin(id, 'compare', () => ({ b }))
 }
@@ -86,6 +90,25 @@ export function compareProblems(t: CompareTab): string[] {
   if (!b.db || !b.collection) return ['Choose the collection to compare with.']
   if (b.connectionId === t.a.connectionId && b.db === t.a.db && b.collection === t.a.collection) return ['Choose another collection: this is the same one.']
   return []
+}
+
+/** The comparison as `compare.start` (and a saved task) takes it. */
+export function compareRequest(id: string): { a: Namespace; b: Namespace; filter?: JsonObject; rules: CompareRules } {
+  const t = tabOf(id, 'compare')!
+  const problems = compareProblems(t)
+  if (problems.length) throw new Error(problems.join(' '))
+  const { filter, rules } = parsed(id)
+  return { a: t.a, b: bNs(t), ...(filter ? { filter } : {}), rules }
+}
+
+/** The sync as the tab is set up (no comparison needed first), for a saved task. */
+export function syncRequest(id: string): { from: Namespace; to: Namespace; filter?: JsonObject; rules: CompareRules; insert: boolean; replace: boolean; remove: boolean } {
+  const t = tabOf(id, 'compare')!
+  const c = compareRequest(id)
+  const s = t.sync
+  if (!s.insert && !s.replace && !s.remove) throw new Error('Choose at least one change for the sync.')
+  const aToB = s.direction === 'aToB'
+  return { from: aToB ? c.a : c.b, to: aToB ? c.b : c.a, ...(c.filter ? { filter: c.filter } : {}), rules: c.rules, insert: s.insert, replace: s.replace, remove: s.remove }
 }
 
 export async function runCompare(id: string): Promise<void> {

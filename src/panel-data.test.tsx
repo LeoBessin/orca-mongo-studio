@@ -7,8 +7,8 @@ import * as panel from './panel'
 
 const state: ConnectionsState = {
   connections: [
-    { id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true },
-    { id: 'c2', name: 'Staging', group: '', subtitle: 'staging', topology: 'replicaSet', connected: true }
+    { id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false },
+    { id: 'c2', name: 'Staging', group: '', subtitle: 'staging', topology: 'replicaSet', connected: true, readOnly: false }
   ],
   favourites: [],
   secretsProtection: 'os-keyring'
@@ -187,7 +187,7 @@ describe('import', () => {
     await view.toggle({ type: 'Checkbox', label: 'Drop the collection first' })
     await view.press({ type: 'Button', text: 'Import' })
     assert.ok(view.find({ type: 'Callout', label: 'Drop shop.orders?' }))
-    assert.ok(view.find({ text: /Its 1,234 documents and its indexes are deleted/ }))
+    assert.ok(view.find({ text: /its 1,234 documents and its indexes are deleted/ }))
     assert.equal(calls.importStart, undefined)
     await view.press({ text: 'Drop and import' })
     const started = calls.importStart![0] as { source: unknown; options: { drop: boolean } }

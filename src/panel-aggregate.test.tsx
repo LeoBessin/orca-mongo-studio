@@ -10,7 +10,7 @@ import { aggTabId } from './panel/aggregate-state'
 import { tabIdFor } from './panel/collection-state'
 
 const state: ConnectionsState = {
-  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true }],
+  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false }],
   favourites: [],
   secretsProtection: 'os-keyring'
 }
@@ -50,6 +50,7 @@ function setup(extra: MockRequests = {}) {
   const host = mockHost({
     requests: {
       'connections.state': state,
+      'data.count': { exists: true, count: 120, kind: 'collection' },
       'tree.children': ({ key }) =>
         key === 'conn:c1'
           ? { nodes: [{ key: 'conn:c1/db:shop', kind: 'db', label: 'shop', hasChildren: true }] }
@@ -213,6 +214,7 @@ describe('aggregation tabs', () => {
     await view.press({ text: 'Run' })
     assert.equal(calls.runs.length, 0)
     assert.ok(view.find({ type: 'Callout', text: /^Run \$out into shop\.shipped_copy\?/ }))
+    assert.ok(view.find({ text: /It holds 120 documents now, all replaced\./ }), 'the confirmation counts the target')
     await view.press({ text: 'Cancel' })
     assert.equal(view.find({ type: 'Callout', text: /^Run \$out into/ }), null)
     await view.press({ text: 'Run' })

@@ -249,7 +249,9 @@ export async function runPipeline(id: string, confirmed = false): Promise<void> 
   if (!pipeline) return
   const write = writeTarget(pipeline, t.ns.db)
   if (write && !confirmed) {
-    changeAgg(id, () => ({ confirmWrite: write }))
+    const target = write.ns
+    const c = target ? await plugin.request('data.count', { ns: { connectionId: t.ns.connectionId, ...target } }).catch(() => undefined) : undefined
+    changeAgg(id, () => ({ confirmWrite: { stage: write.stage, target: write.target, ...(c ? { count: c.count, exists: c.exists } : {}) } }))
     return
   }
   if (t.queryId) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)

@@ -1,6 +1,7 @@
 // Worker protocol over Orca's mock host: storage, secrets and the panel contract. No database.
 import { assert, describe, mockHost, mountWorker, test } from 'orca/testing'
 import { emptyConnection, type ConnectionDef } from './shared/model'
+import { orcaClashes } from './shared/keys'
 import * as main from './worker'
 
 function draft(name: string): ConnectionDef {
@@ -115,5 +116,150 @@ describe('connections', () => {
     assert.equal(typeof message, 'string')
     assert.deepEqual(worker.posts.at(-1), { event: 'ui.navigate', payload: { view: 'new' } })
     await worker.deactivate()
+  })
+})
+
+describe('read-only connections', () => {
+  async function setup() {
+    const worker = await mountWorker(main, { host: mockHost() })
+    const ro = draft('Prod')
+    ro.readOnly = true
+    const a = await worker.request('connections.save', { def: ro, secrets: {} })
+    const b = await worker.request('connections.save', { def: draft('Dev'), secrets: {} })
+    assert.ok(a.ok && b.ok)
+    if (!a.ok || !b.ok) throw new Error('not saved')
+    return { worker, ro: a.id, rw: b.id }
+  }
+
+  test('the flag is saved, shown, and kept through export and import', async () => {
+    const { worker, ro } = await setup()
+    const state = await worker.request('connections.state')
+    assert.deepEqual(state.connections.map((c) => [c.name, c.readOnly]), [['Prod', true], ['Dev', false]])
+    assert.equal((await worker.request('connections.get', { id: ro })).def.readOnly, true)
+    const { json } = await worker.request('connections.export', { ids: [ro] })
+    const report = await worker.request('connections.import', { text: json })
+    assert.equal((await worker.request('connections.get', { id: report.imported[0]!.id })).def.readOnly, true)
+  })
+
+  test('every request that writes is refused before connecting', async () => {
+    const { worker, ro, rw } = await setup()
+    const ns = { connectionId: ro, db: 'shop', collection: 'orders' }
+    const other = { connectionId: rw, db: 'shop', collection: 'orders' }
+    const ref = { connectionId: ro, db: 'shop' }
+    const grid = { ...ref, bucket: 'fs' }
+    const importOptions = { format: 'json' as const, mode: 'insert' as const, drop: false, stopOnError: false, indexes: false }
+    const writes: [string, unknown][] = [
+      ['doc.updateField', { ns, id: 1, path: ['a'], value: 1 }],
+      ['doc.replace', { ns, id: 1, doc: {} }],
+      ['doc.insert', { ns, docs: [{}] }],
+      ['doc.deleteMany', { ns, ids: [1] }],
+      ['agg.run', { ns, pipeline: [{ $match: {} }, { $out: 'copy' }], options: {}, pageSize: 20 }],
+      ['agg.page', { queryId: 'q', ns, pipeline: [{ $merge: { into: 'copy' } }], options: {}, offset: 20, pageSize: 20 }],
+      ['view.create', { ns, name: 'v', pipeline: [] }],
+      ['admin.createIndex', { ns, key: { a: 1 }, options: {} }],
+      ['admin.dropIndex', { ns, name: 'a_1' }],
+      ['admin.modifyIndex', { ns, name: 'a_1', hidden: true }],
+      ['admin.setValidation', { ns, validator: null, level: 'off', action: 'error' }],
+      ['admin.renameCollection', { ns, to: 'y', dropTarget: false }],
+      ['admin.dropCollection', { ns }],
+      ['admin.clearCollection', { ns }],
+      ['admin.convertToCapped', { ns, size: 4096 }],
+      ['admin.createCollection', { ...ref, spec: { name: 'x', kind: 'plain' } }],
+      ['admin.dropDatabase', ref],
+      ['profiler.set', { ...ref, level: 1, slowms: 100, sampleRate: 1 }],
+      ['users.save', { ...ref, draft: { user: 'u', password: 'p', roles: [] }, isNew: true }],
+      ['users.drop', { ...ref, user: 'u' }],
+      ['roles.save', { ...ref, draft: { role: 'r', privileges: [], roles: [] }, isNew: true }],
+      ['roles.drop', { ...ref, role: 'r' }],
+      ['server.killOp', { connectionId: ro, opid: 1 }],
+      ['import.start', { source: { kind: 'path', path: '/tmp/none.json' }, options: importOptions, ns }],
+      ['export.start', { source: { kind: 'query', ns: other, spec: { filter: {}, skip: 0, limit: 0 } }, options: { format: 'collection', collection: { connectionId: ro, db: 'shop', collection: 'copy', mode: 'insert', indexes: true, options: true } }, destination: { kind: 'download' } }],
+      ['compare.sync', { from: other, to: ns, rules: { ignoreFields: [], ignoreOrder: false }, insert: true, replace: false, remove: false }],
+      ['gridfs.upload', { ...grid, source: { kind: 'path', path: '/tmp/none' }, filename: 'x' }],
+      ['gridfs.rename', { ...grid, id: 1, filename: 'y' }],
+      ['gridfs.delete', { ...grid, id: 1 }]
+    ]
+    const request = worker.request as unknown as (name: string, input: unknown) => Promise<unknown>
+    for (const [name, input] of writes) {
+      await assert.rejects(request(name, input), (raw: unknown) => {
+        const error = raw as Error & { code?: string }
+        assert.match(error.message, /"Prod" is read only, so Mongo Studio refuses /, name)
+        assert.equal(error.code, 'not_permitted', name)
+        return true
+      })
+    }
+    // Nothing tried to connect: the refusals came first.
+    assert.equal((await worker.request('connections.state')).connections.some((c) => c.connected), false)
+  })
+
+  test('a task that writes to a read-only connection is refused when run', async () => {
+    const { worker, ro } = await setup()
+    const ns = { connectionId: ro, db: 'shop', collection: 'orders' }
+    const saved = await worker.request('tasks.save', { name: 'Load orders', request: { kind: 'import', source: { kind: 'path', path: '/tmp/orders.json' }, options: { format: 'json', mode: 'insert', drop: false, stopOnError: false, indexes: false }, ns } })
+    await assert.rejects(worker.request('tasks.run', { id: saved.id }), /read only, so Mongo Studio refuses importing/)
+  })
+})
+
+describe('saved tasks', () => {
+  const ns = (connectionId: string, collection = 'orders') => ({ connectionId, db: 'shop', collection })
+  const exportTask = (connectionId: string) => ({ kind: 'export' as const, source: { kind: 'query' as const, ns: ns(connectionId), spec: { filter: {}, skip: 0, limit: 0 } }, options: { format: 'json' as const }, destination: { kind: 'path' as const, path: '/tmp/orders.json', overwrite: true } })
+
+  test('save, rename, duplicate, update and delete, each telling open panels', async () => {
+    const host = mockHost()
+    const worker = await mountWorker(main, { host })
+    const conn = await worker.request('connections.save', { def: draft('Dev'), secrets: {} })
+    assert.ok(conn.ok)
+    if (!conn.ok) return
+    const first = await worker.request('tasks.save', { name: ' Nightly export ', request: exportTask(conn.id) })
+    assert.deepEqual(first.tasks.map((t) => t.name), ['Nightly export'])
+    await assert.rejects(worker.request('tasks.save', { name: 'nightly EXPORT', request: exportTask(conn.id) }), /already named/)
+    await assert.rejects(worker.request('tasks.save', { name: 'Paste', request: { kind: 'import', source: { kind: 'upload', uploadId: 'u' }, options: {}, ns: ns(conn.id) } as never }), /pasted text can't be saved/)
+    const dup = await worker.request('tasks.duplicate', { id: first.id })
+    assert.deepEqual(dup.tasks.map((t) => t.name), ['Nightly export', 'Nightly export (copy)'])
+    const renamed = await worker.request('tasks.rename', { id: dup.id, name: 'Weekly export' })
+    assert.deepEqual(renamed.tasks.map((t) => t.name), ['Nightly export', 'Weekly export'])
+    const changed = { ...exportTask(conn.id), destination: { kind: 'path' as const, path: '/tmp/weekly.json', overwrite: false } }
+    const updated = await worker.request('tasks.save', { id: dup.id, name: 'Weekly export', request: changed })
+    assert.equal(updated.id, dup.id)
+    assert.deepEqual(updated.tasks.find((t) => t.id === dup.id)!.request, changed)
+    const left = await worker.request('tasks.delete', { id: first.id })
+    assert.deepEqual(left.tasks.map((t) => t.name), ['Weekly export'])
+    assert.deepEqual((await worker.request('tasks.list')).tasks.map((t) => t.id), [dup.id])
+    assert.equal(worker.posts.filter((p) => p.event === 'tasks.changed').length, 5)
+    assert.deepEqual(worker.refusals, [])
+  })
+
+  test('deleting a connection deletes the tasks that use it', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    const a = await worker.request('connections.save', { def: draft('A'), secrets: {} })
+    const b = await worker.request('connections.save', { def: draft('B'), secrets: {} })
+    assert.ok(a.ok && b.ok)
+    if (!a.ok || !b.ok) return
+    await worker.request('tasks.save', { name: 'Only A', request: exportTask(a.id) })
+    await worker.request('tasks.save', { name: 'Only B', request: exportTask(b.id) })
+    await worker.request('tasks.save', { name: 'A against B', request: { kind: 'compare', a: ns(a.id), b: ns(b.id), rules: { ignoreFields: [], ignoreOrder: false } } })
+    await worker.request('connections.delete', { id: b.id })
+    assert.deepEqual((await worker.request('tasks.list')).tasks.map((t) => t.name), ['Only A'])
+    assert.deepEqual(worker.posts.filter((p) => p.event === 'tasks.changed').at(-1)?.payload, await worker.request('tasks.list'))
+  })
+
+  test('"Show saved tasks" posts to open panels', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    await worker.command('mongoStudio.showTasks')
+    assert.deepEqual(worker.posts.at(-1), { event: 'ui.navigate', payload: { view: 'tasks' } })
+    await worker.deactivate()
+  })
+})
+
+describe('the manifest\'s keybindings', () => {
+  test('name contributed commands and stay clear of Orca\'s shortcuts', async () => {
+    const { readFileSync } = await import('node:fs')
+    const manifest = JSON.parse(readFileSync(new URL('../orca-plugin.json', import.meta.url), 'utf8')) as { contributes: { commands: { id: string }[]; keybindings: { command: string; key: string }[] } }
+    const commands = new Set(manifest.contributes.commands.map((c) => c.id))
+    assert.ok(manifest.contributes.keybindings.length > 0)
+    for (const k of manifest.contributes.keybindings) {
+      assert.ok(commands.has(k.command), k.command)
+      for (const p of ['darwin', 'linux', 'win32'] as const) assert.equal(orcaClashes(k.key, p), false, `${k.key} on ${p}`)
+    }
   })
 })

@@ -262,6 +262,7 @@ export function editUri(text: string): void {
     const next = parsed.def
     next.name = current.name
     next.group = current.group
+    next.readOnly = current.readOnly
     next.ssh = current.ssh
     if (next.tls.ca.kind === 'none' && current.tls.ca.kind === 'inline') next.tls.ca = current.tls.ca
     if (next.tls.clientCert.kind === 'none' && current.tls.clientCert.kind === 'inline') next.tls.clientCert = current.tls.clientCert

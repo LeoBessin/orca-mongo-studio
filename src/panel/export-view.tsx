@@ -22,6 +22,7 @@ import { openNamespace } from './collection-state'
 import { jobRunning } from './data-state'
 import { cancelExport, exportProblems, loadFields, moveField, saveExport, setExport, setFields, sourceLabel, startExport, type ExportTab } from './export-state'
 import { DELIMITERS } from './import-state'
+import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { connections } from './state'
 
@@ -212,6 +213,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
         ) : null}
       </Row>
       <JobProgress box={t.job} what={t.format === 'collection' ? 'copy' : 'export'} onCancel={aguard(t.id, () => cancelExport(t.id))} onSave={aguard(t.id, () => saveExport(t.id))} />
+      <TaskSaver tabId={t.id} task={t.task} taskName={t.taskName} placeholder={t.title} kinds={[{ kind: 'export', label: t.format === 'collection' ? 'Save the copy as a task' : 'Save the export as a task' }]} />
     </Box>
   )
 }

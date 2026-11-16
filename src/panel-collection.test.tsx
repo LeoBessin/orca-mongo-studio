@@ -7,7 +7,7 @@ import * as panel from './panel'
 import { tabIdFor } from './panel/collection-state'
 
 const state: ConnectionsState = {
-  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true }],
+  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false }],
   favourites: [],
   secretsProtection: 'os-keyring'
 }

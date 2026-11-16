@@ -224,7 +224,8 @@ export class Jobs {
 
   constructor(private readonly log: (message: string) => void = () => undefined) {}
 
-  start(kind: JobKind, unit: JobState['unit'], run: (h: JobHandle) => Promise<JobResult>): string {
+  /** `onEnd` hears the final state once (done, failed or cancelled). */
+  start(kind: JobKind, unit: JobState['unit'], run: (h: JobHandle) => Promise<JobResult>, onEnd?: (state: JobState) => void): string {
     this.expire()
     const jobId = randomUUID()
     const job: Job = {
@@ -281,6 +282,13 @@ export class Jobs {
       }
       job.finishedAt = Date.now()
       bump()
+      if (onEnd) {
+        try {
+          onEnd(stripUndefined(job.state))
+        } catch (error) {
+          this.log(`After job ${kind}: ${String(error)}`)
+        }
+      }
     })()
     return jobId
   }

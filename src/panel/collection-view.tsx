@@ -53,6 +53,7 @@ import { runExplain } from './explain-state'
 import { guard } from './guard'
 import { CodeSection, tabOperation } from './shell-view'
 import { Results } from './results-view'
+import { connections } from './state'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -244,8 +245,10 @@ function exportQuery(t: CollTab): void {
 const KIND_LABEL: Partial<Record<CollTab['kind'], string>> = { view: 'View · read only', timeseries: 'Time-series' }
 
 export function CollectionTab({ id }: { id: string }): OrcaNode {
-  const t = read(collTabs)[id]
-  if (!t) return null
+  const raw = read(collTabs)[id]
+  if (!raw) return null
+  // A read-only connection's tab offers no editing, like a view's (the worker refuses it anyway).
+  const t = !raw.readOnly && read(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">

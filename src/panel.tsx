@@ -2,7 +2,7 @@
 // open collection are tabs, and so is each administration view (collection, database, users,
 // server, schema). Everything is drawn with Orca's
 // own components, so every Orca theme applies.
-import { plugin, read, set, Tab, Tabs, type IconName, type OrcaNode, type PanelContext } from 'orca'
+import { Badge, Box, plugin, read, Row, set, Tab, Tabs, Text, type IconName, type OrcaNode, type PanelContext } from 'orca'
 import { collTabs, tabOrder } from './panel/collection-state'
 import { adminTabs } from './panel/admin-state'
 import { ADMIN_ICONS, AdminTabView } from './panel/admin-view'
@@ -10,6 +10,7 @@ import { AggregationTab } from './panel/aggregate-view'
 import { CollectionTab } from './panel/collection-view'
 import { ConnectionForm } from './panel/connection-form'
 import {
+  connections,
   errorText,
   formDef,
   formIsNew,
@@ -26,12 +27,15 @@ import { TransferView } from './panel/transfer-view'
 import { loadLatestRun, SHELL_TAB, shellRun, showRun } from './panel/shell-state'
 import { ShellTab } from './panel/shell-view'
 import { TreeView } from './panel/tree-view'
+import { openTasks, setTasks, TASKS_TAB, tasksOpen } from './panel/tasks-state'
+import { TasksView } from './panel/tasks-view'
 
 export function setup(ctx: PanelContext): void {
   ctx.subscriptions.push(
     plugin.on('connections.changed', (state) => setConnections(state)),
     plugin.on('ui.navigate', ({ view: target }) => {
       if (target === 'new') openNewConnection()
+      else if (target === 'tasks') openTasks()
       else if (target === 'shell') {
         if (read(shellRun)) set(view, SHELL_TAB)
       }
@@ -42,7 +46,8 @@ export function setup(ctx: PanelContext): void {
     }),
     plugin.on('oidc.signIn', (payload) => set(oidc, payload)),
     plugin.on('oidc.done', () => set(oidc, null)),
-    plugin.on('shell.results', (run) => void showRun(run, true))
+    plugin.on('shell.results', (run) => void showRun(run, true)),
+    plugin.on('tasks.changed', (state) => setTasks(state))
   )
   void loadLatestRun()
   refreshState().catch((error) => set(notice, { tone: 'danger', text: `Mongo Studio could not start: ${errorText(error)}` }))
@@ -55,6 +60,21 @@ function changeView(next: string): void {
 }
 
 const TAB_ICONS: Record<string, IconName> = { view: 'filter', timeseries: 'activity' }
+
+/** A line over every tab of a read-only connection. */
+function withReadOnly(connectionId: string, content: OrcaNode): OrcaNode {
+  const c = read(connections)?.connections.find((x) => x.id === connectionId)
+  if (!c?.readOnly) return content
+  return (
+    <Box gap="sm">
+      <Row gap="xs" align="center">
+        <Badge tone="warning">Read only</Badge>
+        <Text size="xs" muted truncate>{`Changes through ${c.name} are refused.`}</Text>
+      </Row>
+      {content}
+    </Box>
+  )
+}
 
 export default function Panel(): OrcaNode {
   const current = read(view)
@@ -74,6 +94,11 @@ export default function Panel(): OrcaNode {
           <TransferView />
         </Tab>
       ) : null}
+      {read(tasksOpen) ? (
+        <Tab value={TASKS_TAB} label="Tasks" icon="rocket">
+          <TasksView />
+        </Tab>
+      ) : null}
       {read(shellRun) ? (
         <Tab value={SHELL_TAB} label="Shell" icon="terminal">
           <ShellTab />
@@ -84,14 +109,14 @@ export default function Panel(): OrcaNode {
         if (t) {
           return (
             <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
-              {t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />}
+              {withReadOnly(t.ns.connectionId, t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />)}
             </Tab>
           )
         }
         const a = read(adminTabs)[id]
         return a ? (
           <Tab key={id} value={id} label={a.title} icon={ADMIN_ICONS[a.kind]}>
-            <AdminTabView id={id} />
+            {withReadOnly(a.connectionId, <AdminTabView id={id} />)}
           </Tab>
         ) : null
       })}

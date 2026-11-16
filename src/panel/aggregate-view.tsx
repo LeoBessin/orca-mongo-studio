@@ -280,7 +280,7 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
       {a.confirmWrite ? (
         <Callout tone="danger" icon="warning" title={`Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`}>
           <Box gap="sm">
-            <Text>{a.confirmWrite.stage === '$out' ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}</Text>
+            <Text>{`${a.confirmWrite.stage === '$out' ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}${a.confirmWrite.exists === false ? ' It does not exist yet.' : typeof a.confirmWrite.count === 'number' ? ` It holds ${a.confirmWrite.count.toLocaleString('en-US')} document${a.confirmWrite.count === 1 ? '' : 's'} now${a.confirmWrite.stage === '$out' ? ', all replaced' : ''}.` : ''}`}</Text>
             <Row gap="xs">
               <Button variant="solid" tone="danger" onPress={guard(t.id, () => runPipeline(t.id, true))}>Run and write</Button>
               <Button variant="ghost" onPress={() => cancelWrite(t.id)}>Cancel</Button>

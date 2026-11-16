@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 6).
+Last updated: 2026-11-16 (end of Phase 7: every phase of the brief is done).
 
 ## Decisions
 
@@ -29,6 +29,10 @@ Last updated: 2026-11-16 (end of Phase 6).
 | Files in and out | In: pasted text sent in 200 K-character pieces (`import.upload`), or a path the worker streams. Out: a download kept in the worker (64 MiB, the save dialog's limit) and read by the panel in 600 KB base64 pieces (`job.read`), or a path the worker writes as `.part` and renames. | Orca has no open dialog; requests and answers stop at 1 MiB; one string is cheap in Orca's measure. |
 | Copy and paste | A panel clipboard (collection, database or selected documents); Paste opens the Export tab set to "Another collection". | No system clipboard API in panels; one copy engine for export, copy and paste. |
 | Compare | Two passes in batches by `_id` (A's documents looked up in B, then B's ids in A); equality on canonical Extended JSON. Sync makes the same passes and writes. | Memory stays small; no BSON ordering to reproduce for a merge join. |
+| Saved tasks | A task stores the exact start request of its tab (`TaskRequest` in `src/shared/tasks.ts`: export/copy, import from a path, compare, sync) in one storage key (`tasks.v1`, 250 KB). `tasks.run` calls the same start function as the tab's request, with an `onEnd` hook on the job that records the last run and posts `tasks.changed`. "Open in its tab" lays the request back into the tab. | A run does exactly what the tab does, with one code path; nothing to migrate when a tab's form changes. |
+| Task schedule | On demand only (the Tasks tab, or its palette command). | Orca automations start AI agents (no-AI rule), and Orca stops an idle worker, so a scheduler in it would miss runs. |
+| Read-only connections | `ConnectionDef.readOnly`, enforced in the worker: every request that writes calls `writable(connectionId, action)` before connecting and throws `not_permitted`; the shell checks each call from the script thread with `shellCallWrites`, and `db.runCommand` passes only for an allowlist of commands that read (`src/shared/read-only.ts`). | Refusing before connecting means nothing reaches the server; an allowlist fails closed on commands it doesn't know. |
+| Keybindings | Manifest shortcuts on Mod+Alt+Shift chords, checked against a snapshot of Orca's global and tab defaults (`src/shared/orca-keys.ts`, from `dev/orca-keys.mjs`); the shell editor drops CodeMirror defaults that clash (only the fold keys do). | Orca's own shortcuts must keep working in Mongo Studio. |
 | CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
 ## Status
@@ -394,6 +398,66 @@ preview with inferred types, `gridfs.list`, a BSON download read back with `job.
 5. Phase 7 could reuse jobs for saved tasks (an export or copy saved with its options and run on
    demand).
 
+### Done: Phase 7, workflow
+
+Checked live through the real host (`orca plugin dev request` on a read-only clone of "Local dev
+(rs0)": a page read, `doc.insert` refused with `not_permitted`, a shell run that counted and then
+had `insertOne` refused at line 2, a saved CSV export task run with its last run recorded, and the
+clone's deletion removing its task). The manifest's new command and keybindings were approved with
+`orca plugin dev load . --approve`.
+
+- **Saved tasks** (`src/shared/tasks.ts`, `src/worker/tasks.ts`, `src/panel/tasks-*`): "Save as
+  task" in the Import (path sources only), Export/Copy and Compare tabs (a comparison, or a sync
+  once compared); the Tasks tab with the list and last run, Run (with a confirmation naming the
+  collection and its count for drops, replaces and syncs), Open in its tab (then Update or save as
+  new), Rename, Duplicate, Delete. Downloads from a task offer Save like the Export tab. Tasks that
+  use a deleted connection are deleted with it. Palette command "Mongo Studio: Show saved tasks".
+- **Read-only flag** (`src/shared/read-only.ts`, `worker.ts` `writable`, `ShellService.dispatch`):
+  Switch in the connection form; "read only" in the tree row and a badge on each tab of the
+  connection; its collection tabs offer no editing; a task writing to it can't run. Kept through connection export and import.
+- **Confirmations:** rename over an existing collection now asks (it dropped silently before);
+  `$out`/`$merge`, drop database and drop index now give document counts; import drop names the
+  connection. `DatabaseInfo.documents` and `writeTarget(...).ns` were added for this.
+- **Keybindings:** Mod+Alt+Shift+T (saved tasks), Mod+Alt+Shift+R (shell results); the shell editor
+  leaves out CodeMirror's Ctrl+Shift+[ / ] and Ctrl+Alt+[ / ] (Cmd+Alt+[ / ] on macOS), which are
+  Orca's tab switching.
+- Also fixed: `$merge: 'coll'` (the string form) is now recognized as a write target, and the OIDC
+  timeout test no longer picks random ports in 27000–27899, where the test databases listen.
+
+**Tests:** 462 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass.
+
+- Read-only classification of commands, pipelines and shell calls (`read-only.test.ts`); task
+  checks, confirmations, descriptions and summaries (`tasks.test.ts`); chord notations, Orca's
+  reserved keys, the editor's keys and the CodeMirror filter (`keys.test.ts`).
+- Protocol (`worker.test.ts`): all 29 write requests refused on a read-only connection without
+  connecting; tasks save/rename/duplicate/update/delete with posts; tasks removed with their
+  connection; the manifest's keybindings clear of Orca's on every platform.
+- 8 panel tests (`panel-tasks.test.tsx`): save an export as a task and run it from the Tasks tab,
+  the drop confirmation with its count, a task blocked by a read-only target, reopening a compare
+  task and updating it, deleting, pasted imports not savable, the read-only badge and form switch.
+  Plus rename-over and drop-database counts (`panel-admin.test.tsx`) and the `$out` count
+  (`panel-aggregate.test.tsx`).
+- Live (`test/workflow.test.ts`): shell reads on a read-only connection and ten kinds of writes
+  refused with nothing changed on the server; panel reads and exports allowed, writes refused;
+  export, copy and sync tasks run end to end with their runs recorded; a failed run recorded with
+  its reason.
+
+### Open items from Phase 7
+
+1. **Screenshots (blocked, as before).** `dev/shots.sh` has a Phase 7 section writing to
+   `.orca/shots/p7/` (empty Tasks tab, Save as task in Export and Compare, the Read only switch).
+   It shoots nothing that saves, so a Tasks tab with tasks and the run confirmation need a task
+   seeded first. Check the tasks Table and the Save as task button row at 420 px.
+2. Collection tabs of a read-only connection hide editing, as for a view. The admin tabs (Manage,
+   Database, Users) still show their write buttons; the badge says changes are refused, and the
+   worker refuses them with a clear message. Hiding those is polish.
+3. A sync task's options are shown only after a comparison in the Compare tab (the Sync section
+   needs one); "Open in its tab" sets them, and they show once compared.
+4. Tasks could be exported and imported with connections, mapped by connection name like shell
+   scripts. Not done.
+5. Saved pipelines and query history remain separate from tasks.
+
 ### Open items from Phase 3
 
 1. **Screenshots (blocked, as before).** Editor shots work only without `--act` while Orca's
@@ -444,8 +508,16 @@ preview with inferred types, `gridfs.list`, a BSON download read back with `job.
 - A components panel may import relative modules (`src/shared`, `src/panel`), but no npm package.
 - Commands can't open the panel. They post `ui.navigate`, which an open panel acts on.
 - `files.saveAs` needs a press. Prepare the data before the press (see `refreshExport`).
-- Approval: new capabilities or changed commands need `orca plugin dev load . --approve <fp>`.
-  Code edits reload without asking again.
+- Approval: new capabilities or changed commands or keybindings need
+  `orca plugin dev load . --approve <fp>`. Code edits reload without asking again.
+- **Keybindings** (`contributes.keybindings`): `{ command, key }` for a contributed command; `key`
+  in Orca's notation (`Mod+Alt+Shift+T`, `Mod` = Cmd on macOS); `when` must match the command's;
+  each chord once per platform. Orca's defaults live in
+  `/usr/lib/orca-ide/app.asar.unpacked/out/shared/keybindings/definitions*.js`; `dev/orca-keys.mjs`
+  snapshots the global and tab scopes.
+- `orca plugin dev request <dir> <name> --data <json> --json` answers `{ ok, result: { result } }`
+  (the handler's answer is `result.result`), or `{ ok: false, error: { message, data: { requestCode } } }`.
+  `--panel <id>` sets the caller's panel id (the shell's session key).
 - The CLI on this machine: `ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js`.
   The npm scripts already use it.
 - **Worker threads:** `worker_threads` work in the plugin worker, but Orca's module hooks apply
@@ -479,9 +551,9 @@ collections, every index kind, GridFS, users and roles.
 
 ## Later phases (from the brief)
 
-- **Phase 7, workflow (next; ask before starting):** saved tasks run on demand (not Orca automations). A read-only flag per
-  connection, enforced in the worker. Destructive confirmations show the namespace and document
-  count. Keybindings must not clash with Orca's.
+None: Phase 7 (workflow) was the last phase of the brief. What remains is in the open items above,
+mainly release packaging (Phase 1, item 2; Phase 3, item 2) and the screenshots, blocked on
+hiding Orca's window.
 
 ## Working agreements
 

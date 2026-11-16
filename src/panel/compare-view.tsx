@@ -25,6 +25,7 @@ import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText 
 import { NoticeBar } from './admin-notice'
 import { bNs, cancelCompare, compareProblems, idsShown, runCompare, runSync, selectPair, setCompare, syncPlan, type CompareShow, type CompareTab } from './compare-state'
 import { jobRunning } from './data-state'
+import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { connections } from './state'
 
@@ -194,6 +195,13 @@ export function CompareTabView({ id }: { id: string }): OrcaNode {
       <NoticeBar id={t.id} notice={t.notice} />
       <JobProgress box={t.job?.state?.status === 'done' ? undefined : t.job} what="comparison" onCancel={aguard(t.id, () => cancelCompare(t.id))} />
       <Results t={t} />
+      <TaskSaver
+        tabId={t.id}
+        task={t.task}
+        taskName={t.taskName}
+        placeholder={t.title}
+        kinds={[{ kind: 'compare', label: 'Save the comparison as a task' }, ...(t.ran ? [{ kind: 'sync' as const, label: 'Save the sync as a task' }] : [])]}
+      />
     </Box>
   )
 }

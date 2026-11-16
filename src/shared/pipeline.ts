@@ -153,18 +153,19 @@ function indent(text: string, pad: string): string {
 }
 
 /** Where a pipeline's last stage writes, when it is `$out` or `$merge`. */
-export function writeTarget(pipeline: readonly JsonObject[], db: string): { stage: '$out' | '$merge'; target: string } | undefined {
+export function writeTarget(pipeline: readonly JsonObject[], db: string): { stage: '$out' | '$merge'; target: string; ns?: { db: string; collection: string } } | undefined {
   const last = pipeline[pipeline.length - 1]
   if (!last) return undefined
   const op = Object.keys(last)[0]
   if (op !== '$out' && op !== '$merge') return undefined
   const v = last[op]!
-  const name = (into: JsonValue | undefined): string => {
-    if (typeof into === 'string') return `${db}.${into}`
-    if (isObject(into) && typeof into.coll === 'string') return `${typeof into.db === 'string' ? into.db : db}.${into.coll}`
-    return 'another collection'
-  }
-  return { stage: op, target: op === '$out' ? name(v) : name(isObject(v) ? v.into : undefined) }
+  const into = op === '$out' || !isObject(v) ? v : v.into
+  const ns = ((x: JsonValue | undefined): { db: string; collection: string } | undefined => {
+    if (typeof x === 'string') return { db, collection: x }
+    if (isObject(x) && typeof x.coll === 'string') return { db: typeof x.db === 'string' ? x.db : db, collection: x.coll }
+    return undefined
+  })(into)
+  return ns ? { stage: op, target: `${ns.db}.${ns.collection}`, ns } : { stage: op, target: 'another collection' }
 }
 
 /** Whether any stage writes, wherever it stands (the server refuses one that isn't last). */

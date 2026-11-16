@@ -40,6 +40,9 @@ export type ImportTab = {
   stale: boolean
   confirmDrop?: { count: number | null; exists: boolean }
   job?: JobBox
+  /** The saved task this tab was opened from, or last saved as. */
+  task?: { id: string; name: string }
+  taskName: string
 }
 
 export const DELIMITERS = [
@@ -74,7 +77,8 @@ export function openImport(target: { connectionId: string; db: string; collectio
     stopOnError: false,
     indexes: true,
     previewing: false,
-    stale: false
+    stale: false,
+    taskName: ''
   })
 }
 
@@ -199,6 +203,18 @@ export async function startImport(id: string, confirmed = false): Promise<void> 
     sayAdmin(id, end.errorCount ? 'neutral' : 'success', `Read ${numberText(r.read)} document${r.read === 1 ? '' : 's'}: ${numberText(r.inserted)} inserted${r.updated ? `, ${numberText(r.updated)} updated` : ''}${r.failed ? `, ${numberText(r.failed)} failed` : ''}${r.collections.length > 1 ? ` into ${r.collections.length} collections` : ''}.`)
     await refreshTree(t.connectionId, t.db.trim())
   }
+}
+
+/** What the tab would start, for a saved task: only a path can be read again later. */
+export function importTaskRequest(t: ImportTab): { source: { kind: 'path'; path: string }; options: ImportOptions; ns: Namespace } {
+  if (t.sourceKind !== 'path' || !t.path.trim()) throw new Error('A saved import reads a file or folder by its path: pasted text can\'t be saved. Choose "A file or folder" and enter its path.')
+  if (!t.db.trim()) throw new Error('Enter the database to import into.')
+  if (!t.preview?.folder && !t.collection.trim()) throw new Error('Enter the collection to import into.')
+  if (t.columns) {
+    const problems = mappingProblems(t.columns)
+    if (problems.length) throw new Error(problems.join(' '))
+  }
+  return { source: { kind: 'path', path: t.path.trim() }, options: options(t), ns: { connectionId: t.connectionId, db: t.db.trim(), collection: t.preview?.folder ? '' : t.collection.trim() } }
 }
 
 export function nsOf(t: ImportTab): Namespace {

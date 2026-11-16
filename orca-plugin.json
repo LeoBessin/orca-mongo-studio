@@ -40,6 +40,20 @@
       {
         "id": "mongoStudio.showShellResults",
         "title": "Mongo Studio: Show shell results"
+      },
+      {
+        "id": "mongoStudio.showTasks",
+        "title": "Mongo Studio: Show saved tasks"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mongoStudio.showTasks",
+        "key": "Mod+Alt+Shift+T"
+      },
+      {
+        "command": "mongoStudio.showShellResults",
+        "key": "Mod+Alt+Shift+R"
       }
     ],
     "customEditors": [

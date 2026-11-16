@@ -37,6 +37,7 @@ import { clipboard, clipText, copyToClipboard, type Clip } from './data-state'
 import { openExport, paste, type PasteTarget } from './export-state'
 import { openGridfs } from './gridfs-state'
 import { openImport } from './import-state'
+import { openTasks } from './tasks-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
@@ -110,7 +111,7 @@ function connectionItem(c: ConnectionSummary): TreeItem {
     key: `conn:${encodeURIComponent(c.id)}`,
     kind: 'conn',
     label: c.name,
-    description: c.connected ? `${c.subtitle} · connected` : c.subtitle,
+    description: [c.subtitle, c.readOnly ? 'read only' : '', c.connected ? 'connected' : ''].filter(Boolean).join(' · '),
     hasChildren: true
   })
 }
@@ -351,6 +352,7 @@ export function TreeView(): OrcaNode {
         <IconButton icon="add" label="New connection" variant="solid" tone="accent" onPress={() => openNewConnection()} />
         <IconButton icon="upload" label="Import connections" onPress={() => set(view, 'transfer')} />
         <IconButton icon="download" label="Export connections" onPress={() => set(view, 'transfer')} />
+        <IconButton icon="rocket" label="Saved tasks" onPress={() => openTasks()} />
         <IconButton icon="refresh" label="Refresh all" onPress={act(async () => {
           await refreshState()
           for (const key of read(expanded)) if (/^conn:[^/]+$/.test(key)) await refreshNode(key)
@@ -415,7 +417,7 @@ export function TreeView(): OrcaNode {
           {pending ? (
             <Callout tone="danger" icon="warning" title={`Delete "${pending.name}"?`}>
               <Box gap="sm">
-                <Text>The connection and its saved passwords and keys are removed. Your databases are not touched.</Text>
+                <Text>The connection, its saved passwords and keys, and the saved tasks that use it are removed. Your databases are not touched.</Text>
                 <Row gap="xs">
                   <Button variant="solid" tone="danger" onPress={act(async () => {
                     closeTabsFor(pending.id)

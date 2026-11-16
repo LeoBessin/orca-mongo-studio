@@ -36,6 +36,10 @@ export type ExportTab = {
   overwrite: boolean
   confirm?: { label: string; count: number | null }
   job?: JobBox
+  /** The saved task this tab was opened from, or last saved as. */
+  task?: { id: string; name: string }
+  /** The name typed for saving it as a task. */
+  taskName: string
 }
 
 export function exportTabId(from: ExportFrom): string {
@@ -64,7 +68,8 @@ function newTab(from: ExportFrom, query?: Partial<ExportTab['query']>): ExportTa
     target: { connectionId, db: from.kind === 'database' ? `${db}_copy` : db, collection: from.kind === 'database' ? '' : `${from.ns.collection}_copy`, mode: 'insert', indexes: true, options: true },
     destination: from.kind === 'database' ? 'path' : 'download',
     path: '',
-    overwrite: false
+    overwrite: false,
+    taskName: ''
   }
 }
 
@@ -160,14 +165,17 @@ function targetNs(t: ExportTab): Namespace {
   return { connectionId: t.target.connectionId, db: t.target.db.trim(), collection: t.target.collection.trim() }
 }
 
+/** What the tab would start, as `export.start` (and a saved task) takes it. */
+export function exportRequest(t: ExportTab): { source: ExportSource; options: ExportOptions; destination: ExportDestination } {
+  const problems = exportProblems(t)
+  if (problems.length) throw new Error(problems.join(' '))
+  return { source: source(t), options: options(t), destination: destination(t) }
+}
+
 export async function startExport(id: string, confirmed = false): Promise<void> {
   const t = tabOf(id, 'export')
   if (!t) return
-  const problems = exportProblems(t)
-  if (problems.length) throw new Error(problems.join(' '))
-  const src = source(t)
-  const opts = options(t)
-  const dest = destination(t)
+  const { source: src, options: opts, destination: dest } = exportRequest(t)
   if (t.format === 'collection' && t.target.mode === 'replace' && !confirmed) {
     const from = t.from
     if (from.kind === 'database') {

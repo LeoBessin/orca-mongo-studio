@@ -109,7 +109,7 @@ function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
       {t.confirmDropIndex === i.name ? (
         <Callout tone="danger" icon="warning" title={`Drop ${i.name} from ${t.ns.db}.${t.ns.collection}?`}>
           <Box gap="sm">
-            <Text>{`Queries that use it fall back to other indexes or a collection scan. Building it again takes time on a big collection${i.hidden ? '' : '; hiding it first shows what happens without it'}.`}</Text>
+            <Text>{`Queries that use it fall back to other indexes or a collection scan. Building it again takes time${typeof t.info?.count === 'number' ? ` over ${numberText(t.info.count)} document${t.info.count === 1 ? '' : 's'}` : ' on a big collection'}${i.hidden ? '' : '; hiding it first shows what happens without it'}. The documents are not touched.`}</Text>
             <Row gap="xs">
               <Button variant="solid" tone="danger" onPress={aguard(t.id, () => dropIndexConfirmed(t.id))}>Drop index</Button>
               <Button variant="ghost" onPress={() => changeAdmin(t.id, 'manage', () => ({ confirmDropIndex: undefined }))}>Cancel</Button>
@@ -301,8 +301,19 @@ function Operations({ t }: { t: ManageTab }): OrcaNode {
             </Row>
             <Row gap="xs" align="center" justify="between" wrap>
               <Checkbox label="Replace a collection that has the name" checked={t.rename.dropTarget} onChange={(dropTarget) => setRename(t.id, { dropTarget })} />
-              <Button size="sm" icon="edit" disabled={!t.rename.to.trim()} onPress={aguard(t.id, () => renameCollection(t.id))}>Rename</Button>
+              <Button size="sm" icon="edit" disabled={!t.rename.to.trim() || Boolean(t.confirmRename)} onPress={aguard(t.id, () => renameCollection(t.id))}>Rename</Button>
             </Row>
+            {t.confirmRename ? (
+              <Callout tone="danger" icon="warning" title={`Replace ${t.confirmRename.target}?`}>
+                <Box gap="sm">
+                  <Text>{`${t.confirmRename.target} on ${connectionName(t.connectionId)} is dropped${t.confirmRename.count === null ? '' : ` with its ${numberText(t.confirmRename.count)} document${t.confirmRename.count === 1 ? '' : 's'}`} and its indexes, then ${what} takes its name. This can't be undone.`}</Text>
+                  <Row gap="xs">
+                    <Button variant="solid" tone="danger" onPress={aguard(t.id, () => renameCollection(t.id, true))}>Replace and rename</Button>
+                    <Button variant="ghost" onPress={() => changeAdmin(t.id, 'manage', () => ({ confirmRename: undefined }))}>Cancel</Button>
+                  </Row>
+                </Box>
+              </Callout>
+            ) : null}
           </Box>
         )}
         {view || t.info?.capped || isTimeseries(t) ? null : (

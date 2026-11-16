@@ -3,9 +3,9 @@
 A MongoDB client for Orca, built from Orca's own components so it follows every Orca theme. It
 has no AI features.
 
-**Status:** Phases 1 (connections and navigation), 2 (querying and data viewing), 3 (shell and
-code), 4 (aggregation and explain), 5 (administration and schema) and 6 (data movement) are done.
-Phase 7 adds saved tasks and a read-only flag per connection.
+**Status:** all seven phases are done: connections and navigation, querying and data viewing,
+shell and code, aggregation and explain, administration and schema, data movement, and workflow
+(saved tasks, read-only connections, confirmations and keyboard shortcuts).
 
 ## What Phase 1 does
 
@@ -196,6 +196,39 @@ dialog (up to 64 MiB) or to a path the worker writes (as `<name>.part`, renamed 
   check and a text preview of the first 64 KB; download (save dialog or a path), upload (a path or
   pasted text, with content type and metadata), rename, delete (asked first).
 
+## What Phase 7 does
+
+- **Saved tasks.** An import (from a path), an export, a copy, a compare or a sync is saved from its
+  tab with "Save as task", with every option it was set up with. The **Tasks** tab (rocket button
+  on the Connections tab, or "Mongo Studio: Show saved tasks", Ctrl+Alt+Shift+T, Cmd+Option+Shift+T
+  on macOS) lists them with their last run. Select one to:
+  - Run it. It runs exactly as its tab would, with the same progress, errors and Save button. A
+    run that drops a collection, replaces collections or syncs into one asks first, naming the
+    collection and the documents it holds now. Each run's outcome (done, failed or cancelled, how
+    long, and what it did) is kept with the task.
+  - Open it in its tab, change it there and press "Update", or save it as a new task.
+  - Rename, duplicate or delete it.
+
+  Tasks run when you press Run. Nothing runs on a schedule: Orca's automations start AI agents,
+  which this plugin doesn't use, and Orca stops the plugin's worker when it is idle. Deleting a
+  connection deletes the tasks that use it.
+- **Read-only connections.** "Read only" in a connection's settings makes the worker refuse every
+  change through it, before connecting: document edits, inserts and deletes, `$out`/`$merge`
+  pipelines, views, indexes, validation, rename, clear and drop, databases, the profiler, users and
+  roles, stopping operations, imports, copies and syncs into it, and GridFS uploads, renames and
+  deletes. In the shell, reads work as usual and each write is refused at its line; commands sent
+  with `db.runCommand` pass only when they are known to read. Exports, compares and copies *from*
+  a read-only connection still work. Its tree row and every tab of it say "read only", and a saved
+  task that writes to it can't run.
+- **Confirmations** before anything is removed or replaced name the namespace and its document
+  count: dropping or clearing a collection, dropping a database (collections and documents),
+  renaming over a collection that exists, `$out`/`$merge` into a collection, dropping an index,
+  bulk deletes, imports and copies that drop first, syncs, and saved tasks that do any of these.
+- **Keyboard shortcuts** never take one of Orca's own: "Show saved tasks" is Mod+Alt+Shift+T and
+  "Show shell results" is Mod+Alt+Shift+R. In the shell editor, CodeMirror's fold shortcuts, which
+  are Orca's tab-switching keys, are left out. A test checks every shortcut against Orca's
+  defaults (`src/shared/orca-keys.ts`, written by `dev/orca-keys.mjs`).
+
 ### Size limits
 
 Orca refuses a panel request or answer past 1 MiB, 10,000 objects or arrays, or 100 levels deep.
@@ -230,6 +263,9 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 | `src/shared/index-spec.ts`, `schema.ts` | The index form, and the schema analysis, histograms and JSON Schema export |
 | `src/panel/import-*`, `export-*`, `compare-*`, `gridfs-*`, `data-state.ts`, `job-view.tsx` | The Import, Export/Copy, Compare and GridFS tabs; following jobs, downloads, the clipboard |
 | `src/worker/jobs.ts`, `import.ts`, `export.ts`, `writer.ts`, `compare.ts`, `gridfs.ts` | Jobs, uploads and file sinks; import, export and copy, batched writes, compare and sync, GridFS |
+| `src/panel/tasks-*`, `src/worker/tasks.ts`, `src/shared/tasks.ts` | The Tasks tab and "Save as task"; task storage; task requests, confirmations and summaries |
+| `src/shared/read-only.ts` | What a read-only connection lets through: commands, pipelines and shell calls |
+| `src/shared/keys.ts`, `orca-keys.ts` | Shortcut notations, and Orca's default shortcuts (from `dev/orca-keys.mjs`) |
 | `src/shared/csv.ts`, `json-records.ts`, `compare.ts`, `base64.ts` | CSV reading, types and writing; splitting JSON into documents; document comparison; base64 for downloads |
 | `src/shared/` | Pure code both sides use: connection model, URI parser/builder, import/export, tree keys, the shell literal parser, Extended JSON views, the Query Builder and field-editor models |
 | `test/` | Integration tests against the docker databases |
@@ -261,6 +297,7 @@ npm test                 # unit, protocol and panel tests (no database)
 dev/shots.sh             # screenshots of every view, light and dark (Orca's window must be hidden)
 npm run check            # orca plugin check + validate
 node dev/build-codemirror.mjs   # after upgrading CodeMirror: rebuilds src/editor/vendor/
+ELECTRON_RUN_AS_NODE=1 node dev/orca-keys.mjs   # after upgrading Orca: Orca's default shortcuts
 ```
 
 If the `orca` command fails on this machine, run
@@ -310,6 +347,10 @@ npm run test:enterprise
   inferred types.
 - Compare matches documents by `_id` only, and lists at most 1,000 `_id`s of each kind (the
   counts are complete). Sync replaces whole documents, fields left out of the comparison included.
+- Saved tasks run on demand only, while Orca is open. An import task reads a path; pasted text
+  can't be saved. A sync task's options show in the Compare tab after a comparison.
+- Read only is enforced by Mongo Studio, not by the server: a user with write rights can still
+  write through other tools. Give the connection a read-only database user for that.
 - The save dialog takes at most 64 MiB, and the worker keeps a download in memory until the
   panel has fetched it; bigger exports and files go to a path.
 - The plugin isn't packaged for installation yet. Installed plugins don't run `npm install`,

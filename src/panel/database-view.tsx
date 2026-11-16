@@ -242,7 +242,7 @@ function Drop({ t }: { t: DatabaseTab }): OrcaNode {
       ) : (
         <Callout tone="danger" icon="warning" title={`Drop ${t.db}?`}>
           <Box gap="sm">
-            <Text>{`Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ''}, document, index and user of ${t.db} is deleted. This can't be undone. Type the database's name to confirm.`}</Text>
+            <Text>{`Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ''}, document${typeof t.info?.documents === 'number' ? ` (${numberText(t.info.documents)})` : ''}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone. Type the database's name to confirm.`}</Text>
             <Input label="Database name" placeholder={t.db} value={t.dropName} onChange={(dropName) => changeAdmin(t.id, 'database', () => ({ dropName }))} />
             <Row gap="xs">
               <Button variant="solid" tone="danger" icon="delete" disabled={t.dropName !== t.db} onPress={aguard(t.id, () => dropDatabase(t.id))}>Drop database</Button>

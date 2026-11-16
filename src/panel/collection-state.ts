@@ -80,7 +80,8 @@ export type AggState = {
   textError?: string
   /** The pipeline as last run: paging and counting use it, not what is typed now. */
   ran?: { pipeline: JsonObject[]; options: AggOptions }
-  confirmWrite?: { stage: string; target: string }
+  /** A pipeline that writes, asked first: the target and the documents it holds now. */
+  confirmWrite?: { stage: string; target: string; count?: number | null; exists?: boolean }
   viewName: string
   viewOpen: boolean
   /** A view made from this pipeline, offered to open. */

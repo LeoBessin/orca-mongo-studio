@@ -10,7 +10,7 @@ import { adminTabId } from './panel/admin-state'
 import { manageTabId } from './panel/manage-state'
 
 const state: ConnectionsState = {
-  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true }],
+  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false }],
   favourites: [],
   secretsProtection: 'os-keyring'
 }
@@ -73,6 +73,7 @@ function setup(extra: MockRequests = {}) {
   const host = mockHost({
     requests: {
       'connections.state': state,
+      'data.count': ({ ns }) => ({ exists: ns.collection === 'archive', count: ns.collection === 'archive' ? 77 : null, kind: 'collection' }),
       'tree.children': ({ key }) =>
         key === 'conn:c1'
           ? { nodes: [{ key: 'conn:c1/db:shop', kind: 'db', label: 'shop', hasChildren: true }] }
@@ -130,6 +131,7 @@ function setup(extra: MockRequests = {}) {
       'admin.convertToCapped': null,
       'admin.database': {
         stats: [{ label: 'Collections', value: 2 }],
+        documents: 20000,
         collections: [
           { name: 'orders', kind: 'collection' },
           { name: 'shipped', kind: 'view' }
@@ -329,6 +331,21 @@ describe('managing a collection', () => {
     assert.equal(view.valueOf({ type: 'Tabs' }), manageTabId({ ...ns, collection: 'orders_2025' }))
     assert.ok(view.find({ text: 'shop.orders is now shop.orders_2025.' }))
   })
+
+  test('renaming over a collection that exists asks first, with its count', async () => {
+    const { host, calls } = setup()
+    const view = await atCollection(host)
+    await view.press({ label: 'Manage the collection: indexes, validation, rename, drop' })
+    await view.toggle({ type: 'Collapsible', label: 'Rename, clear and drop' })
+    await view.type({ type: 'Input', label: 'New name' }, 'archive')
+    await view.toggle({ type: 'Checkbox', label: 'Replace a collection that has the name' })
+    await view.press({ text: 'Rename' })
+    assert.equal(calls.renameCollection, undefined, 'nothing renamed yet')
+    assert.ok(view.find({ type: 'Callout', label: 'Replace shop.archive?' }))
+    assert.ok(view.find({ text: /shop\.archive on Local dev is dropped with its 77 documents and its indexes, then shop\.orders takes its name/ }))
+    await view.press({ text: 'Replace and rename' })
+    assert.deepEqual(calls.renameCollection, [{ ns, to: 'archive', dropTarget: true }])
+  })
 })
 
 describe('managing a database', () => {
@@ -389,6 +406,7 @@ describe('managing a database', () => {
     const { host, calls } = setup()
     const view = await atDatabase(host)
     await view.toggle({ type: 'Collapsible', label: 'Drop the database' })
+    assert.ok(view.find({ text: /Every collection \(2\), document \(20,000\), index and user of shop on Local dev is deleted/ }))
     const drop = { type: 'Button', text: 'Drop database' }
     assert.equal(view.find(drop)!.disabled, true)
     await view.type({ type: 'Input', label: 'Database name' }, 'shop')

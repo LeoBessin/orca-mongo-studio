@@ -89,6 +89,8 @@ export type ConnectionDef = {
   tls: TlsSettings
   ssh: SshSettings
   options: ConnectionOptions
+  /** Mongo Studio refuses every change through this connection (enforced in the worker). */
+  readOnly: boolean
   createdAt: number
   updatedAt: number
 }
@@ -159,6 +161,7 @@ export function emptyConnection(id: string, now: number): ConnectionDef {
       directConnection: false,
       extra: ''
     },
+    readOnly: false,
     createdAt: now,
     updatedAt: now
   }

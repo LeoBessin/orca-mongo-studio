@@ -237,15 +237,24 @@ export async function checkValidation(id: string): Promise<void> {
 // ---- Rename, capped, clear, drop ----
 
 export function setRename(id: string, change: Partial<ManageTab['rename']>): void {
-  changeAdmin(id, 'manage', (t) => ({ rename: { ...t.rename, ...change } }))
+  changeAdmin(id, 'manage', (t) => ({ rename: { ...t.rename, ...change }, confirmRename: undefined }))
 }
 
-export async function renameCollection(id: string): Promise<void> {
+/** Renames; over a collection that exists ("Replace…"), asks first with its document count. */
+export async function renameCollection(id: string, confirmed = false): Promise<void> {
   const t = tabOf(id, 'manage')
   if (!t) return
   const to = t.rename.to.trim()
   const toDb = t.rename.toDb.trim() || t.ns.db
   if (!to) return
+  if (t.rename.dropTarget && !confirmed) {
+    const c = await plugin.request('data.count', { ns: { connectionId: t.connectionId, db: toDb, collection: to } })
+    if (c.exists) {
+      changeAdmin(id, 'manage', () => ({ confirmRename: { target: `${toDb}.${to}`, count: c.count } }))
+      return
+    }
+  }
+  changeAdmin(id, 'manage', () => ({ confirmRename: undefined }))
   await plugin.request('admin.renameCollection', { ns: t.ns, to, ...(toDb !== t.ns.db ? { toDb } : {}), dropTarget: t.rename.dropTarget })
   const from = nsLabel(t.ns)
   closeTabsForNs(t.ns)

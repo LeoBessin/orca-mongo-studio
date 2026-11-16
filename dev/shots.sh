@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2, p4, p5 and p6.
+# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2, p4, p5, p6 and p7.
 #
 # `orca plugin shot --act/--scenario/--theme` only works while Orca's window is hidden or
 # minimized. Hide it (or switch to a session whose compositor can minimize it), run this, and keep
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 ORCA=(env ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js)
 KEY=local.orca-mongo-studio
 WIDTH=${WIDTH:-420}
-mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5 .orca/shots/p6
+mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5 .orca/shots/p6 .orca/shots/p7
 
 CONN=$("${ORCA[@]}" plugin dev request . connections.state --json |
   node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));const c=r.result.result.connections.find(c=>c.name==="Local dev (rs0)");if(!c)process.exit(1);process.stdout.write("conn:"+encodeURIComponent(c.id))')
@@ -117,3 +117,10 @@ shot p6 compare "$(at_coll shop customers coll),$COMPARE,{\"type\":{\"label\":\"
 shot p6 compare-sync "$(at_coll shop customers coll),$COMPARE,{\"type\":{\"label\":\"Collection\"},\"text\":\"gold_customers\"},{\"press\":{\"type\":\"Button\",\"text\":\"Compare\"}},{\"toggle\":{\"label\":\"Sync\"}}"
 shot p6 gridfs "{\"expand\":$T,\"key\":\"$CONN\"},{\"expand\":$T,\"key\":\"$CONN/db:shop\"},{\"selectItem\":$T,\"key\":\"$CONN/db:shop/bucket:attachments\"},{\"press\":{\"text\":\"Browse files\"}}"
 shot p6 gridfs-upload "{\"expand\":$T,\"key\":\"$CONN\"},{\"expand\":$T,\"key\":\"$CONN/db:shop\"},{\"selectItem\":$T,\"key\":\"$CONN/db:shop/bucket:attachments\"},{\"press\":{\"text\":\"Browse files\"}},{\"toggle\":{\"label\":\"Upload a file\"}}"
+
+# ---- Phase 7 ----
+# Only views that save nothing: a shot must not leave tasks or connection changes behind.
+shot p7 tasks-empty "{\"press\":{\"label\":\"Saved tasks\"}}"
+shot p7 save-as-task "$(at_coll shop orders coll),$EXPORT,{\"select\":{\"label\":\"Save to\"},\"value\":\"path\"},{\"type\":{\"label\":\"Path\"},\"text\":\"/tmp/orders.json\"},{\"toggle\":{\"label\":\"Save as task\"}}"
+shot p7 compare-save "$(at_coll shop customers coll),$COMPARE,{\"type\":{\"label\":\"Collection\"},\"text\":\"gold_customers\"},{\"press\":{\"type\":\"Button\",\"text\":\"Compare\"}},{\"toggle\":{\"label\":\"Save as task\"}}"
+shot p7 read-only-switch "{\"selectItem\":$T,\"key\":\"$CONN\"},{\"press\":{\"label\":\"Edit connection\"}}"

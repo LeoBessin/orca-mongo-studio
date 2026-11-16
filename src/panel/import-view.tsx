@@ -21,10 +21,11 @@ import {
 } from 'orca'
 import { CSV_TYPES, type CsvType } from '../shared/csv'
 import { toShell } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, numberText } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { openNamespace } from './collection-state'
 import { bytesText, jobRunning } from './data-state'
+import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { cancelImport, DELIMITERS, importProblems, previewImport, setColumn, setImport, startImport, targetLabel, type ImportTab } from './import-state'
 
@@ -179,7 +180,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
       {t.confirmDrop ? (
         <Callout tone="danger" icon="warning" title={`Drop ${t.db}.${t.collection}?`}>
           <Box gap="sm">
-            <Text>{`Its ${t.confirmDrop.count === null ? '' : `${numberText(t.confirmDrop.count)} `}documents and its indexes are deleted, then the import writes into it.`}</Text>
+            <Text>{`On ${connectionName(t.connectionId)}: its ${t.confirmDrop.count === null ? '' : `${numberText(t.confirmDrop.count)} `}documents and its indexes are deleted, then the import writes into it.`}</Text>
             <Row gap="xs">
               <Button variant="solid" tone="danger" onPress={aguard(t.id, () => startImport(t.id, true))}>Drop and import</Button>
               <Button variant="ghost" onPress={() => changeAdmin(t.id, 'import', () => ({ confirmDrop: undefined }))}>Cancel</Button>
@@ -197,6 +198,11 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
         ) : null}
       </Row>
       <JobProgress box={t.job} what="import" onCancel={aguard(t.id, () => cancelImport(t.id))} />
+      {t.sourceKind === 'path' ? (
+        <TaskSaver tabId={t.id} task={t.task} taskName={t.taskName} placeholder={t.title} kinds={[{ kind: 'import', label: 'Save the import as a task' }]} />
+      ) : (
+        <Text size="xs" muted>An import from a file or folder path can be saved as a task; pasted text can't.</Text>
+      )}
     </Box>
   )
 }

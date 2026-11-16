@@ -6,7 +6,7 @@ import * as panel from './panel'
 
 const emptyState: ConnectionsState = { connections: [], favourites: [], secretsProtection: 'os-keyring' }
 const oneConn: ConnectionsState = {
-  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: false }],
+  connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: false, readOnly: false }],
   favourites: [],
   secretsProtection: 'os-keyring'
 }
@@ -190,7 +190,7 @@ describe('connections tree', () => {
   test('the filter keeps matches and their parents', async () => {
     const host = mockHost({
       requests: {
-        'connections.state': { ...oneConn, connections: [...oneConn.connections, { id: 'c2', name: 'Atlas', group: 'Clients', subtitle: 'x', topology: 'srv', connected: false }] }
+        'connections.state': { ...oneConn, connections: [...oneConn.connections, { id: 'c2', name: 'Atlas', group: 'Clients', subtitle: 'x', topology: 'srv', connected: false, readOnly: false }] }
       }
     })
     const view = await mount(panel, { host })

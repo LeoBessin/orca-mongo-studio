@@ -107,7 +107,7 @@ async function mockIdp(): Promise<{ issuer: string; server: Server; challenges: 
 describe('OIDC browser sign-in', () => {
   test('authorization code with PKCE, through the localhost redirect', async () => {
     const idp = await mockIdp()
-    const port = 27000 + Math.floor(Math.random() * 900)
+    const port = 41000 + Math.floor(Math.random() * 900)
     try {
       let shown = ''
       const callback = humanCallback({
@@ -147,7 +147,7 @@ describe('OIDC browser sign-in', () => {
 
   test('a stale state is ignored and the sign-in times out cleanly', async () => {
     const idp = await mockIdp()
-    const port = 27000 + Math.floor(Math.random() * 900)
+    const port = 41000 + Math.floor(Math.random() * 900)
     try {
       const callback = humanCallback({
         redirectPort: port,

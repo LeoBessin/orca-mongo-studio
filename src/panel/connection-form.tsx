@@ -433,6 +433,10 @@ export function ConnectionForm(): OrcaNode {
       <Box gap="sm">
         {textInput('Name', def.name, (v) => edit((d) => (d.name = v)), { placeholder: 'Production cluster', field: 'name' })}
         {textInput('Group', def.group, (v) => edit((d) => (d.group = v)), { placeholder: 'Optional, e.g. Clients or Staging' })}
+        <Box gap="none">
+          <Switch label="Read only" checked={def.readOnly} onChange={(v) => edit((d) => (d.readOnly = v))} />
+          <Text muted size="xs">Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work.</Text>
+        </Box>
         <RadioGroup
           label="Edit as"
           orientation="horizontal"
