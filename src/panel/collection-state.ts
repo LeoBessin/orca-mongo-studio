@@ -75,6 +75,8 @@ export type CollTab = {
   saveName: string
   librarySelected?: string
   notice?: TabNotice
+  /** Results of a shell run, paged from the worker instead of a query. */
+  shell?: { runId: string; index: number }
 }
 
 export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
@@ -122,22 +124,39 @@ export async function openCollection(nodeKey: string): Promise<void> {
   const target = nodeTarget(nodeKey)
   if (!target.connectionId || !target.db || !target.collection) return
   const ns: Namespace = { connectionId: target.connectionId, db: target.db, collection: target.collection }
+  const meta = read(nodeIndex)[nodeKey]
+  await openNamespace(ns, meta?.kind ?? target.kind)
+}
+
+/** Opens (or shows) a collection's tab; with `text`, puts that query in its bar and runs it. */
+export async function openNamespace(ns: Namespace, kind: NodeKind, text?: QueryText): Promise<void> {
   const existing = read(tabOrder).find((id) => {
     const t = tab(id)
     return t && t.ns.connectionId === ns.connectionId && t.ns.db === ns.db && t.ns.collection === ns.collection
   })
   if (existing) {
     set(view, existing)
+    if (text) {
+      patch(existing, { text, fieldErrors: {} })
+      await runQuery(existing)
+    }
     return
   }
-  const meta = read(nodeIndex)[nodeKey]
-  const kind = meta?.kind ?? target.kind
   const id = tabIdFor(ns)
-  const t: CollTab = {
+  const t: CollTab = newTab(id, ns, kind, ns.collection)
+  if (text) t.text = text
+  update(collTabs, (prev) => ({ ...prev, [id]: t }))
+  update(tabOrder, (prev) => [...prev, id])
+  set(view, id)
+  await Promise.all([runQuery(id, text !== undefined), loadLibrary(id)])
+}
+
+export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string): CollTab {
+  return {
     id,
     ns,
     kind,
-    title: ns.collection,
+    title,
     readOnly: kind === 'view',
     text: { ...emptyText },
     fieldErrors: {},
@@ -155,15 +174,11 @@ export async function openCollection(nodeKey: string): Promise<void> {
     optionsOpen: false,
     saveName: ''
   }
-  update(collTabs, (prev) => ({ ...prev, [id]: t }))
-  update(tabOrder, (prev) => [...prev, id])
-  set(view, id)
-  await Promise.all([runQuery(id, false), loadLibrary(id)])
 }
 
 export function closeTab(id: string): void {
   const t = tab(id)
-  if (t?.queryId) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)
+  if (t?.queryId && !t.shell) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)
   const order = read(tabOrder)
   const at = order.indexOf(id)
   const rest = order.filter((x) => x !== id)
@@ -229,6 +244,7 @@ export function specFromText(text: QueryText, now = Date.now()): { spec?: QueryS
 export async function runQuery(id: string, record = true): Promise<void> {
   const t = tab(id)
   if (!t) return
+  if (t.shell) return goToPage(id, 0)
   const { spec, errors } = specFromText(t.text)
   if (!spec) {
     patch(id, { fieldErrors: errors })
@@ -266,18 +282,20 @@ async function countQuery(id: string, token: number, spec: QuerySpec): Promise<v
 
 export async function recount(id: string): Promise<void> {
   const t = tab(id)
-  if (!t?.spec) return
+  if (!t?.spec || t.shell) return
   patch(id, { count: 'counting' })
   await countQuery(id, t.runToken, t.spec)
 }
 
 export async function goToPage(id: string, offset: number): Promise<void> {
   const t = tab(id)
-  if (!t?.spec || !t.queryId) return
+  if (!t || (!t.shell && (!t.spec || !t.queryId))) return
   const token = t.runToken
   patch(id, { loading: true, error: undefined, selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [] })
   try {
-    const page = await plugin.request('query.page', { queryId: t.queryId, ns: t.ns, spec: t.spec, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
+    const page = t.shell
+      ? await plugin.request('shell.page', { runId: t.shell.runId, index: t.shell.index, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
+      : await plugin.request('query.page', { queryId: t.queryId!, ns: t.ns, spec: t.spec!, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
     if (tab(id)?.runToken === token) patch(id, { page, loading: false })
   } catch (error) {
     if (tab(id)?.runToken === token) patch(id, { loading: false, error: errorText(error) })
@@ -313,6 +331,10 @@ export async function reloadPage(id: string): Promise<void> {
 
 /** Header click: sort by that column, flipping on a second click. */
 export async function sortBy(id: string, column: string, direction: 'asc' | 'desc'): Promise<void> {
+  if (tab(id)?.shell) {
+    say(id, 'neutral', 'Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.')
+    return
+  }
   const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
   setText(id, 'sort', `{ ${key}: ${direction === 'asc' ? 1 : -1} }`)
   await runQuery(id)

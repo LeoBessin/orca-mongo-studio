@@ -3,8 +3,8 @@
 A MongoDB client for Orca, built from Orca's own components so it follows every Orca theme. It
 has no AI features.
 
-**Status:** Phases 1 (connections and navigation) and 2 (querying and data viewing) are done.
-Later phases add the shell, aggregation, admin, data movement and saved tasks.
+**Status:** Phases 1 (connections and navigation), 2 (querying and data viewing) and 3 (shell and
+code) are done. Later phases add aggregation, admin, data movement and saved tasks.
 
 ## What Phase 1 does
 
@@ -59,6 +59,33 @@ Later phases add the shell, aggregation, admin, data movement and saved tasks.
 - **History and saved queries.** The last 50 queries run on each collection, and named saved
   queries, are kept per connection.
 
+## What Phase 3 does
+
+- **The shell.** A `.mongodb.js` file opens in the Mongo Shell editor. Create one with
+  "Mongo Studio: New shell script" in the + menu or the command palette.
+  - The first line names the connection and database, so the file opens ready to run:
+    `// @mongo-studio connection="Local dev" db="shop"`. The pickers above the editor change it.
+  - Ctrl+Enter runs the selection or the statement under the cursor. Ctrl+Shift+Enter runs the
+    whole script. Stop ends a running script, even an endless loop.
+  - Scripts run like the legacy mongo shell: database calls return their results, so
+    `db.orders.findOne().total`, `forEach` and `for … of` over a cursor need no `await` (it still
+    works). Variables last between runs until "Clear variables". `use`, `show dbs`,
+    `show collections`, `print`, `printjson`, `sleep` and the BSON constructors work.
+  - Output appears under the editor, with each statement's value and the line it came from. An
+    error stops the script and is underlined at its line.
+  - Cursors, arrays of documents and documents open in the panel's **Shell** tab with the same
+    Table, Tree and JSON views and paging as a query. A find opens as a query in its collection's
+    tab with "Open as query".
+  - Autocomplete: collections, fields sampled from the collection, shell methods, and the operators
+    that fit where the cursor is (query, update, stage, accumulator, expression or projection).
+- **Code generation.** The Code tab under the editor, and a Code section on collection tabs and
+  shell results, turn a find or aggregate into code for mongosh, Node.js, Python, Java, C#, PHP or
+  Ruby. Every BSON type keeps its type in the generated code.
+- **SQL → MQL.** The SQL tab translates a SELECT into a statement you can run or insert into the
+  script: WHERE (with IN, BETWEEN, LIKE, IS NULL), GROUP BY with COUNT/SUM/AVG/MIN/MAX and HAVING,
+  ORDER BY, LIMIT/OFFSET, DISTINCT, and INNER/LEFT JOIN as `$lookup`. Notes say where MongoDB
+  differs from SQL. Anything it can't translate faithfully is refused with the position.
+
 ### Size limits
 
 Orca refuses a panel request or answer past 1 MiB, 10,000 objects or arrays, or 100 levels deep.
@@ -78,6 +105,12 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 | `src/protocol.ts` | The typed panel ↔ worker contract |
 | `src/panel/collection-*.tsx`, `results-view.tsx`, `editors-view.tsx` | Collection tabs: query bar, Query Builder, results, editors, history |
 | `src/worker/query.ts` | Query cursors and pages, counts, document writes, history and saved queries |
+| `src/editor/` | The Mongo Shell custom editor: CodeMirror, output, Code and SQL tabs |
+| `src/editor/vendor/` | CodeMirror bundled into one file by `dev/build-codemirror.mjs` |
+| `src/worker/shell.ts`, `shell-thread.mjs` | Shell sessions: the script thread and the database calls it makes |
+| `src/panel/shell-*.ts(x)` | The panel's Shell tab and the Code section |
+| `src/shared/js-scan.ts`, `shell-prepare.ts`, `shell-call.ts`, `shell-vocab.ts` | Statements, autocomplete places, statement → operation, shell vocabulary |
+| `src/shared/codegen.ts`, `sql-to-mql.ts` | Code generation and SQL translation |
 | `src/shared/` | Pure code both sides use: connection model, URI parser/builder, import/export, tree keys, the shell literal parser, Extended JSON views, the Query Builder and field-editor models |
 | `test/` | Integration tests against the docker databases |
 | `dev/` | Docker databases, seed data and test fixtures |
@@ -94,6 +127,10 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 
 The plugin asks for `storage:own` and `secrets:own` only.
 
+Shell scripts run in a worker thread of the plugin's worker, in a separate JavaScript context
+that offers only the shell's API. Like mongosh, that context is not a security boundary: run only
+scripts you trust. A script runs only when you press Run.
+
 ## Develop
 
 ```sh
@@ -103,6 +140,7 @@ npm run typecheck
 npm test                 # unit, protocol and panel tests (no database)
 dev/shots.sh             # screenshots of every view, light and dark (Orca's window must be hidden)
 npm run check            # orca plugin check + validate
+node dev/build-codemirror.mjs   # after upgrading CodeMirror: rebuilds src/editor/vendor/
 ```
 
 If the `orca` command fails on this machine, run
@@ -135,6 +173,9 @@ npm run test:enterprise
 - Through an SSH tunnel, the plugin connects to the first database host only, since the driver
   can't reach the other replica set members it discovers.
 - Kerberos uses the ticket cache on your computer, so run `kinit` first.
+- The shell covers the common mongosh API, not all of it: no `rs.*`, `sh.*`, `load()`, `watch`,
+  sessions or transactions, and explain plans arrive with Phase 4. `it` is not needed, since
+  results page in the panel. Only the newest run's results stay open in the panel.
 - The plugin isn't packaged for installation yet. Installed plugins don't run `npm install`,
   so a release needs a bundled worker plus the Kerberos binary for each platform. Until then,
   load the folder with `orca plugin dev load`.

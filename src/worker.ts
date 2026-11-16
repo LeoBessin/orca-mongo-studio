@@ -8,11 +8,13 @@ import { exportConnections, importConnections } from './shared/transfer'
 import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
 import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
+import { ShellService } from './worker/shell'
 import { ConnectionStore } from './worker/store'
 import { treeChildren, treeDetails, type TreeContext } from './worker/tree'
 
 let pool: ClientPool | undefined
 let queries: QuerySessions | undefined
+let shell: ShellService | undefined
 
 function invalid(message: string): Error {
   return Object.assign(new Error(message), { code: 'invalid_params' })
@@ -63,6 +65,13 @@ export default function activate(orca: OrcaWorkerApi): void {
   const sessions = new QuerySessions((id) => clients.get(id))
   queries = sessions
   const library = new QueryLibraryStore(orca)
+  const shells = new ShellService({
+    client: (id) => clients.get(id),
+    connectionName: async (id) => (await requireDef(id)).name,
+    announce: (summary) => orca.panels.post('shell.results', summary),
+    log: (message) => orca.log(message)
+  })
+  shell = shells
 
   const requireDef = async (id: string): Promise<ConnectionDef> => {
     const def = await store.get(id)
@@ -117,6 +126,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.panels.handle('connections.delete', async ({ id }) => {
+    await shells.closeFor(id)
     await sessions.closeFor(id)
     await clients.disconnect(id)
     await store.remove(id)
@@ -166,6 +176,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
 
   orca.panels.handle('connections.disconnect', async ({ id }) => {
+    await shells.closeFor(id)
     await sessions.closeFor(id)
     await clients.disconnect(id)
     return null
@@ -224,14 +235,42 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { favourites }
   })
 
-  const navigate = (view: 'new' | 'import' | 'export' | 'tree'): string => {
+  // ---- Shell ----
+
+  orca.panels.handle('shell.run', async (input, { panel }) => {
+    await requireDef(input.connectionId)
+    return shells.run(panel.id, input)
+  })
+  orca.panels.handle('shell.poll', ({ runId, after }, { signal }) => shells.poll(runId, after, signal))
+  orca.panels.handle('shell.cancel', ({ runId }) => {
+    shells.cancel(runId)
+    return null
+  })
+  orca.panels.handle('shell.reset', (_input, { panel }) => {
+    shells.reset(panel.id)
+    return null
+  })
+  orca.panels.handle('shell.latest', () => ({ run: shells.latestSummary() }))
+  orca.panels.handle('shell.page', ({ runId, index, offset, pageSize }) => shells.page(runId, index, offset, pageSize))
+  orca.panels.handle('shell.databases', async ({ connectionId }) => {
+    await requireDef(connectionId)
+    return { names: await shells.databases(connectionId) }
+  })
+  orca.panels.handle('shell.complete', async ({ connectionId, db, collection }) => {
+    await requireDef(connectionId)
+    return shells.complete(connectionId, db, collection)
+  })
+
+  const navigate = (view: 'new' | 'import' | 'export' | 'tree' | 'shell'): string => {
     orca.panels.post('ui.navigate', { view })
     return 'Shown in the Mongo Studio panel. If you do not see it, open Mongo Studio from the right sidebar.'
   }
   orca.commands.register('mongoStudio.newConnection', () => navigate('new'))
   orca.commands.register('mongoStudio.importConnections', () => navigate('import'))
   orca.commands.register('mongoStudio.exportConnections', () => navigate('export'))
+  orca.commands.register('mongoStudio.showShellResults', () => navigate('shell'))
   orca.commands.register('mongoStudio.disconnectAll', async () => {
+    await shells.closeAll()
     await sessions.closeAll()
     await clients.disconnectAll()
     await broadcast()
@@ -240,6 +279,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 }
 
 export async function deactivate(): Promise<void> {
+  await shell?.closeAll()
   await queries?.closeAll()
   await pool?.disconnectAll()
 }

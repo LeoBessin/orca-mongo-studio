@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 2).
+Last updated: 2026-11-16 (end of Phase 3).
 
 ## Decisions
 
@@ -14,6 +14,10 @@ Last updated: 2026-11-16 (end of Phase 2).
 | Kerberos (GSSAPI) | Done at the end of Phase 1. | `kerberos@7` is an N-API addon that loads in Orca's Electron 43 runtime. |
 | Scheduling (Phase 7) | No Orca automations. Use on-demand runs or a small scheduler in the worker. | Orca automations launch AI agents, which the no-AI rule forbids. |
 | Driver | `mongodb` 7.9 in the trusted worker. | The spike proved TCP, DNS (SRV and TXT) and TLS work in the worker. |
+| Shell execution | Scripts run synchronously in a `worker_thread` (`src/worker/shell-thread.mjs`) inside a `vm` context; each database call blocks the thread (`Atomics.wait` + `receiveMessageOnPort`) while the worker's main thread runs it on the pooled MongoClient. | Legacy-shell semantics (`findOne().x`, `forEach`, loops) without mongosh's async rewriter, and Stop can terminate a runaway loop. Results reuse the panel's paging. |
+| Shell target | A header comment in the file: `// @mongo-studio connection="<name>" db="<db>"`. | Editors never learn their file path, so the file has to carry its own target. Names, not ids, so a script works on another machine with a connection of the same name. |
+| Shell results | Shown in the panel's Shell tab, which is a collection tab backed by `shell.page` instead of `query.page`. Only the newest run's results stay open. | Reuses Table/Tree/JSON and paging; bounds open cursors. |
+| CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
 ## Status
 
@@ -149,10 +153,76 @@ seeded databases.
    - How the Table handles many columns in a 420 px panel.
    - The query bar's two-column row.
    - The Query Builder's rows.
-2. The document editor is a plain `Textarea`, with no highlighting. The custom editor of Phase 3
-   is where real editing goes.
+2. The document editor is a plain `Textarea`, with no highlighting. The shell (Phase 3) is the
+   place for heavier editing; the panel cannot host CodeMirror.
 3. A document too big for one request (1 MiB, or 10,000 values in canonical EJSON) can be viewed
-   but not edited. The editor says to use the shell, which arrives in Phase 3.
+   but not edited in the panel. The editor says to use the shell, which now exists (Phase 3).
+
+### Done: Phase 3, shell and code
+
+It works in Orca as a development plugin, checked live through the real host (the script thread
+runs in Orca's worker process) and in headless Chromium with the real editor bundle against the
+live worker (`orca plugin dev request`): runs, errors, autocomplete, Code and SQL tabs.
+
+- **Mongo Shell editor** (`src/editor/`, custom editor for `.mongodb.js`, new file from the + menu):
+  - CodeMirror 6 with JavaScript highlighting, styled from `--orca-*` variables only, and Orca's
+    editor typography (`editor.readTypography` and its change event).
+  - Connection picker and database field (with a list of databases) that rewrite the header line.
+  - Run the selection or the statement under the cursor (Ctrl+Enter), the whole script
+    (Ctrl+Shift+Enter), Stop, Clear variables. Errors underline their line.
+  - Output pane with the line of each value; short documents one per line.
+  - Text sync through `orca.document.session` with a line-level three-way merge for outside writes.
+- **Statements** (`src/shared/js-scan.ts`, `shell-prepare.ts`): a tolerant JS scanner splits
+  top-level statements by JavaScript's own newline rules; `use x`/`show x`/`it` become calls;
+  `const`/`let` become assignments so a rerun never says "already declared" (columns kept).
+- **Shell runtime** (`src/worker/shell.ts`, `shell-thread.mjs`): one thread per editor, kept 30
+  minutes idle; `db` and collection proxies, find/aggregate cursors (lazy, with sort/limit/…),
+  CRUD, bulkWrite, indexes, commands, `getSiblingDB`, BSON constructors callable without `new`.
+  Arguments cross as BSON bytes, so every type stays exact. A statement's unread cursor is opened
+  by the main thread for paging and keeps its find/aggregate as an Operation.
+- **Autocomplete** (`src/editor/complete.ts`, `src/shared/shell-vocab.ts`): collections, fields
+  sampled with `$sample` (100 docs, cached 60 s), db/collection/cursor methods, and operators by
+  place (query, update, stage, accumulator, expression, projection), quoted keys and `'$field'`
+  paths.
+- **Code generation** (`src/shared/codegen.ts`): mongosh, Node.js, Python, Java, C#, PHP, Ruby for
+  finds and aggregates, every BSON type mapped exactly. Node, Python and Java goldens were also
+  checked against the real encoders (bson, PyMongo 4.20, Java bson 5.2); C#, PHP and Ruby only by
+  reading the drivers' sources (no toolchains here).
+- **SQL → MQL** (`src/shared/sql-to-mql.ts`): SELECT with WHERE, GROUP BY/HAVING, aggregates,
+  DISTINCT, ORDER BY, LIMIT/OFFSET, INNER/LEFT JOIN → `$lookup` + `$unwind`; refuses what it can't
+  translate faithfully, with the position. Notes explain SQL/MongoDB differences.
+- **Panel:** Shell tab (`src/panel/shell-*.ts(x)`), "Open as query", Code section on collection
+  tabs and shell results, palette command "Mongo Studio: Show shell results".
+
+**Tests:** 283 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass.
+
+- Scanner, statement splitting, completion places, statement → operation (`js-scan.test.ts`).
+- Statement preparation, header, merge, vocabulary (`shell-prepare.test.ts`).
+- Code generation goldens for every language (`codegen.test.ts`), SQL goldens and errors
+  (`sql-to-mql.test.ts`, about 110 cases).
+- Panel Shell tab (`panel-shell.test.tsx`).
+- Live shell on the dev replica set (`test/shell.test.ts`): ordering, sync semantics, variables
+  across runs, await, cursor paging and its operation, every BSON constructor round-trip, errors
+  with line and server code, stopping an endless loop, autocomplete names.
+
+### Open items from Phase 3
+
+1. **Screenshots (blocked, as before).** Editor shots work only without `--act` while Orca's
+   window is visible; the opening view is in `.orca/shots/p3/editor-open.png`. Add the editor and
+   the Shell tab to `dev/shots.sh` in light and dark.
+2. **Release packaging** now also needs `src/worker/shell-thread.mjs` (it loads `bson` by the
+   absolute path the worker passes; in a bundle, give it its own bundled `bson`) and the vendored
+   CodeMirror file, which is already self-contained.
+3. **`__proto__` keys:** `shellKey` in `ejson-view.ts` writes `__proto__: v`, which a JavaScript
+   object literal (and probably `parseShell`, which assigns keys with `obj[key] =`) reads as a
+   prototype, losing the field. Needs a computed key (`['__proto__']`) and own-property writes in
+   the parser.
+4. **Not covered by the shell yet:** `rs.*`, `sh.*`, `load()`, change streams, sessions and
+   transactions, `explain()` (Phase 4).
+5. The editor's UI is tested in a scratch harness (headless Chromium + `playwright-core` + a stub
+   `window.orca` proxying to `orca plugin dev request`), not in the repo. Worth adding to `dev/` if
+   the editor grows.
 
 ## Orca platform facts to remember
 
@@ -187,6 +257,17 @@ seeded databases.
   Code edits reload without asking again.
 - The CLI on this machine: `ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js`.
   The npm scripts already use it.
+- **Worker threads:** `worker_threads` work in the plugin worker, but Orca's module hooks apply
+  inside them too: a thread file may not import npm packages by name. Load them by absolute path
+  (`createRequire(import.meta.url)(pathFromWorker)`), and write the thread in plain `.mjs` (only
+  the worker's own graph is transpiled).
+- **Answers must be plain JSON:** a field set to `undefined` makes Orca refuse the whole answer
+  ("answered with a non-JSON value"). Strip them before returning.
+- **Custom editors:** the entry `.ts` is transpiled and may import relative files only; the
+  editor never learns its file path; `orca.plugin.request` from an editor has a stable
+  `context.panel.id` while it stays open (used as the shell session key).
+- **Test runner:** a test that polls a worker handler that answers at once must not loop on it
+  without awaiting a timer: the promise-only loop starves the worker thread's messages.
 - Test environment quirks:
   - The Enterprise image needs `libsasl2-modules-gssapi-mit` (`dev/test-env/enterprise/Dockerfile`).
   - The client `krb5.conf` needs `qualify_shortname = ""`.
@@ -207,16 +288,7 @@ collections, every index kind, GridFS, users and roles.
 
 ## Later phases (from the brief)
 
-- **Phase 3, shell and code (next; ask before starting)**
-  - The IntelliShell equivalent: the one custom editor (`.mongodb.js`, created from Orca's
-    new-file menu). It bundles a code editor library and uses only `--orca-*` colour variables.
-    It offers autocomplete for collections, sampled fields, operators and shell methods, and runs
-    the selection, the current statement or the whole script. Results appear in the panel's
-    Table/Tree/JSON views.
-  - Code generation for Node, Python, Java, C#, PHP, Ruby and mongosh, with golden tests.
-  - SQL → MQL translation: SELECT, WHERE, GROUP BY, ORDER BY, and JOIN to `$lookup`. It is
-    deterministic, with golden tests.
-- **Phase 4, aggregation:** a stage-by-stage builder that can add, reorder, enable, disable and
+- **Phase 4, aggregation (next; ask before starting):** a stage-by-stage builder that can add, reorder, enable, disable and
   duplicate stages, with a preview of each stage's input and output. Explain plans, visual and
   raw, for finds and aggregations. Create a view from a pipeline.
 - **Phase 5, admin and schema**

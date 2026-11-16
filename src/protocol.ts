@@ -3,6 +3,7 @@
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import type { ConnectionDef, FieldError, SecretDraft, SecretFlags } from './shared/model'
 import type { NodeKind } from './shared/nodes'
+import type { Operation } from './shared/operation'
 
 export type ConnectionSummary = {
   id: string
@@ -105,6 +106,49 @@ export type CountResult = { count: number | null; approximate: boolean; ms: numb
 
 export type WriteResult = { matched: number; modified: number }
 
+// ---- Shell ----
+
+/** One line of a shell run's output, in the order the script produced it. */
+export type ShellEntry =
+  | { kind: 'print'; text: string }
+  | { kind: 'info'; text: string }
+  /** A statement's value. `resultIndex` names it in the run's results, which the panel shows. */
+  | { kind: 'result'; line: number; ms: number; text: string; resultIndex?: number; summary?: string; note?: string }
+  | { kind: 'error'; line?: number; column?: number; text: string }
+
+export type ShellPoll = {
+  entries: ShellEntry[]
+  done: boolean
+  /** The database `db` names now (a script may `use` another). */
+  db: string
+  ms: number
+}
+
+export type ShellResultInfo = {
+  index: number
+  /** The statement's first line, shortened. */
+  title: string
+  line: number
+  kind: 'cursor' | 'docs'
+  /** For an unread find or aggregate cursor: the operation, so it can open in a collection tab
+   *  or become code. */
+  op?: Operation
+  /** Documents held, for `docs` results. */
+  count?: number
+}
+
+export type ShellRunSummary = {
+  runId: string
+  connectionId: string
+  connectionName: string
+  db: string
+  at: number
+  results: ShellResultInfo[]
+}
+
+/** Statements to run: `line` and `column` say where `code` starts in the editor. */
+export type ShellRunInput = { connectionId: string; db: string; code: string; line: number; column: number }
+
 declare module 'orca' {
   interface PluginRequests {
     'connections.state': { output: ConnectionsState }
@@ -144,14 +188,30 @@ declare module 'orca' {
     'saved.save': { input: { ns: Namespace; name: string; query: QueryText }; output: QueryLibrary }
     'saved.delete': { input: { ns: Namespace; name: string }; output: QueryLibrary }
     'favourites.toggle': { input: { key: string; label: string; kind: NodeKind; path: string }; output: { favourites: FavouriteNode[] } }
+    /** Starts running statements in the calling editor's shell session. */
+    'shell.run': { input: ShellRunInput; output: { runId: string } }
+    /** Output after the first `after` entries; waits up to 20 s for more. */
+    'shell.poll': { input: { runId: string; after: number }; output: ShellPoll }
+    /** Stops a run; the session's variables are cleared. */
+    'shell.cancel': { input: { runId: string }; output: null }
+    /** Clears the calling editor's variables. */
+    'shell.reset': { output: null }
+    /** The newest run that produced results, for a panel that opens after it. */
+    'shell.latest': { output: { run: ShellRunSummary | null } }
+    'shell.page': { input: { runId: string; index: number; offset: number; pageSize: number }; output: QueryPage }
+    'shell.databases': { input: { connectionId: string }; output: { names: string[] } }
+    /** Names for autocomplete: collections of `db`, and fields sampled from `collection`. */
+    'shell.complete': { input: { connectionId: string; db: string; collection?: string }; output: { collections: string[]; fields: string[] } }
   }
   interface PluginPanelEvents {
     /** Saved connections, favourites or connection states changed. */
     'connections.changed': ConnectionsState
     /** A command from the palette: show this view. */
-    'ui.navigate': { view: 'new' | 'import' | 'export' | 'tree' }
+    'ui.navigate': { view: 'new' | 'import' | 'export' | 'tree' | 'shell' }
     /** OIDC browser sign-in is waiting for the person to open this page. */
     'oidc.signIn': { connectionId: string; name: string; url: string }
     'oidc.done': { connectionId: string; ok: boolean; message?: string }
+    /** A shell run finished with results to show. */
+    'shell.results': ShellRunSummary
   }
 }

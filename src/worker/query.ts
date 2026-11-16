@@ -90,7 +90,12 @@ export function shrink(value: JsonValue, depth = 0): { value: JsonValue; cut: bo
 
 /** A document as a page shows it: canonical, shrunk, and small enough to send. */
 export function pageDoc(doc: Document): { doc: JsonObject; cut: boolean; bytes: number; objects: number } {
-  const { value, cut } = shrink(toCanonical(doc), 2)
+  return pageCanonical(toCanonical(doc))
+}
+
+/** The same, for a document already in canonical Extended JSON. */
+export function pageCanonical(canonical: JsonObject): { doc: JsonObject; cut: boolean; bytes: number; objects: number } {
+  const { value, cut } = shrink(canonical, 2)
   const shrunk = value as JsonObject
   const size = hostSize(shrunk)
   if (size.bytes <= PAGE_BYTE_BUDGET && size.objects <= PAGE_OBJECT_BUDGET) return { doc: shrunk, cut, bytes: size.bytes, objects: size.objects }

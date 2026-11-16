@@ -41,6 +41,7 @@ import {
 } from './collection-state'
 import { Editors } from './editors-view'
 import { guard } from './guard'
+import { CodeSection, tabOperation } from './shell-view'
 import { Results } from './results-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
@@ -253,6 +254,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
       <Results t={t} />
       <Editors t={t} />
       <Library t={t} />
+      <CodeSection op={tabOperation(t)} description="The query in the bar as driver code." />
     </Box>
   )
 }
