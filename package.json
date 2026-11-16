@@ -1,0 +1,27 @@
+{
+  "name": "orca-mongo-studio",
+  "version": "1.0.0",
+  "description": "Mongo Studio: a MongoDB client plugin for Orca",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "test": "ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test .",
+    "test:it": "MONGO_STUDIO_IT=1 ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test .",
+    "check": "ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin check . && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin validate .",
+    "test:enterprise": "MONGO_STUDIO_IT_ENTERPRISE=1 ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test ."
+  },
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/credential-providers": "^3.1169.0",
+    "kerberos": "^7.0.0",
+    "mongodb": "^7.9.0",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/ssh2": "^1.15.6",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "license": "MIT"
+}

@@ -1,0 +1,51 @@
+{
+  "manifestVersion": 2,
+  "id": "orca-mongo-studio",
+  "name": "Mongo Studio",
+  "version": "0.1.0",
+  "description": "A MongoDB client for Orca: connections, browsing, querying and administration.",
+  "engines": {
+    "orca": ">=1.4.246"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "mongo-studio",
+        "title": "Mongo Studio",
+        "icon": "database",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "mongoStudio.newConnection",
+        "title": "Mongo Studio: New connection"
+      },
+      {
+        "id": "mongoStudio.importConnections",
+        "title": "Mongo Studio: Import connections"
+      },
+      {
+        "id": "mongoStudio.exportConnections",
+        "title": "Mongo Studio: Export connections"
+      },
+      {
+        "id": "mongoStudio.disconnectAll",
+        "title": "Mongo Studio: Disconnect all"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "secrets:own"
+    }
+  ],
+  "license": "MIT"
+}

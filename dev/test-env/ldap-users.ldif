@@ -1,0 +1,10 @@
+dn: ou=people,dc=studio,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=bob,ou=people,dc=studio,dc=test
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Ldap
+sn: Ldap
+userPassword: bob-ldap-dev

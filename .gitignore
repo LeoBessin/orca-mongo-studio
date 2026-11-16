@@ -1,0 +1,6 @@
+node_modules/
+.orca/
+build/
+# Test certificates, SSH keys and the Kerberos ticket cache: made by dev/test-env/make-certs.sh
+# and setup-enterprise.sh, never committed.
+dev/test-env/out/

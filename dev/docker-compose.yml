@@ -1,0 +1,131 @@
+# Local databases for Mongo Studio.
+#
+# Dev (default): a single-node replica set (rs0) so transactions and change streams work.
+#   docker compose -f dev/docker-compose.yml up -d --wait
+#   docker compose -f dev/docker-compose.yml exec mongo mongosh --quiet /seed/seed.mongodb.js
+#   mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+#
+# Integration tests (profile "test"): SCRAM, TLS + X.509, and an SSH bastion.
+#   dev/test-env/make-certs.sh
+#   docker compose -f dev/docker-compose.yml --profile test up -d --wait --build
+#   dev/test-env/setup.sh
+#   npm run test:it
+name: mongo-studio-dev
+services:
+  mongo:
+    image: mongo:8
+    container_name: mongo-studio-dev
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports: ["127.0.0.1:27017:27017"]
+    volumes:
+      - data:/data/db
+      - ./:/seed:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+
+  mongo-auth:
+    profiles: [test]
+    image: mongo:8
+    container_name: mongo-studio-auth
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root-dev-only
+    ports: ["127.0.0.1:27019:27017"]
+    volumes:
+      - ./test-env/mongo-auth-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "-u", "root", "-p", "root-dev-only", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+
+  mongo-tls:
+    profiles: [test]
+    image: mongo:8
+    container_name: mongo-studio-tls
+    command: ["--auth", "--bind_ip_all", "--tlsMode", "requireTLS", "--tlsCertificateKeyFile", "/certs/server.pem", "--tlsCAFile", "/certs/ca.pem", "--tlsAllowConnectionsWithoutCertificates"]
+    ports: ["127.0.0.1:27018:27017"]
+    volumes:
+      - ./test-env/out:/certs:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--tls", "--tlsCAFile", "/certs/ca.pem", "--host", "localhost", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 10s
+      retries: 20
+
+  sshd:
+    profiles: [test]
+    build: ./test-env/sshd
+    container_name: mongo-studio-sshd
+    ports: ["127.0.0.1:2222:22"]
+    volumes:
+      - ./test-env/out/authorized_keys:/etc/ssh/keys/authorized_keys:ro
+
+  # Enterprise auth (profile "enterprise"): Kerberos (GSSAPI) and LDAP (PLAIN).
+  #   docker compose -f dev/docker-compose.yml --profile enterprise up -d --wait --build
+  #   dev/test-env/setup-enterprise.sh
+  kdc:
+    profiles: [enterprise]
+    build: ./test-env/kdc
+    container_name: mongo-studio-kdc
+    hostname: kdc
+    ports: ["127.0.0.1:8888:88/tcp"]
+    volumes: [keytabs:/keytabs]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/keytabs/mongodb.keytab"]
+      interval: 2s
+      retries: 20
+
+  openldap:
+    profiles: [enterprise]
+    image: osixia/openldap:1.5.0
+    container_name: mongo-studio-ldap
+    hostname: openldap
+    environment:
+      LDAP_ORGANISATION: Mongo Studio Test
+      LDAP_DOMAIN: studio.test
+      LDAP_ADMIN_PASSWORD: ldap-admin-dev
+    volumes:
+      - ./test-env/ldap-users.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-users.ldif:ro
+    command: ["--copy-service"]
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-x", "-H", "ldap://localhost", "-D", "uid=bob,ou=people,dc=studio,dc=test", "-w", "bob-ldap-dev"]
+      interval: 3s
+      retries: 30
+
+  mongo-enterprise:
+    profiles: [enterprise]
+    build: ./test-env/enterprise
+    container_name: mongo-studio-enterprise
+    depends_on:
+      kdc: { condition: service_healthy }
+      openldap: { condition: service_healthy }
+    environment:
+      KRB5_CONFIG: /krb5/krb5.conf
+      KRB5_KTNAME: /keytabs/mongodb.keytab
+    command:
+      - --auth
+      - --bind_ip_all
+      - --setParameter
+      - authenticationMechanisms=SCRAM-SHA-256,GSSAPI,PLAIN
+      - --setParameter
+      - saslHostName=localhost
+      - --ldapServers
+      - openldap:389
+      - --ldapTransportSecurity
+      - none
+      - --ldapBindMethod
+      - simple
+      - --ldapUserToDNMapping
+      - '[{match: "(.+)", substitution: "uid={0},ou=people,dc=studio,dc=test"}]'
+    ports: ["127.0.0.1:27020:27017"]
+    volumes:
+      - keytabs:/keytabs:ro
+      - ./test-env/kdc/krb5.conf:/krb5/krb5.conf:ro
+
+volumes:
+  data:
+  keytabs:

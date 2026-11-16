@@ -1,0 +1,30 @@
+{
+  "extends": "./.orca/types/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": [
+      "./.orca/types",
+      "./node_modules/@types"
+    ],
+    "types": [
+      "orca",
+      "orca-host",
+      "orca-frame",
+      "orca-services",
+      "orca-worker",
+      "orca-testing",
+      "node"
+    ],
+    "lib": [
+      "ES2023",
+      "ESNext.Disposable"
+    ]
+  },
+  "include": [
+    "src/worker.ts",
+    "src/worker.test.ts",
+    "src/protocol.ts",
+    "src/worker/**/*.ts",
+    "src/shared/**/*.ts",
+    "test/**/*.ts"
+  ]
+}
