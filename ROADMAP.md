@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 4).
+Last updated: 2026-11-16 (end of Phase 5).
 
 ## Decisions
 
@@ -21,6 +21,10 @@ Last updated: 2026-11-16 (end of Phase 4).
 | Stage preview | `agg.preview` runs the enabled stages before the selected one (input) and with it (output), each + `$limit: size + 1`, in parallel, each half the page budget. Bodies are previewed on selection, structural changes and Ctrl+Enter, not per keystroke. | No timers in the panel; a request per keystroke would flood the worker. |
 | Writes (`$out`, `$merge`) | Never previewed, counted, re-run for a page (`agg.page` refuses unless it reads on from the open cursor) or explained with execution (forced to queryPlanner). Run asks first, naming the target. | A write must happen exactly once, when the person asks. |
 | Explain | The worker runs `explain` (inner `maxTimeMS` 120 s), serializes the answer as relaxed EJSON, and `src/shared/explain.ts` reads it into a summary and a stage tree; the raw text goes as one string (cut at 600 K chars). | One string costs one object in Orca's measure; the summary is small. The reader is pure, so it is tested on fixtures of every shape. |
+| Admin UI | Five tab kinds (Manage collection, Database, Users and roles, Server, Schema) in one `adminTabs` atom, in the same `tabOrder` as collection tabs; ids `adm-<kind>-<hash>`. Sections are Collapsibles. | One tab per object keeps state per object; Collapsibles keep a 420 px panel short. |
+| Live server status | The panel loops `server.status` with `waitMs: 5000`; the worker waits (abortable) before reading. A token ends an old loop; a failure turns live off with a notice. | Panels have no timers. Same idea as `shell.poll`. |
+| Schema report | `schema.analyze` answers the report as one JSON string; the panel parses it. Analysis is pure (`src/shared/schema.ts`) on canonical EJSON, histograms from a seeded reservoir of 5,000 values per field. | A report has many small objects; one string costs one object in Orca's measure. |
+| Destructive admin actions | Inline confirmations naming namespace and count (drop and clear collection, drop index, drop user/role, kill op); dropping a database needs its name typed. System databases are refused in the worker. | No modal dialogs in Orca. |
 | CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
 ## Status
@@ -260,6 +264,68 @@ SBE plan of a `$group`).
    "sample the source first" mode. Worth adding if previews on big collections are slow.
 4. Saved pipelines and query history are separate stores; Phase 7's saved tasks may unify them.
 
+### Done: Phase 5, administration and schema
+
+Checked live through the real host (`orca plugin dev request`: `admin.indexes`, `admin.collection`,
+`schema.analyze` on 5,000 orders in 160 ms, `server.status` with `waitMs`, `server.ops`,
+`users.list`, `profiler.status`).
+
+- **Manage tab** (`src/panel/manage-*`, `src/worker/admin.ts`): statistics and options; index
+  manager (`src/shared/index-spec.ts`: every key kind, unique, sparse, hidden, TTL, partial,
+  collation, wildcard projection, text weights/languages, 2d options; checks before the server; the
+  mongosh command), hide/unhide, TTL change (`collMod`), drop; builds in progress from
+  `$currentOp`; validation editor with "Check documents" (`countDocuments({ $nor: [validator] })`)
+  and "From the schema"; rename (other database, drop target), convert to capped, clear, drop.
+- **Database tab** (`src/panel/database-*`): statistics, collections (Enter opens one), create a
+  plain, capped, time-series or clustered collection with validator and collation (or a new
+  database with its first collection), profiler level/slowms/sampleRate and entries, drop with the
+  name typed.
+- **Users and roles tab** (`src/panel/users-*`, `src/worker/users.ts`): create/update/drop users
+  (password, roles, custom data, mechanisms; `$external` users without password) and roles
+  (privileges in shell syntax, inherited roles).
+- **Server tab** (`src/panel/server-*`, `src/worker/server.ts`): serverStatus sections, rates,
+  replica set members and lag, live mode, current operations (`$currentOp`, falling back to own
+  operations without `inprog`), killOp with confirmation.
+- **Schema Explorer** (`src/panel/schema-*`, `src/shared/schema.ts`, `src/worker/schema.ts`):
+  `$sample` after an optional filter, field tree with types and presence (arrays as `[]`), number
+  and date histograms, top strings, lengths; export as `$jsonSchema` (to the Manage tab) or
+  JSON Schema 2020-12, Save as file.
+- Entry points: tree action bar (connection: Server, New database; database: Manage, Users;
+  collection/view: Manage, Schema; Indexes/index: Manage indexes; Users/Roles nodes), and the
+  collection tab's toolbar (Manage, Schema). Deleting a connection closes its admin tabs; dropping
+  or renaming closes the tabs of that namespace.
+
+**Tests:** 374 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass.
+
+- Schema analysis, histograms (including Int64 extremes and far dates), JSON Schema in both
+  flavours (`schema.test.ts`); the index form and its errors (`index-spec.test.ts`).
+- 19 panel tests (`panel-admin.test.tsx`): every tab from the tree, index create/hide/TTL/drop,
+  validation load/check/save, clear and drop confirmations, rename, create capped and time-series
+  collections, new database, profiler, drop database by name, users and roles, server rates,
+  kill with confirmation, live refresh stopping on failure, schema export to a validator, no
+  Orca warnings with every section open.
+- Live (`test/admin.test.ts`): every index kind created, hidden, TTL changed and dropped;
+  every collection kind created; validation check and set; rename, clear, convert to capped, drop;
+  profiler entries; users and roles round trip (the new user signs in); server status, a slow
+  `$where` find found in current operations and killed; schema samples.
+
+### Open items from Phase 5
+
+1. **Screenshots (blocked, as before).** `dev/shots.sh` has a Phase 5 section writing to
+   `.orca/shots/p5/` (manage, index details, new index, validation check, drop confirmation,
+   database, create collection, profiler, users, user form, server, schema, schema export). Look in
+   particular at the index Table and the New index rows at 420 px, the server sections Grid, and
+   the histogram text bars.
+2. Not tested against a sharded cluster or Atlas: `$currentOp` on mongos (opids like
+   `shard:123` are sent back as given), profiler on mongos (the server refuses levels there; the
+   error is shown), and `$indexStats` per shard.
+3. The profiler's slow threshold and sample rate are server-wide (MongoDB's rule); the tab says so.
+4. Index builds started elsewhere show from `$currentOp`; there is no progress post, so the person
+   refreshes. A build that outlasts the 2-minute request timeout keeps running and says so.
+5. User editing doesn't cover authentication restrictions (`authenticationRestrictions`) or
+   password digestion options; roles don't cover `authenticationRestrictions` either.
+
 ### Open items from Phase 3
 
 1. **Screenshots (blocked, as before).** Editor shots work only without `--act` while Orca's
@@ -301,7 +367,10 @@ SBE plan of a `$group`).
   - Inline confirmation callouts for destructive actions.
   - An "Add to query" action instead of dragging fields.
   - Editing in forms and the Tree view.
-- Finders in `orca/testing` don't see closed `Collapsible`s or unselected tabs.
+- Finders in `orca/testing` don't see closed `Collapsible`s or unselected tabs. Collapsibles and
+  Callout titles match by `label`; a `Progress` bar's text is its `label`, not `text`.
+- **A `Select` option whose value is `''` makes Orca drop the Select** (it isn't drawn). Use a
+  sentinel value (`'any'`, `'default'`) or `placeholder` with no matching option.
 - **Test loader:** a test file may import npm packages only through modules reached from
   `main`. A test that imports `src/worker/*.ts` directly must `import '../worker'` first.
 - A components panel may import relative modules (`src/shared`, `src/panel`), but no npm package.
@@ -342,15 +411,7 @@ collections, every index kind, GridFS, users and roles.
 
 ## Later phases (from the brief)
 
-- **Phase 5, admin and schema (next; ask before starting)**
-  - Index manager: every index kind, hide/unhide, sizes and usage.
-  - Collection operations: capped, time-series, clustered and validated collections; rename,
-    drop, clear, stats, and a validation-rule editor.
-  - User and role manager.
-  - Server status, current operations and kill op, and a profiler viewer.
-  - Schema Explorer: sampling, type distribution, histograms, and export as JSON Schema or a
-    `$jsonSchema` validator.
-- **Phase 6, data movement**
+- **Phase 6, data movement (next; ask before starting)**
   - Import from JSON, mongoexport, CSV (with mapping and type inference) and BSON/mongodump.
   - Export to JSON, CSV, BSON or another collection.
   - Copy and paste between connections.

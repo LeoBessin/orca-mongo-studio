@@ -1,8 +1,11 @@
 // Mongo Studio's right-sidebar panel. Connections, the connection editor, import/export and each
-// open collection are tabs; later phases add admin tabs here. Everything is drawn with Orca's
+// open collection are tabs, and so is each administration view (collection, database, users,
+// server, schema). Everything is drawn with Orca's
 // own components, so every Orca theme applies.
 import { plugin, read, set, Tab, Tabs, type IconName, type OrcaNode, type PanelContext } from 'orca'
 import { collTabs, tabOrder } from './panel/collection-state'
+import { adminTabs } from './panel/admin-state'
+import { ADMIN_ICONS, AdminTabView } from './panel/admin-view'
 import { AggregationTab } from './panel/aggregate-view'
 import { CollectionTab } from './panel/collection-view'
 import { ConnectionForm } from './panel/connection-form'
@@ -78,9 +81,17 @@ export default function Panel(): OrcaNode {
       ) : null}
       {read(tabOrder).map((id) => {
         const t = read(collTabs)[id]
-        return t ? (
-          <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
-            {t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />}
+        if (t) {
+          return (
+            <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
+              {t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />}
+            </Tab>
+          )
+        }
+        const a = read(adminTabs)[id]
+        return a ? (
+          <Tab key={id} value={id} label={a.title} icon={ADMIN_ICONS[a.kind]}>
+            <AdminTabView id={id} />
           </Tab>
         ) : null
       })}

@@ -1,0 +1,27 @@
+// Draws an administration tab by its kind, and the icon its tab shows.
+import { read, type IconName, type OrcaNode } from 'orca'
+import { adminTabs, type AdminKind } from './admin-state'
+import { DatabaseTabView } from './database-view'
+import { ManageTabView } from './manage-view'
+import { SchemaTabView } from './schema-view'
+import { ServerTabView } from './server-view'
+import { UsersTabView } from './users-view'
+
+export const ADMIN_ICONS: Record<AdminKind, IconName> = { manage: 'settings', database: 'layers', users: 'agent', server: 'gauge', schema: 'bar-chart-3' }
+
+export function AdminTabView({ id }: { id: string }): OrcaNode {
+  const t = read(adminTabs)[id]
+  if (!t) return null
+  switch (t.kind) {
+    case 'manage':
+      return <ManageTabView id={id} />
+    case 'database':
+      return <DatabaseTabView id={id} />
+    case 'users':
+      return <UsersTabView id={id} />
+    case 'server':
+      return <ServerTabView id={id} />
+    case 'schema':
+      return <SchemaTabView id={id} />
+  }
+}

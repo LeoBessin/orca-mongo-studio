@@ -14,7 +14,7 @@ function json(value: unknown): string {
   return EJSON.stringify(value, undefined, 2, { relaxed: true })
 }
 
-async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let next = 0
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -27,9 +27,9 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) 
   return out
 }
 
-type CollStats = { count?: number; size?: number; storageSize?: number; avgObjSize?: number; nindexes?: number; totalIndexSize?: number; indexSizes?: Record<string, number>; capped?: boolean }
+export type CollStats = { count?: number; size?: number; storageSize?: number; avgObjSize?: number; nindexes?: number; totalIndexSize?: number; indexSizes?: Record<string, number>; capped?: boolean }
 
-async function collStats(db: Db, name: string): Promise<CollStats | undefined> {
+export async function collStats(db: Db, name: string): Promise<CollStats | undefined> {
   try {
     const [row] = await db
       .collection(name)
@@ -50,7 +50,7 @@ function collDescription(stats: CollStats | undefined): string | undefined {
   return parts.join(' · ') || undefined
 }
 
-function indexFlags(spec: Document): string[] {
+export function indexFlags(spec: Document): string[] {
   const flags: string[] = []
   const values = Object.values((spec.key ?? {}) as Record<string, unknown>)
   for (const v of values) {

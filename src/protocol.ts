@@ -181,6 +181,128 @@ export type ShellRunSummary = {
 /** Statements to run: `line` and `column` say where `code` starts in the editor. */
 export type ShellRunInput = { connectionId: string; db: string; code: string; line: number; column: number }
 
+
+// ---- Administration ----
+
+/** A database on a saved connection. */
+export type DbRef = { connectionId: string; db: string }
+
+export type IndexInfo = {
+  name: string
+  /** Canonical Extended JSON. */
+  key: JsonObject
+  /** Kinds and options in words: unique, sparse, TTL 3600s, text, hidden, … */
+  kinds: string[]
+  hidden: boolean
+  unique: boolean
+  /** Seconds, for a TTL index. */
+  ttl?: number
+  size?: number
+  /** Times used since `since` (from $indexStats), when the user may read it. */
+  ops?: number
+  since?: number
+  /** The whole definition, canonical. */
+  spec: JsonObject
+}
+/** An index build running now (from $currentOp). */
+export type IndexBuild = { names: string[]; progress?: string; secs?: number }
+export type IndexList = { indexes: IndexInfo[]; building: IndexBuild[]; ms: number }
+
+export type CollectionKind = 'collection' | 'view' | 'timeseries'
+export type ValidationLevel = 'off' | 'strict' | 'moderate'
+export type ValidationAction = 'error' | 'warn' | 'errorAndLog'
+export type CollectionInfo = {
+  kind: CollectionKind
+  stats: DetailItem[]
+  /** Documents (estimated), for confirmations. */
+  count: number | null
+  /** Options the collection was created with, canonical. */
+  options: JsonObject
+  validator: JsonObject | null
+  validationLevel: ValidationLevel
+  validationAction: ValidationAction
+  capped: boolean
+}
+export type ValidationCheck = { failing: number | null; checked: number | null; ms: number; firstId?: JsonValue; error?: string }
+
+export type CreateCollectionSpec = {
+  name: string
+  kind: 'plain' | 'capped' | 'timeseries' | 'clustered'
+  capped?: { size: number; max?: number }
+  timeseries?: { timeField: string; metaField?: string; granularity?: 'seconds' | 'minutes' | 'hours'; expireAfterSeconds?: number }
+  clustered?: { expireAfterSeconds?: number }
+  validator?: JsonObject
+  validationLevel?: ValidationLevel
+  validationAction?: ValidationAction
+  collation?: JsonObject
+}
+
+export type DatabaseInfo = { stats: DetailItem[]; collections: { name: string; kind: CollectionKind | 'bucket' }[] }
+
+export type ProfilerStatus = { level: number; slowms: number; sampleRate: number; filter?: string; note?: string }
+export type ProfileFilter = { op?: string; minMs?: number; ns?: string }
+export type ProfileEntry = {
+  key: string
+  at: number
+  op: string
+  ns: string
+  ms: number
+  plan?: string
+  docsExamined?: number
+  keysExamined?: number
+  returned?: number
+  user?: string
+  app?: string
+  /** The command, short, on one line. */
+  command: string
+  /** The whole entry, relaxed Extended JSON (cut when very long). */
+  raw: string
+}
+
+export type RoleRef = { role: string; db: string }
+export type UserInfo = { user: string; db: string; roles: RoleRef[]; mechanisms: string[]; customData?: string }
+export type RoleInfo = { role: string; db: string; roles: RoleRef[]; privileges: JsonObject[]; builtin: boolean }
+export type UsersState = { users: UserInfo[]; roles: RoleInfo[]; builtinRoles: string[] }
+export type UserDraft = {
+  user: string
+  /** Set to create the user or change its password; never sent back. */
+  password?: string
+  roles: RoleRef[]
+  /** Shell syntax document, or empty. */
+  customData?: JsonObject | null
+  mechanisms?: string[]
+}
+export type RoleDraft = { role: string; privileges: JsonObject[]; roles: RoleRef[] }
+
+export type ServerStatus = {
+  at: number
+  /** Grouped name/value pairs. */
+  sections: { title: string; items: DetailItem[] }[]
+  /** Counters for rates: opcounters, network, … */
+  counters: Record<string, number>
+  members?: { name: string; state: string; health: number; lagSecs?: number; self?: boolean }[]
+  ms: number
+}
+export type CurrentOp = {
+  opid: string
+  /** The opid as the server gives it (a number, or "shard:number"). */
+  opidValue: JsonValue
+  op: string
+  ns: string
+  secs: number
+  active: boolean
+  client?: string
+  app?: string
+  desc?: string
+  user?: string
+  plan?: string
+  waitingForLock?: boolean
+  /** The command, short, on one line. */
+  command: string
+  raw: string
+}
+export type CurrentOpsFilter = { idle: boolean; system: boolean; minSecs?: number; ns?: string }
+
 declare module 'orca' {
   interface PluginRequests {
     'connections.state': { output: ConnectionsState }
@@ -247,6 +369,39 @@ declare module 'orca' {
     'shell.databases': { input: { connectionId: string }; output: { names: string[] } }
     /** Names for autocomplete: collections of `db`, and fields sampled from `collection`. */
     'shell.complete': { input: { connectionId: string; db: string; collection?: string }; output: { collections: string[]; fields: string[] } }
+    // ---- Administration ----
+    'admin.indexes': { input: { ns: Namespace }; output: IndexList }
+    'admin.createIndex': { input: { ns: Namespace; key: JsonObject; options: JsonObject }; output: { name: string } }
+    'admin.dropIndex': { input: { ns: Namespace; name: string }; output: null }
+    /** Hides or shows an index to the planner, or changes a TTL index's seconds (collMod). */
+    'admin.modifyIndex': { input: { ns: Namespace; name: string; hidden?: boolean; expireAfterSeconds?: number }; output: null }
+    'admin.collection': { input: { ns: Namespace }; output: CollectionInfo }
+    'admin.setValidation': { input: { ns: Namespace; validator: JsonObject | null; level: ValidationLevel; action: ValidationAction }; output: null }
+    /** Counts documents the validator would refuse (with a time limit). */
+    'admin.checkValidation': { input: { ns: Namespace; validator: JsonObject }; output: ValidationCheck }
+    'admin.renameCollection': { input: { ns: Namespace; to: string; toDb?: string; dropTarget: boolean }; output: null }
+    'admin.dropCollection': { input: { ns: Namespace }; output: null }
+    /** Deletes every document, keeping the collection, its indexes and options. */
+    'admin.clearCollection': { input: { ns: Namespace }; output: { deleted: number } }
+    'admin.convertToCapped': { input: { ns: Namespace; size: number }; output: null }
+    'admin.database': { input: DbRef; output: DatabaseInfo }
+    'admin.createCollection': { input: DbRef & { spec: CreateCollectionSpec }; output: null }
+    'admin.dropDatabase': { input: DbRef; output: null }
+    'profiler.status': { input: DbRef; output: ProfilerStatus }
+    'profiler.set': { input: DbRef & { level: number; slowms: number; sampleRate: number }; output: ProfilerStatus }
+    'profiler.entries': { input: DbRef & { filter: ProfileFilter; limit: number }; output: { entries: ProfileEntry[]; ms: number } }
+    'users.list': { input: DbRef; output: UsersState }
+    'users.save': { input: DbRef & { draft: UserDraft; isNew: boolean }; output: null }
+    'users.drop': { input: DbRef & { user: string }; output: null }
+    'roles.save': { input: DbRef & { draft: RoleDraft; isNew: boolean }; output: null }
+    'roles.drop': { input: DbRef & { role: string }; output: null }
+    /** With `waitMs`, waits that long first (live refresh without timers in the panel). */
+    'server.status': { input: { connectionId: string; waitMs?: number }; output: ServerStatus }
+    'server.ops': { input: { connectionId: string; filter: CurrentOpsFilter }; output: { ops: CurrentOp[]; capped: boolean; ms: number } }
+    'server.killOp': { input: { connectionId: string; opid: JsonValue }; output: null }
+    /** Samples documents and answers a SchemaReport as JSON text (one string is cheap in Orca's
+     *  size measure, where a report's many small objects are not). */
+    'schema.analyze': { input: { ns: Namespace; size: number; filter?: JsonObject }; output: { report: string } }
   }
   interface PluginPanelEvents {
     /** Saved connections, favourites or connection states changed. */

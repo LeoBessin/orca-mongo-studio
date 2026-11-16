@@ -5,13 +5,35 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import type { ConnectionsState, ImportReport, SaveResult } from './protocol'
 import { cloneDef, connectionSubtitle, emptyConnection, validateConnection, type ConnectionDef } from './shared/model'
 import { exportConnections, importConnections } from './shared/transfer'
+import {
+  checkValidation,
+  clearCollection,
+  collectionInfo,
+  convertToCapped,
+  createCollection,
+  createIndex,
+  databaseInfo,
+  dropCollection,
+  dropDatabase,
+  dropIndex,
+  listIndexes,
+  modifyIndex,
+  profileEntries,
+  profilerStatus,
+  renameCollection,
+  setProfiler,
+  setValidation
+} from './worker/admin'
 import { createView, explainAggregate, explainFind, PipelineLibraryStore, previewStage } from './worker/aggregate'
 import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
 import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
+import { analyzeSchema } from './worker/schema'
+import { currentOps, killOp, serverStatus, sleep } from './worker/server'
 import { ShellService } from './worker/shell'
 import { ConnectionStore } from './worker/store'
 import { treeChildren, treeDetails, type TreeContext } from './worker/tree'
+import { dropRole, dropUser, listUsers, saveRole, saveUser } from './worker/users'
 
 let pool: ClientPool | undefined
 let queries: QuerySessions | undefined
@@ -249,6 +271,81 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('pipelines.list', ({ ns }) => pipelines.read(ns))
   orca.panels.handle('pipelines.save', ({ ns, name, stages }) => pipelines.save(ns, name, stages, Date.now()))
   orca.panels.handle('pipelines.delete', ({ ns, name }) => pipelines.remove(ns, name))
+
+  // ---- Administration ----
+
+  orca.panels.handle('admin.indexes', async ({ ns }) => listIndexes(await clientFor(ns.connectionId), ns))
+  orca.panels.handle('admin.createIndex', async ({ ns, key, options }) => createIndex(await clientFor(ns.connectionId), ns, key, options))
+  orca.panels.handle('admin.dropIndex', async ({ ns, name }) => {
+    await dropIndex(await clientFor(ns.connectionId), ns, name)
+    return null
+  })
+  orca.panels.handle('admin.modifyIndex', async ({ ns, name, hidden, expireAfterSeconds }) => {
+    await modifyIndex(await clientFor(ns.connectionId), ns, name, { ...(hidden !== undefined ? { hidden } : {}), ...(expireAfterSeconds !== undefined ? { expireAfterSeconds } : {}) })
+    return null
+  })
+  orca.panels.handle('admin.collection', async ({ ns }) => collectionInfo(await clientFor(ns.connectionId), ns))
+  orca.panels.handle('admin.setValidation', async ({ ns, validator, level, action }) => {
+    await setValidation(await clientFor(ns.connectionId), ns, validator, level, action)
+    return null
+  })
+  orca.panels.handle('admin.checkValidation', async ({ ns, validator }) => checkValidation(await clientFor(ns.connectionId), ns, validator))
+  orca.panels.handle('admin.renameCollection', async ({ ns, to, toDb, dropTarget }) => {
+    await renameCollection(await clientFor(ns.connectionId), ns, to, toDb, dropTarget)
+    return null
+  })
+  orca.panels.handle('admin.dropCollection', async ({ ns }) => {
+    await dropCollection(await clientFor(ns.connectionId), ns)
+    return null
+  })
+  orca.panels.handle('admin.clearCollection', async ({ ns }) => clearCollection(await clientFor(ns.connectionId), ns))
+  orca.panels.handle('admin.convertToCapped', async ({ ns, size }) => {
+    await convertToCapped(await clientFor(ns.connectionId), ns, size)
+    return null
+  })
+  orca.panels.handle('admin.database', async (ref) => databaseInfo(await clientFor(ref.connectionId), ref))
+  orca.panels.handle('admin.createCollection', async ({ connectionId, db, spec }) => {
+    await createCollection(await clientFor(connectionId), { connectionId, db }, spec)
+    return null
+  })
+  orca.panels.handle('admin.dropDatabase', async (ref) => {
+    await dropDatabase(await clientFor(ref.connectionId), ref)
+    return null
+  })
+  orca.panels.handle('profiler.status', async (ref) => profilerStatus(await clientFor(ref.connectionId), ref))
+  orca.panels.handle('profiler.set', async ({ connectionId, db, level, slowms, sampleRate }) => setProfiler(await clientFor(connectionId), { connectionId, db }, level, slowms, sampleRate))
+  orca.panels.handle('profiler.entries', async ({ connectionId, db, filter, limit }) => profileEntries(await clientFor(connectionId), { connectionId, db }, filter ?? {}, limit))
+  orca.panels.handle('users.list', async (ref) => listUsers(await clientFor(ref.connectionId), ref))
+  orca.panels.handle('users.save', async ({ connectionId, db, draft, isNew }) => {
+    await saveUser(await clientFor(connectionId), { connectionId, db }, draft, isNew)
+    return null
+  })
+  orca.panels.handle('users.drop', async ({ connectionId, db, user }) => {
+    await dropUser(await clientFor(connectionId), { connectionId, db }, user)
+    return null
+  })
+  orca.panels.handle('roles.save', async ({ connectionId, db, draft, isNew }) => {
+    await saveRole(await clientFor(connectionId), { connectionId, db }, draft, isNew)
+    return null
+  })
+  orca.panels.handle('roles.drop', async ({ connectionId, db, role }) => {
+    await dropRole(await clientFor(connectionId), { connectionId, db }, role)
+    return null
+  })
+  orca.panels.handle('server.status', async ({ connectionId, waitMs }, { signal }) => {
+    const client = await clientFor(connectionId)
+    if (waitMs !== undefined) {
+      if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 60_000) throw invalid('Wait 0 to 60,000 ms.')
+      await sleep(waitMs, signal)
+    }
+    return serverStatus(client)
+  })
+  orca.panels.handle('server.ops', async ({ connectionId, filter }) => currentOps(await clientFor(connectionId), filter ?? { idle: false, system: false }))
+  orca.panels.handle('server.killOp', async ({ connectionId, opid }) => {
+    await killOp(await clientFor(connectionId), opid)
+    return null
+  })
+  orca.panels.handle('schema.analyze', async ({ ns, size, filter }) => analyzeSchema(await clientFor(ns.connectionId), ns, size, filter))
 
   orca.panels.handle('history.list', ({ ns }) => library.read(ns))
   orca.panels.handle('history.clear', ({ ns }) => library.clearHistory(ns))

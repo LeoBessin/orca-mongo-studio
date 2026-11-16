@@ -4,8 +4,8 @@ A MongoDB client for Orca, built from Orca's own components so it follows every 
 has no AI features.
 
 **Status:** Phases 1 (connections and navigation), 2 (querying and data viewing), 3 (shell and
-code) and 4 (aggregation and explain) are done. Later phases add admin, data movement and saved
-tasks.
+code), 4 (aggregation and explain) and 5 (administration and schema) are done. Later phases add
+data movement and saved tasks.
 
 ## What Phase 1 does
 
@@ -119,6 +119,47 @@ tasks.
 - **Shell:** `cursor.explain(verbosity)`, `db.coll.explain(verbosity).find(…)` (with `.finish()`
   to read it in a script), `.aggregate(…)`, `.count(…)` and `.distinct(…)`.
 
+## What Phase 5 does
+
+Each of these is a tab next to the collection tabs, opened from the tree's action bar.
+
+- **Manage a collection** (gear button on a collection or view, or on a collection tab;
+  "Manage indexes" on the Indexes node or an index):
+  - Overview: documents, sizes, indexes, capped limits, clustering, time-series fields and expiry,
+    and the creation options.
+  - **Index manager.** Every index with its key, kind, size and use count (`$indexStats`), and
+    builds in progress. New index: field rows of ascending, descending, text, 2dsphere, 2d, hashed
+    or wildcard (`$**`, on all fields or under one), with unique, sparse, hidden, TTL, partial
+    filter, collation, wildcard projection, text weights and languages, and 2d bits/min/max. The
+    form checks what the server would refuse and shows the mongosh command. Hide or unhide an
+    index, change a TTL, drop an index (after a confirmation).
+  - **Validation.** The rules in shell syntax with level and action; "Check documents" counts the
+    documents that break them (and names the first); "From the schema" builds rules from a sample.
+  - Rename (also to another database, optionally replacing the target), make capped, delete all
+    documents, drop. Clearing and dropping ask first, naming the namespace and document count.
+- **Database** ("Manage" on a database; the + button on a connection makes a new one):
+  statistics and collections; create a collection that is plain, capped (size, most documents),
+  time series (time and meta fields, granularity, expiry) or clustered (expiry), with a validator
+  and collation, showing the mongosh command; the **profiler** (level, slow threshold, sample rate)
+  and its newest entries with filters by operation, duration and collection; drop the database,
+  after typing its name. `admin`, `local` and `config` are never dropped.
+- **Users and roles** ("Users" on a database, or the Users and Roles nodes): users with their
+  roles and sign-in mechanisms, custom roles with their privileges. Create and edit users
+  (password, roles from the built-in and custom lists or typed, custom data, SCRAM mechanisms) and
+  roles (privileges in shell syntax, inherited roles); drop either after a confirmation. A typed
+  password lives only in the open form.
+- **Server** (gauge button on a connected connection): serverStatus in sections (server,
+  connections, operations, network, memory and WiredTiger cache, replication, asserts), rates per
+  second between readings, replica set members with their lag, and a live mode that reads every
+  5 s. **Current operations** with filters (namespace, running time, idle connections, the
+  server's own work), details, and Stop (killOp) after a confirmation.
+- **Schema Explorer** (chart button on a collection or view): samples 100 to 10,000 documents
+  (`$sample`, after an optional filter) and shows every field as a tree, arrays' elements included,
+  with its types and how often it is there. A field shows its type split, a histogram of numbers or
+  dates, its most common strings, lengths and array sizes. The sample's shape exports as a MongoDB
+  `$jsonSchema` validator (sent to the Manage tab with "Use as validator") or a JSON Schema
+  (draft 2020-12), saved with Save as file.
+
 ### Size limits
 
 Orca refuses a panel request or answer past 1 MiB, 10,000 objects or arrays, or 100 levels deep.
@@ -147,6 +188,10 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 | `src/panel/aggregate-*.ts(x)`, `src/shared/pipeline.ts` | Aggregation tabs and the stage model |
 | `src/panel/explain-*.ts(x)`, `src/shared/explain.ts` | Explain sections and the explain reader |
 | `src/worker/aggregate.ts` | Stage previews, explain, views from a pipeline, saved pipelines |
+| `src/panel/admin-*.ts(x)` | Administration tabs: shared state, notices, drawing a tab by kind |
+| `src/panel/manage-*`, `database-*`, `users-*`, `server-*`, `schema-*` | The Manage, Database, Users and roles, Server and Schema tabs |
+| `src/worker/admin.ts`, `users.ts`, `server.ts`, `schema.ts` | Indexes, collections, databases, profiler; users and roles; server status and operations; schema sampling |
+| `src/shared/index-spec.ts`, `schema.ts` | The index form, and the schema analysis, histograms and JSON Schema export |
 | `src/shared/` | Pure code both sides use: connection model, URI parser/builder, import/export, tree keys, the shell literal parser, Extended JSON views, the Query Builder and field-editor models |
 | `test/` | Integration tests against the docker databases |
 | `dev/` | Docker databases, seed data and test fixtures |
@@ -216,6 +261,10 @@ npm run test:enterprise
   documents. A slow `$group` or `$sort` early in a big pipeline makes the preview slow too (it
   stops after 30 s).
 - Paging a pipeline's results past the open cursor runs the pipeline again with `$skip`.
+- Orca has no chart component, so the Schema Explorer draws distributions as progress bars and
+  tables with text bars. Histograms are built from up to 5,000 values per field and scaled.
+- Live server status refreshes while the tab stays open; it waits in the worker between readings,
+  since a components panel has no timers.
 - The plugin isn't packaged for installation yet. Installed plugins don't run `npm install`,
   so a release needs a bundled worker plus the Kerberos binary for each platform. Until then,
   load the folder with `orca plugin dev load`.

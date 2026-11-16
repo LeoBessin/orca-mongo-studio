@@ -24,8 +24,14 @@ import {
   type TreeItem
 } from 'orca'
 import type { ConnectionSummary, TreeNode } from '../protocol'
-import type { NodeKind } from '../shared/nodes'
+import { parseNodeKey, type NodeKind } from '../shared/nodes'
+import { closeAdminTabsFor, nodeNamespace } from './admin-state'
 import { openAggregationForNode } from './aggregate-state'
+import { openDatabase, openNewDatabase } from './database-state'
+import { openManage } from './manage-state'
+import { openSchema } from './schema-state'
+import { openServer } from './server-state'
+import { openUsers } from './users-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
@@ -202,11 +208,48 @@ function actionBar(key: string): OrcaNode {
         <IconButton icon="edit" label="Edit connection" variant="ghost" size="sm" onPress={act(() => openEditConnection(id))} />
         <IconButton icon="copy" label="Clone connection" variant="ghost" size="sm" onPress={act(() => cloneConnection(id))} />
         {connected ? refresh : null}
+        {connected ? <IconButton icon="gauge" label="Server status and operations" variant="ghost" size="sm" onPress={act(() => openServer(id))} /> : null}
+        {connected ? <IconButton icon="add" label="New database" variant="ghost" size="sm" onPress={act(async () => openNewDatabase(id))} /> : null}
         <IconButton icon="delete" label="Delete connection" variant="ghost" tone="danger" size="sm" onPress={() => set(confirmDelete, { id, name: summary?.name ?? '' })} />
       </Toolbar>
     )
   }
   const openable = meta.kind === 'coll' || meta.kind === 'view' || meta.kind === 'timeseries'
+  const target = nodeNamespace(real)
+  const ns = target.ns
+  const collKind = (): NodeKind => parseNodeKey(real).find((s) => s.kind === 'coll' || s.kind === 'timeseries')?.kind ?? 'coll'
+  if (meta.kind === 'db' && target.db) {
+    const db = target.db
+    return (
+      <Toolbar label={`${meta.label} actions`} gap="xs">
+        <Button size="sm" icon="settings" variant="solid" tone="accent" onPress={act(() => openDatabase(id, db))}>Manage</Button>
+        <Button size="sm" icon="agent" variant="ghost" onPress={act(() => openUsers(id, db))}>Users</Button>
+        {refresh}
+        {favourite}
+      </Toolbar>
+    )
+  }
+  if ((meta.kind === 'indexes' || meta.kind === 'index') && ns) {
+    const index = meta.kind === 'index' ? meta.label : undefined
+    return (
+      <Toolbar label={`${meta.label} actions`} gap="xs">
+        <Button size="sm" icon="settings" variant="solid" tone="accent" onPress={act(() => openManage(ns, collKind(), { section: 'indexes', ...(index ? { index } : {}) }))}>Manage indexes</Button>
+        {refresh}
+        {favourite}
+      </Toolbar>
+    )
+  }
+  if ((meta.kind === 'users' || meta.kind === 'user' || meta.kind === 'roles' || meta.kind === 'role') && target.db) {
+    const db = target.db
+    const focus = meta.kind === 'user' ? { user: meta.label } : meta.kind === 'role' ? { role: meta.label } : undefined
+    return (
+      <Toolbar label={`${meta.label} actions`} gap="xs">
+        <Button size="sm" icon="agent" variant="solid" tone="accent" onPress={act(() => openUsers(id, db, focus))}>Manage users and roles</Button>
+        {refresh}
+        {favourite}
+      </Toolbar>
+    )
+  }
   return (
     <Toolbar label={`${meta.label} actions`} gap="xs">
       {openable ? (
@@ -219,6 +262,8 @@ function actionBar(key: string): OrcaNode {
           Aggregate
         </Button>
       ) : null}
+      {openable && ns ? <IconButton icon="settings" label={meta.kind === 'view' ? 'Manage the view' : 'Manage the collection: indexes, validation, rename, drop'} variant="ghost" size="sm" onPress={act(() => openManage(ns, meta.kind))} /> : null}
+      {openable && ns ? <IconButton icon="bar-chart-3" label="Schema: sample the fields and their types" variant="ghost" size="sm" onPress={act(() => openSchema(ns, meta.kind))} /> : null}
       {refresh}
       {favourite}
     </Toolbar>
@@ -323,6 +368,7 @@ export function TreeView(): OrcaNode {
                 <Row gap="xs">
                   <Button variant="solid" tone="danger" onPress={act(async () => {
                     closeTabsFor(pending.id)
+                    closeAdminTabsFor(pending.id)
                     await deleteConnection(pending.id)
                   })}>Delete connection</Button>
                   <Button variant="ghost" onPress={() => set(confirmDelete, null)}>Cancel</Button>

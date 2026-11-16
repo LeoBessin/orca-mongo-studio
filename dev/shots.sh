@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2 and p4.
+# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2, p4 and p5.
 #
 # `orca plugin shot --act/--scenario/--theme` only works while Orca's window is hidden or
 # minimized. Hide it (or switch to a session whose compositor can minimize it), run this, and keep
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 ORCA=(env ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js)
 KEY=local.orca-mongo-studio
 WIDTH=${WIDTH:-420}
-mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4
+mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5
 
 CONN=$("${ORCA[@]}" plugin dev request . connections.state --json |
   node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));const c=r.result.result.connections.find(c=>c.name==="Local dev (rs0)");if(!c)process.exit(1);process.stdout.write("conn:"+encodeURIComponent(c.id))')
@@ -24,6 +24,13 @@ open_coll() { # db collection kind
     "$T" "$CONN" "$T" "$CONN" "$1" "$T" "$CONN" "$1" "$3" "$2"
 }
 ROWS='{"type":"Table","label":"Documents"}'
+at_coll() { # db collection kind: the collection selected in the tree
+  printf '{"expand":%s,"key":"%s"},{"expand":%s,"key":"%s/db:%s"},{"selectItem":%s,"key":"%s/db:%s/%s:%s"}' \
+    "$T" "$CONN" "$T" "$CONN" "$1" "$T" "$CONN" "$1" "$3" "$2"
+}
+at_db() { # db
+  printf '{"expand":%s,"key":"%s"},{"selectItem":%s,"key":"%s/db:%s"}' "$T" "$CONN" "$T" "$CONN" "$1"
+}
 
 shot() { # dir name acts
   for theme in dark light; do
@@ -74,3 +81,20 @@ shot p4 agg-explain "$(open_agg shop orders coll),$GROUP,{\"press\":{\"text\":\"
 shot p4 agg-view "$(open_agg shop orders coll),{\"toggle\":{\"label\":\"Create a view\"}}"
 shot p4 explain-find "$(open_coll shop orders coll),{\"type\":{\"label\":\"Filter\"},\"text\":\"{ status: 'shipped' }\"},{\"press\":{\"label\":\"Explain the query\"}}"
 shot p4 explain-raw "$(open_coll shop orders coll),{\"press\":{\"label\":\"Explain the query\"}},{\"press\":{\"text\":\"Raw\"}}"
+
+# ---- Phase 5 ----
+MANAGE='{"press":{"label":"Manage the collection: indexes, validation, rename, drop"}}'
+SCHEMA='{"press":{"label":"Schema: sample the fields and their types"}}'
+shot p5 manage "$(at_coll shop orders coll),$MANAGE"
+shot p5 manage-index "$(at_coll shop orders coll),$MANAGE,{\"selectRows\":{\"type\":\"Table\",\"label\":\"Indexes\"},\"keys\":[\"i:status\"]}"
+shot p5 new-index "$(at_coll shop orders coll),$MANAGE,{\"press\":{\"text\":\"New index\"}},{\"type\":{\"label\":\"Field 1\"},\"text\":\"total\"},{\"press\":{\"text\":\"Add a field\"}},{\"type\":{\"label\":\"Field 2\"},\"text\":\"title\"},{\"select\":{\"label\":\"Field 2 kind\"},\"value\":\"text\"}"
+shot p5 validation "$(at_coll shop customers coll),$MANAGE,{\"toggle\":{\"label\":\"Validation\"}},{\"press\":{\"text\":\"Check documents\"}}"
+shot p5 drop "$(at_coll shop orders coll),$MANAGE,{\"toggle\":{\"label\":\"Rename, clear and drop\"}},{\"press\":{\"text\":\"Drop collection\"}}"
+shot p5 database "$(at_db shop),{\"press\":{\"text\":\"Manage\"}}"
+shot p5 create-collection "$(at_db shop),{\"press\":{\"text\":\"Manage\"}},{\"toggle\":{\"label\":\"Create a collection\"}},{\"select\":{\"label\":\"Kind\"},\"value\":\"timeseries\"}"
+shot p5 profiler "$(at_db shop),{\"press\":{\"text\":\"Manage\"}},{\"toggle\":{\"label\":\"Profiler\"}},{\"press\":{\"text\":\"Read entries\"}}"
+shot p5 users "$(at_db shop),{\"press\":{\"text\":\"Users\"}},{\"selectRows\":{\"type\":\"Table\",\"label\":\"Users\"},\"keys\":[\"u:app\"]}"
+shot p5 user-form "$(at_db shop),{\"press\":{\"text\":\"Users\"}},{\"press\":{\"text\":\"New user\"}}"
+shot p5 server "{\"selectItem\":$T,\"key\":\"$CONN\"},{\"press\":{\"label\":\"Server status and operations\"}}"
+shot p5 schema "$(at_coll shop orders coll),$SCHEMA,{\"selectItem\":{\"type\":\"Tree\",\"label\":\"Fields\"},\"key\":\"f:total\"}"
+shot p5 schema-export "$(at_coll shop orders coll),$SCHEMA,{\"toggle\":{\"label\":\"Export the schema\"}}"

@@ -18,6 +18,8 @@ import {
   type OrcaNode
 } from 'orca'
 import type { QueryText } from '../protocol'
+import { openManage } from './manage-state'
+import { openSchema } from './schema-state'
 import { stagesFromFind } from '../shared/pipeline'
 import { needsValue, newCondition, emptyGroup, mapGroup, OPERATORS, removeItem, updateCondition, countConditions, type Condition, type Group, type Operator } from '../shared/query-builder'
 import {
@@ -253,6 +255,8 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
         <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
         <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
+        {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
+        {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
         {!t.readOnly ? <Button icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
       </Toolbar>
       <Builder t={t} />
