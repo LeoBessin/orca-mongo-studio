@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ORCA=(env ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js)
-KEY=local.orca-mongo-studio
+KEY=local.mongo-studio
 WIDTH=${WIDTH:-420}
 mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4 .orca/shots/p5 .orca/shots/p6 .orca/shots/p7
 

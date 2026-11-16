@@ -31,8 +31,17 @@ const RESULT_BYTES_MAX = 32 * 1024 * 1024
 const COMPLETE_TTL_MS = 60_000
 const SAMPLE_SIZE = 100
 const THREAD_HEAP_MB = 1024
-/** The thread loads the same `bson` the driver uses. */
-const BSON_PATH = createRequire(createRequire(import.meta.url).resolve('mongodb')).resolve('bson')
+/**
+ * The thread loads the same `bson` the driver uses. The bundled worker (dist/) has no
+ * node_modules once installed: its thread carries its own copy of `bson`, and this is undefined.
+ */
+const BSON_PATH = ((): string | undefined => {
+  try {
+    return createRequire(createRequire(import.meta.url).resolve('mongodb')).resolve('bson')
+  } catch {
+    return undefined
+  }
+})()
 
 function invalid(message: string, code = 'invalid_params'): Error {
   return Object.assign(new Error(message), { code })

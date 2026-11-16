@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Mongo Studio: a MongoDB client plugin for Orca",
   "scripts": {
+    "build": "node dev/build-worker.mjs",
+    "build:watch": "node dev/build-worker.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
-    "test": "ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test .",
-    "test:it": "MONGO_STUDIO_IT=1 ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test .",
-    "check": "ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin check . && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin validate .",
-    "test:enterprise": "MONGO_STUDIO_IT_ENTERPRISE=1 ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin test ."
+    "test": "node dev/with-source-main.mjs plugin test .",
+    "test:it": "MONGO_STUDIO_IT=1 node dev/with-source-main.mjs plugin test .",
+    "check": "npm run build && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin check . && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin validate .",
+    "test:enterprise": "MONGO_STUDIO_IT_ENTERPRISE=1 node dev/with-source-main.mjs plugin test ."
   },
   "type": "module",
   "dependencies": {

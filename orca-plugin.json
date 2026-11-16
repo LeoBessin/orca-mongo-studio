@@ -1,15 +1,15 @@
 {
   "manifestVersion": 2,
-  "id": "orca-mongo-studio",
+  "id": "mongo-studio",
   "name": "Mongo Studio",
-  "version": "0.1.0",
-  "description": "A MongoDB client for Orca: connections, browsing, querying and administration.",
+  "version": "1.0.0",
+  "description": "A MongoDB client for Orca: connections, browsing, querying, aggregation, a shell and administration. Not affiliated with or endorsed by MongoDB, Inc.",
   "engines": {
     "orca": ">=1.4.248"
   },
   "execution": "trusted-worker",
   "pluginApi": 1,
-  "main": "src/worker.ts",
+  "main": "dist/worker.mjs",
   "contributes": {
     "panels": [
       {
@@ -84,5 +84,20 @@
       "kind": "secrets:own"
     }
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": "https://github.com/LeoBessin/orca-mongo-studio",
+  "cover": {
+    "path": "media/cover.png",
+    "alt": "Mongo Studio: a shell script in the Mongo Shell editor beside the panel showing its find results as a table"
+  },
+  "screenshots": [
+    {
+      "path": "media/shell-editor.png",
+      "alt": "The Mongo Shell editor with a script that counts, finds and aggregates orders, with Run and Run script buttons"
+    },
+    {
+      "path": "media/shell-results.png",
+      "alt": "The panel Shell tab: find results as a sortable table, and an aggregation grouped by payment method"
+    }
+  ]
 }

@@ -46,7 +46,8 @@ conversation history.
 
 ### Done: Phase 1, connections and navigation
 
-It works in Orca as a development plugin (`orca plugin dev load .`, key `local.orca-mongo-studio`).
+It works in Orca as a development plugin (`orca plugin dev load .`, key `local.mongo-studio`;
+it was `local.orca-mongo-studio` before the id dropped Orca's reserved `orca-` prefix).
 
 - **Connections**
   - Create, edit, clone, delete and group connections; form mode and connection-string mode edit
@@ -95,15 +96,11 @@ It works in Orca as a development plugin (`orca plugin dev load .`, key `local.o
    The script is now `dev/shots.sh` in the repo, covering Phases 1 and 2 in light and dark. It
    writes to `.orca/shots/p1/` and `.orca/shots/p2/`. The only screenshot so far is the tree in dark:
    `.orca/shots/p1-tree-dark-420-top.png`. Look at each image and fix what looks off.
-2. **Release packaging.** Installed plugins don't run `npm install`. Needed:
-   - A script that bundles `src/worker.ts` with esbuild into `build/worker.mjs`. Mark `kerberos`
-     and the driver's optional peers as external, and add a `createRequire` banner.
-   - Copy the panel sources, `shared/` and `protocol.ts`.
-   - Ship `kerberos` (its `lib/` plus the prebuilt N-API binary for linux-x64/arm64,
-     darwin-x64/arm64 and win-x64) next to the bundle.
-   - Point the manifest's `main` at the bundle in the release copy only.
-   - Check that `orca plugin validate` accepts the result (it accepts a `.node` file) and that it
-     loads in Orca.
+2. **Release packaging (done).** `dev/build-worker.mjs` bundles the worker into `dist/worker.mjs`
+   and the shell thread, with its own `bson`, into `dist/shell-thread.mjs`; the manifest's `main`
+   is the bundle. Native modules are left out because the plugin directory refuses binaries:
+   Kerberos needs a development install and says so. Checked from a copy with no `node_modules`
+   in Orca: connect, tree, query, shell run, SSH tunnel and the Kerberos message.
 3. **Not tested live:** AWS IAM and OIDC browser sign-in against real providers (no account),
    and `mongodb+srv` against a real Atlas cluster. All are covered by unit and mock tests.
 4. **Known limit:** through SSH the plugin talks to the first database host only. The form warns

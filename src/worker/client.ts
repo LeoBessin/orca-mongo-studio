@@ -3,6 +3,7 @@
 // read here so a missing file gets a clear error instead of a driver-level one.
 import { promises as dns } from 'node:dns'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { checkServerIdentity, type PeerCertificate } from 'node:tls'
@@ -16,6 +17,20 @@ export type Secrets = Partial<Record<SecretKey, string>>
 
 /** Hosts Atlas and local servers use, plus the connection's own, for OIDC browser sign-in. */
 const OIDC_DEFAULT_ALLOWED = ['*.mongodb.net', '*.mongodb-qa.net', '*.mongodb-dev.net', '*.mongodbgov.net', 'localhost', '127.0.0.1', '::1']
+
+export const KERBEROS_MISSING =
+  'Kerberos (GSSAPI) needs the native `kerberos` module, which the installed plugin cannot ship. ' +
+  'Load Mongo Studio from a development folder after `npm install` to use Kerberos.'
+
+/** The driver loads `kerberos` itself; an installed copy of the plugin has no node_modules. */
+function kerberosAvailable(): boolean {
+  try {
+    createRequire(import.meta.url).resolve('kerberos')
+    return true
+  } catch {
+    return false
+  }
+}
 
 /** `~` and `~/x` mean the home folder, as people type them. */
 export function expandPath(path: string): string {
@@ -173,6 +188,7 @@ export async function driverConfig(source: ConnectionDef, secrets: Secrets, open
     case 'GSSAPI':
       // The `kerberos` addon uses this computer's ticket cache (kinit); the URI carries the
       // principal, service name, realm and host name canonicalization.
+      if (!kerberosAvailable()) throw new Error(KERBEROS_MISSING)
       break
     case 'none':
       break

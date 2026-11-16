@@ -11,8 +11,8 @@ import { parentPort, receiveMessageOnPort, workerData } from 'node:worker_thread
 import vm from 'node:vm'
 
 // Orca lets plugin files import only relative paths, so the worker resolves `bson` and passes its
-// path.
-const bson = createRequire(import.meta.url)(workerData.bsonPath)
+// path. The bundled thread (dist/shell-thread.mjs, see dev/build-worker.mjs) sets its own copy first.
+const bson = globalThis.__mongoStudioBson ?? createRequire(import.meta.url)(workerData.bsonPath)
 
 const { BSON, EJSON } = bson
 const syncPort = workerData.port
