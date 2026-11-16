@@ -2,8 +2,10 @@
 // Secrets only ever travel panel -> worker (as a SecretDraft); answers carry SecretFlags.
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import type { ConnectionDef, FieldError, SecretDraft, SecretFlags } from './shared/model'
+import type { ExplainSummary, ExplainVerbosity } from './shared/explain'
 import type { NodeKind } from './shared/nodes'
 import type { Operation } from './shared/operation'
+import type { StageText } from './shared/pipeline'
 
 export type ConnectionSummary = {
   id: string
@@ -106,6 +108,36 @@ export type CountResult = { count: number | null; approximate: boolean; ms: numb
 
 export type WriteResult = { matched: number; modified: number }
 
+// ---- Aggregation and explain ----
+
+/** Options an aggregation runs with. */
+export type AggOptions = { allowDiskUse?: boolean; collation?: JsonObject }
+
+/** A few documents of a stage's input or output. */
+export type PreviewDocs = {
+  docs: JsonObject[]
+  truncated: number[]
+  /** There are more documents than shown. */
+  more: boolean
+  stoppedForSize: boolean
+}
+
+/** A stage's preview. `output` is missing when the stage is off or writes. */
+export type PreviewResult = { input: PreviewDocs; output?: PreviewDocs; ms: number }
+
+export type ExplainResult = {
+  summary: ExplainSummary
+  /** The server's answer as relaxed Extended JSON text. */
+  raw: string
+  rawCut: boolean
+  /** The verbosity it ran with (a pipeline that writes is only planned). */
+  verbosity: ExplainVerbosity
+  note?: string
+  ms: number
+}
+
+export type SavedPipeline = { name: string; at: number; stages: StageText[] }
+
 // ---- Shell ----
 
 /** One line of a shell run's output, in the order the script produced it. */
@@ -187,6 +219,19 @@ declare module 'orca' {
     'history.clear': { input: { ns: Namespace }; output: QueryLibrary }
     'saved.save': { input: { ns: Namespace; name: string; query: QueryText }; output: QueryLibrary }
     'saved.delete': { input: { ns: Namespace; name: string }; output: QueryLibrary }
+    /** Runs a pipeline and answers its first page. */
+    'agg.run': { input: { ns: Namespace; pipeline: JsonObject[]; options: AggOptions; pageSize: number }; output: QueryPage }
+    'agg.page': { input: { queryId: string; ns: Namespace; pipeline: JsonObject[]; options: AggOptions; offset: number; pageSize: number }; output: QueryPage }
+    'agg.count': { input: { ns: Namespace; pipeline: JsonObject[]; options: AggOptions }; output: CountResult }
+    /** A stage's input (`before`) and output (`before` + `stage`), `size` documents each. */
+    'agg.preview': { input: { ns: Namespace; before: JsonObject[]; stage?: JsonObject; size: number; options: AggOptions }; output: PreviewResult }
+    'agg.explain': { input: { ns: Namespace; pipeline: JsonObject[]; options: AggOptions; verbosity: ExplainVerbosity }; output: ExplainResult }
+    'query.explain': { input: { ns: Namespace; spec: QuerySpec; verbosity: ExplainVerbosity }; output: ExplainResult }
+    /** Creates a view on `ns` from a pipeline, in the same database. */
+    'view.create': { input: { ns: Namespace; name: string; pipeline: JsonObject[] }; output: { name: string } }
+    'pipelines.list': { input: { ns: Namespace }; output: { saved: SavedPipeline[] } }
+    'pipelines.save': { input: { ns: Namespace; name: string; stages: StageText[] }; output: { saved: SavedPipeline[] } }
+    'pipelines.delete': { input: { ns: Namespace; name: string }; output: { saved: SavedPipeline[] } }
     'favourites.toggle': { input: { key: string; label: string; kind: NodeKind; path: string }; output: { favourites: FavouriteNode[] } }
     /** Starts running statements in the calling editor's shell session. */
     'shell.run': { input: ShellRunInput; output: { runId: string } }

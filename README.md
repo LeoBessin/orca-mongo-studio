@@ -3,8 +3,9 @@
 A MongoDB client for Orca, built from Orca's own components so it follows every Orca theme. It
 has no AI features.
 
-**Status:** Phases 1 (connections and navigation), 2 (querying and data viewing) and 3 (shell and
-code) are done. Later phases add aggregation, admin, data movement and saved tasks.
+**Status:** Phases 1 (connections and navigation), 2 (querying and data viewing), 3 (shell and
+code) and 4 (aggregation and explain) are done. Later phases add admin, data movement and saved
+tasks.
 
 ## What Phase 1 does
 
@@ -86,6 +87,38 @@ code) are done. Later phases add aggregation, admin, data movement and saved tas
   ORDER BY, LIMIT/OFFSET, DISTINCT, and INNER/LEFT JOIN as `$lookup`. Notes say where MongoDB
   differs from SQL. Anything it can't translate faithfully is refused with the position.
 
+## What Phase 4 does
+
+- **Aggregation editor.** "Aggregate" on a collection, view or time-series collection in the tree
+  opens its aggregation tab. A collection tab's layers button opens it with the query bar's
+  filter, sort, skip, limit and projection as stages, and a shell aggregate result opens there with
+  "Open in the aggregation editor".
+  - Stages are listed in a table. Add a stage after the selected one, move it up or down, turn it
+    off and on, duplicate it or remove it (Orca has no drag and drop, so these are buttons).
+  - The selected stage is edited in shell syntax, starting from a template for its operator. The
+    preview shows its **input** (the stages before it) and its **output**, 5 to 100 documents
+    each. Ctrl+Enter or "Update preview" reads them again.
+  - "Edit as text" shows the whole pipeline as one array; applying it replaces the stages.
+  - Run pages the results like a query, with Table, Tree and JSON views and a count. "Allow disk
+    use" applies to the preview, the run and explain.
+  - A pipeline ending in `$out` or `$merge` asks first and names the collection it writes to. It
+    runs once: never in a preview, a count or a page, and explain only plans it.
+  - "Create a view" makes a view on the collection from the stages that are on, and offers to
+    open it.
+  - Saved pipelines keep each stage as typed, off ones included, per collection.
+  - The Code section turns the pipeline into mongosh, Node.js, Python, Java, C#, PHP or Ruby.
+- **Explain plans** for the query in a collection tab (the gauge button) and for a pipeline:
+  - Verbosity: queryPlanner (plan only), executionStats or allPlansExecution.
+  - Visual: the plan (indexes or collection scan), documents returned and examined, index keys
+    examined, time, rejected plans; warnings for collection scans, in-memory sorts, spills to disk
+    and a high examined-to-returned ratio; and the plan as a tree with each stage's own numbers.
+    Selecting a stage shows its details (bounds, filter, sort pattern, …).
+  - It reads the classic engine, the slot-based engine of MongoDB 7 and 8, pipelines with a
+    `$cursor` stage, and sharded plans (one branch per shard).
+  - Raw: the server's whole answer as JSON.
+- **Shell:** `cursor.explain(verbosity)`, `db.coll.explain(verbosity).find(…)` (with `.finish()`
+  to read it in a script), `.aggregate(…)`, `.count(…)` and `.distinct(…)`.
+
 ### Size limits
 
 Orca refuses a panel request or answer past 1 MiB, 10,000 objects or arrays, or 100 levels deep.
@@ -111,6 +144,9 @@ In canonical Extended JSON every number is an object, so pages are sized in Orca
 | `src/panel/shell-*.ts(x)` | The panel's Shell tab and the Code section |
 | `src/shared/js-scan.ts`, `shell-prepare.ts`, `shell-call.ts`, `shell-vocab.ts` | Statements, autocomplete places, statement → operation, shell vocabulary |
 | `src/shared/codegen.ts`, `sql-to-mql.ts` | Code generation and SQL translation |
+| `src/panel/aggregate-*.ts(x)`, `src/shared/pipeline.ts` | Aggregation tabs and the stage model |
+| `src/panel/explain-*.ts(x)`, `src/shared/explain.ts` | Explain sections and the explain reader |
+| `src/worker/aggregate.ts` | Stage previews, explain, views from a pipeline, saved pipelines |
 | `src/shared/` | Pure code both sides use: connection model, URI parser/builder, import/export, tree keys, the shell literal parser, Extended JSON views, the Query Builder and field-editor models |
 | `test/` | Integration tests against the docker databases |
 | `dev/` | Docker databases, seed data and test fixtures |
@@ -174,8 +210,12 @@ npm run test:enterprise
   can't reach the other replica set members it discovers.
 - Kerberos uses the ticket cache on your computer, so run `kinit` first.
 - The shell covers the common mongosh API, not all of it: no `rs.*`, `sh.*`, `load()`, `watch`,
-  sessions or transactions, and explain plans arrive with Phase 4. `it` is not needed, since
-  results page in the panel. Only the newest run's results stay open in the panel.
+  sessions or transactions. `it` is not needed, since results page in the panel. Only the newest
+  run's results stay open in the panel.
+- A stage preview runs the stages before it on the whole collection, then keeps the first
+  documents. A slow `$group` or `$sort` early in a big pipeline makes the preview slow too (it
+  stops after 30 s).
+- Paging a pipeline's results past the open cursor runs the pipeline again with `$skip`.
 - The plugin isn't packaged for installation yet. Installed plugins don't run `npm install`,
   so a release needs a bundled worker plus the Kerberos binary for each platform. Until then,
   load the folder with `orca plugin dev load`.

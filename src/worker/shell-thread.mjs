@@ -70,6 +70,7 @@ function describe(value) {
   if (value instanceof Database) return { kind: 'text', text: value._name }
   if (value instanceof Collection) return { kind: 'text', text: `${value._db._name}.${value._name}` }
   if (value instanceof Cursor) return value._describe()
+  if (value instanceof Explainable) return { kind: 'text', text: value.toString() }
   if (value instanceof Error) return { kind: 'text', text: `${value.name}: ${value.message}` }
   if (value instanceof Map) value = Object.fromEntries(value)
   if (value instanceof Set) value = [...value]
@@ -196,8 +197,25 @@ class Cursor {
     this._done = true
     this._buffer = []
   }
-  explain() {
-    throw new ShellError('Explain plans arrive with the aggregation phase.', { name: 'ShellError' })
+  /** The plan: `explain()`, `explain('executionStats')`, `explain('allPlansExecution')`. */
+  explain(verbosity) {
+    const v = explainVerbosity(verbosity)
+    const o = this._spec.options
+    let command
+    if (this._kind === 'find') {
+      command = { find: this._target.collection, filter: this._spec.filter ?? {} }
+      if (this._spec.projection) command.projection = this._spec.projection
+      for (const k of FIND_EXPLAIN_OPTIONS) if (o[k] !== undefined) command[k] = o[k]
+    } else {
+      command = { aggregate: this._target.collection ?? 1, pipeline: this._spec.pipeline, cursor: {} }
+      for (const k of AGGREGATE_EXPLAIN_OPTIONS) if (o[k] !== undefined) command[k] = o[k]
+    }
+    return runExplain(this._target.db, command, v)
+  }
+  /** On `db.c.explain().find(…)`: the plan, as mongosh's explainable cursor gives it. */
+  finish() {
+    if (this._explain === undefined) throw new ShellError('finish() works on db.collection.explain().find(…).', { name: 'ShellError' })
+    return this.explain(this._explain)
   }
   *[Symbol.iterator]() {
     while (this.hasNext()) yield this.next()
@@ -205,6 +223,7 @@ class Cursor {
   toString() { return `[${this._kind === 'find' ? 'Find' : 'Aggregation'} cursor on ${this._target.db}${this._target.collection ? `.${this._target.collection}` : ''}]` }
   /** A statement's result: the main thread pages an unread cursor itself. */
   _describe() {
+    if (this._explain !== undefined) return describe(this.explain(this._explain))
     if (this._handle === undefined && this._maps.length === 0) {
       const options = {}
       for (const k of CURSOR_OPTIONS) if (this._spec.options[k] !== undefined) options[k] = this._spec.options[k]
@@ -228,6 +247,51 @@ class Cursor {
     this.close()
     return { kind: 'value', value: canonical(docs), docs: true, note: more ? `Showing the next ${MATERIALIZE_MAX.toLocaleString('en-US')} documents of a cursor that was already being read.` : undefined }
   }
+}
+
+// ---- Explain ----
+
+const FIND_EXPLAIN_OPTIONS = ['sort', 'skip', 'limit', 'collation', 'hint', 'maxTimeMS', 'comment', 'min', 'max', 'returnKey', 'showRecordId', 'let', 'allowDiskUse']
+const AGGREGATE_EXPLAIN_OPTIONS = ['allowDiskUse', 'collation', 'hint', 'maxTimeMS', 'comment', 'let']
+const VERBOSITIES = ['queryPlanner', 'executionStats', 'allPlansExecution']
+
+function explainVerbosity(v) {
+  if (v === undefined || v === false) return 'queryPlanner'
+  if (v === true) return 'allPlansExecution'
+  if (!VERBOSITIES.includes(v)) throw new ShellError(`Explain verbosity is one of ${VERBOSITIES.join(', ')}.`, { name: 'ShellError' })
+  return v
+}
+
+function runExplain(dbName, command, verbosity) {
+  const answer = call('database', dbName, 'command', [{ explain: command, verbosity }, {}])
+  if (answer && typeof answer === 'object') {
+    delete answer.$clusterTime
+    delete answer.operationTime
+  }
+  return answer
+}
+
+/** `db.c.explain(verbosity)`: find, aggregate, count and distinct, explained. */
+class Explainable {
+  constructor(coll, verbosity) {
+    this._coll = coll
+    this._verbosity = explainVerbosity(verbosity)
+  }
+  getVerbosity() { return this._verbosity }
+  /** A cursor that shows its plan instead of its documents. */
+  find(filter = {}, projection, options) {
+    const cursor = this._coll.find(filter, projection, options)
+    cursor._explain = this._verbosity
+    return cursor
+  }
+  aggregate(...args) { return this._coll.aggregate(...args).explain(this._verbosity) }
+  count(filter = {}, options) {
+    return runExplain(this._coll._db._name, { count: this._coll._name, query: filter, ...opts(options) }, this._verbosity)
+  }
+  distinct(field, filter = {}, options) {
+    return runExplain(this._coll._db._name, { distinct: this._coll._name, key: field, query: filter, ...opts(options) }, this._verbosity)
+  }
+  toString() { return `Explainable(${this._coll.getFullName()})` }
 }
 
 // ---- Collections and databases ----
@@ -312,7 +376,7 @@ class Collection {
     return infos[0] ?? null
   }
   isCapped() { return this._call('isCapped', []) }
-  explain() { throw new ShellError('Explain plans arrive with the aggregation phase.', { name: 'ShellError' }) }
+  explain(verbosity) { return new Explainable(this, verbosity) }
 }
 
 class Database {

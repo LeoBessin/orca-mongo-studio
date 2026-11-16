@@ -88,6 +88,7 @@ export const COLLECTION_METHODS: VocabItem[] = [
   m('renameCollection', "renameCollection('newName', dropTarget?)"),
   m('stats', 'stats()'),
   m('isCapped', 'isCapped()'),
+  m('explain', "explain('executionStats').find(…)", 'Explains a find, aggregate, count or distinct instead of running it.'),
   m('getName', 'getName()'),
   m('getFullName', 'getFullName()')
 ]
@@ -104,6 +105,7 @@ const CURSOR_COMMON: VocabItem[] = [
   m('maxTimeMS', 'maxTimeMS(ms)'),
   m('batchSize', 'batchSize(n)'),
   m('comment', "comment('text')"),
+  m('explain', "explain('executionStats')", 'The plan: queryPlanner (default), executionStats or allPlansExecution.'),
   m('pretty', 'pretty()')
 ]
 

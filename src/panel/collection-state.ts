@@ -2,7 +2,9 @@
 // query bar, results, editors, Query Builder and history. All tabs live in one atom, changed
 // immutably through `change(id, ...)`, so a tab's state survives switching between tabs.
 import { atom, plugin, read, set, update } from 'orca'
-import type { CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText } from '../protocol'
+import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline } from '../protocol'
+import type { ExplainVerbosity } from '../shared/explain'
+import { hasWriteStage, type StageDraft } from '../shared/pipeline'
 import { bsonType, fieldPaths, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { draftFromValue, valueFromDraft, type FieldDraft } from '../shared/field-edit'
 import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type BuilderProblem, type Group } from '../shared/query-builder'
@@ -39,6 +41,54 @@ export type DocEditor = {
 }
 export type Editor = FieldEditor | DocEditor
 export type TabNotice = { tone: 'success' | 'danger' | 'neutral'; text: string }
+
+/** A tab's explain plan: the section under the query or pipeline. */
+export type ExplainState = {
+  open: boolean
+  verbosity: ExplainVerbosity
+  loading: boolean
+  result?: ExplainResult
+  error?: string
+  mode: 'visual' | 'raw'
+  expanded: string[]
+  selected?: string
+  /** Bumped by each explain, so a slow answer to an older one is dropped. */
+  token: number
+}
+
+export type AggPreview = {
+  stageId: string
+  loading: boolean
+  result?: PreviewResult
+  error?: string
+  note?: string
+  token: number
+}
+
+/** An aggregation tab: the pipeline being built, and what its last run used. */
+export type AggState = {
+  stages: StageDraft[]
+  selected?: string
+  /** Parse errors by stage id. */
+  errors: Record<string, string>
+  previewSize: number
+  previewSide: 'input' | 'output'
+  preview?: AggPreview
+  allowDiskUse: boolean
+  textMode: boolean
+  text: string
+  textError?: string
+  /** The pipeline as last run: paging and counting use it, not what is typed now. */
+  ran?: { pipeline: JsonObject[]; options: AggOptions }
+  confirmWrite?: { stage: string; target: string }
+  viewName: string
+  viewOpen: boolean
+  /** A view made from this pipeline, offered to open. */
+  created?: string
+  saved?: SavedPipeline[]
+  saveName: string
+  savedSelected?: string
+}
 
 export type CollTab = {
   id: string
@@ -77,6 +127,9 @@ export type CollTab = {
   notice?: TabNotice
   /** Results of a shell run, paged from the worker instead of a query. */
   shell?: { runId: string; index: number }
+  /** An aggregation tab: results come from its pipeline. */
+  agg?: AggState
+  explain?: ExplainState
 }
 
 export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
@@ -243,7 +296,7 @@ export function specFromText(text: QueryText, now = Date.now()): { spec?: QueryS
 /** Runs what the query bar holds. `record` adds it to the history (not for the first open). */
 export async function runQuery(id: string, record = true): Promise<void> {
   const t = tab(id)
-  if (!t) return
+  if (!t || t.agg) return
   if (t.shell) return goToPage(id, 0)
   const { spec, errors } = specFromText(t.text)
   if (!spec) {
@@ -269,11 +322,14 @@ export async function runQuery(id: string, record = true): Promise<void> {
   if (record) await loadLibrary(id)
 }
 
-async function countQuery(id: string, token: number, spec: QuerySpec): Promise<void> {
+async function countQuery(id: string, token: number, spec: QuerySpec | undefined): Promise<void> {
   const t = tab(id)
   if (!t) return
+  const ran = t.agg?.ran
   try {
-    const count = await plugin.request('query.count', { ns: t.ns, spec }, { timeoutMs: 60000 })
+    const count = ran
+      ? await plugin.request('agg.count', { ns: t.ns, pipeline: ran.pipeline, options: ran.options }, { timeoutMs: 60000 })
+      : await plugin.request('query.count', { ns: t.ns, spec: spec! }, { timeoutMs: 60000 })
     if (tab(id)?.runToken === token) patch(id, { count })
   } catch (error) {
     if (tab(id)?.runToken === token) patch(id, { count: { count: null, approximate: false, ms: 0, error: errorText(error) } })
@@ -282,19 +338,27 @@ async function countQuery(id: string, token: number, spec: QuerySpec): Promise<v
 
 export async function recount(id: string): Promise<void> {
   const t = tab(id)
-  if (!t?.spec || t.shell) return
+  if (!t || t.shell || !(t.agg ? t.agg.ran && !hasWriteStage(t.agg.ran.pipeline) : t.spec)) return
   patch(id, { count: 'counting' })
   await countQuery(id, t.runToken, t.spec)
 }
 
 export async function goToPage(id: string, offset: number): Promise<void> {
   const t = tab(id)
-  if (!t || (!t.shell && (!t.spec || !t.queryId))) return
+  if (!t) return
+  const ran = t.agg?.ran
+  if (!(t.shell || (ran ? t.queryId : t.spec && t.queryId))) return
+  if (ran && hasWriteStage(ran.pipeline)) {
+    say(id, 'neutral', 'This pipeline writes to a collection, so it is not run again for a page. Run it to repeat the write.')
+    return
+  }
   const token = t.runToken
   patch(id, { loading: true, error: undefined, selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [] })
   try {
     const page = t.shell
       ? await plugin.request('shell.page', { runId: t.shell.runId, index: t.shell.index, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
+      : ran
+      ? await plugin.request('agg.page', { queryId: t.queryId!, ns: t.ns, pipeline: ran.pipeline, options: ran.options, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
       : await plugin.request('query.page', { queryId: t.queryId!, ns: t.ns, spec: t.spec!, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 120000 })
     if (tab(id)?.runToken === token) patch(id, { page, loading: false })
   } catch (error) {
@@ -333,6 +397,10 @@ export async function reloadPage(id: string): Promise<void> {
 export async function sortBy(id: string, column: string, direction: 'asc' | 'desc'): Promise<void> {
   if (tab(id)?.shell) {
     say(id, 'neutral', 'Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.')
+    return
+  }
+  if (tab(id)?.agg) {
+    say(id, 'neutral', 'A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.')
     return
   }
   const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`

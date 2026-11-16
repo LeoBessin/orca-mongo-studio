@@ -3,8 +3,9 @@
 // request answer (1 MiB): long strings, big arrays and binary data are cut down with a marker, and a
 // page stops early when its documents would pass the byte budget.
 import { createHash } from 'node:crypto'
-import { BSON, type Document, type FindCursor, type MongoClient } from 'mongodb'
-import type { CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
+import { BSON, type AbstractCursor, type Document, type MongoClient } from 'mongodb'
+import type { AggOptions, CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
+import { hasWriteStage } from '../shared/pipeline'
 import { base64Length, bsonType, isObject, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { fitsHost, HOST_MAX_BYTES, HOST_MAX_OBJECTS, hostSize } from '../shared/host-size'
 import type { JsonValue as WorkerJson, OrcaWorkerApi } from 'orca/worker'
@@ -20,10 +21,10 @@ export const PAGE_BYTE_BUDGET = Math.floor(HOST_MAX_BYTES * 0.75)
 export const PAGE_OBJECT_BUDGET = Math.floor(HOST_MAX_OBJECTS * 0.9)
 /** Deeper values are cut, so the page stays under Orca's 100 levels. */
 const DEPTH_MAX = 80
-const FIND_MAX_TIME_MS = 60_000
+export const FIND_MAX_TIME_MS = 60_000
 /** Reads keep every BSON type as it is: Int64 stays a Long, regexes keep their flags. */
-const EXACT = { promoteValues: false, promoteLongs: false, bsonRegExp: true } as const
-const COUNT_MAX_TIME_MS = 10_000
+export const EXACT = { promoteValues: false, promoteLongs: false, bsonRegExp: true } as const
+export const COUNT_MAX_TIME_MS = 10_000
 const IDLE_CURSOR_MS = 10 * 60_000
 
 const STRING_MAX = 4000
@@ -33,7 +34,7 @@ const ARRAY_PREVIEW = 50
 const BINARY_MAX = 4096
 const BINARY_PREVIEW_CHARS = 64
 
-function invalid(message: string, code = 'invalid_params'): Error {
+export function invalid(message: string, code = 'invalid_params'): Error {
   return Object.assign(new Error(message), { code })
 }
 
@@ -109,7 +110,7 @@ export function pageCanonical(canonical: JsonObject): { doc: JsonObject; cut: bo
 type Session = {
   id: string
   key: string
-  cursor: FindCursor<Document>
+  cursor: AbstractCursor<Document>
   /** The result offset of the next document the cursor yields. */
   next: number
   /** A document read but left for the next page, when a page filled its byte budget. */
@@ -119,6 +120,25 @@ type Session = {
 
 function specKey(ns: Namespace, spec: QuerySpec): string {
   return JSON.stringify([ns.connectionId, ns.db, ns.collection, spec])
+}
+
+function pipelineKey(ns: Namespace, pipeline: JsonObject[], options: AggOptions): string {
+  return JSON.stringify([ns.connectionId, ns.db, ns.collection, 'aggregate', pipeline, options])
+}
+
+/** Options an aggregate takes from the panel, checked. */
+export function aggregateOptions(options: AggOptions): Document {
+  const out: Document = {}
+  if (options.allowDiskUse === true) out.allowDiskUse = true
+  if (options.collation && Object.keys(options.collation).length) out.collation = toBson(options.collation)
+  return out
+}
+
+export function checkPipeline(pipeline: unknown): asserts pipeline is JsonObject[] {
+  if (!Array.isArray(pipeline)) throw invalid('A pipeline is an array of stages.')
+  for (const [i, s] of pipeline.entries()) {
+    if (!isObject(s) || Object.keys(s).length !== 1 || !Object.keys(s)[0]!.startsWith('$')) throw invalid(`Stage ${i + 1} must be a document with one stage name, like { $match: { … } }.`)
+  }
 }
 
 function checkSpec(spec: QuerySpec, pageSize: number): void {
@@ -134,7 +154,7 @@ export class QuerySessions {
 
   constructor(private readonly client: (connectionId: string) => Promise<MongoClient>) {}
 
-  private open(ns: Namespace, spec: QuerySpec, client: MongoClient, offset: number, pageSize: number): FindCursor<Document> {
+  private open(ns: Namespace, spec: QuerySpec, client: MongoClient, offset: number, pageSize: number): AbstractCursor<Document> {
     const coll = client.db(ns.db).collection(ns.collection)
     const cursor = coll.find(toBson(spec.filter), {
       ...EXACT,
@@ -152,19 +172,48 @@ export class QuerySessions {
   async page(queryId: string, ns: Namespace, spec: QuerySpec, offset: number, pageSize: number): Promise<QueryPage> {
     checkSpec(spec, pageSize)
     if (!Number.isInteger(offset) || offset < 0) throw invalid('The page offset must be 0 or more.')
+    if (spec.limit > 0 && offset >= spec.limit) {
+      await this.close(queryId)
+      return { queryId, offset, docs: [], truncated: [], hasMore: false, stoppedForSize: false, ms: 0 }
+    }
+    return this.read(queryId, specKey(ns, spec), offset, pageSize, async () => this.open(ns, spec, await this.client(ns.connectionId), offset, pageSize))
+  }
+
+  /**
+   * A page of an aggregation's results. Reading on uses the open cursor; any other page re-runs the
+   * pipeline with a `$skip`. A pipeline that writes (`$out`, `$merge`) runs once, from offset 0
+   * with a new query id, and is never re-run for a page.
+   */
+  async pageAggregate(queryId: string, ns: Namespace, pipeline: JsonObject[], options: AggOptions, offset: number, pageSize: number, first: boolean): Promise<QueryPage> {
+    checkPipeline(pipeline)
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000) throw invalid('Page size must be from 1 to 1000.')
+    if (!Number.isInteger(offset) || offset < 0) throw invalid('The page offset must be 0 or more.')
+    const key = pipelineKey(ns, pipeline, options)
+    if (hasWriteStage(pipeline)) {
+      if (!first || offset !== 0) {
+        const s = this.sessions.get(queryId)
+        if (!s || s.key !== key || s.next !== offset) throw invalid('This pipeline writes to a collection ($out or $merge), so it is not run again for a page. Run it again to repeat the write.', 'conflict')
+      }
+    }
+    return this.read(queryId, key, offset, pageSize, async () => {
+      const client = await this.client(ns.connectionId)
+      const stages = offset > 0 ? [...pipeline, { $skip: offset }] : pipeline
+      return client
+        .db(ns.db)
+        .collection(ns.collection)
+        .aggregate(stages.map((st) => toBson<Document>(st)), { ...EXACT, ...aggregateOptions(options), maxTimeMS: FIND_MAX_TIME_MS, batchSize: Math.min(pageSize + 1, 1000) })
+    })
+  }
+
+  private async read(queryId: string, key: string, offset: number, pageSize: number, open: () => Promise<AbstractCursor<Document>>): Promise<QueryPage> {
     const started = Date.now()
-    const key = specKey(ns, spec)
     let s = this.sessions.get(queryId)
     if (s && (s.key !== key || s.next !== offset)) {
       await this.close(queryId)
       s = undefined
     }
-    if (spec.limit > 0 && offset >= spec.limit) {
-      return { queryId, offset, docs: [], truncated: [], hasMore: false, stoppedForSize: false, ms: 0 }
-    }
     if (!s) {
-      const client = await this.client(ns.connectionId)
-      s = { id: queryId, key, cursor: this.open(ns, spec, client, offset, pageSize), next: offset, lastUsed: Date.now() }
+      s = { id: queryId, key, cursor: await open(), next: offset, lastUsed: Date.now() }
       this.sessions.set(queryId, s)
       this.startSweeper()
     }
@@ -197,6 +246,28 @@ export class QuerySessions {
     } catch (error) {
       await this.close(queryId)
       throw error
+    }
+  }
+
+  /** Counts an aggregation's results with a `$count` stage, with a time limit. */
+  async countAggregate(ns: Namespace, pipeline: JsonObject[], options: AggOptions): Promise<CountResult> {
+    checkPipeline(pipeline)
+    const started = Date.now()
+    if (hasWriteStage(pipeline)) return { count: null, approximate: false, ms: 0, error: 'A pipeline that writes is not counted.' }
+    try {
+      const client = await this.client(ns.connectionId)
+      const [r] = await client
+        .db(ns.db)
+        .collection(ns.collection)
+        .aggregate([...pipeline.map((st) => toBson<Document>(st)), { $count: 'n' }], { ...aggregateOptions(options), maxTimeMS: COUNT_MAX_TIME_MS })
+        .toArray()
+      return { count: r ? Number(r.n) : 0, approximate: false, ms: Date.now() - started }
+    } catch (error) {
+      const e = error as { code?: unknown; codeName?: unknown; message?: string }
+      if (e.code === 50 || e.codeName === 'MaxTimeMSExpired') {
+        return { count: null, approximate: false, ms: Date.now() - started, error: `Counting took longer than ${COUNT_MAX_TIME_MS / 1000} s, so it stopped.` }
+      }
+      return { count: null, approximate: false, ms: Date.now() - started, error: e.message ?? String(error) }
     }
   }
 

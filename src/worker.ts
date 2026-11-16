@@ -5,6 +5,7 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import type { ConnectionsState, ImportReport, SaveResult } from './protocol'
 import { cloneDef, connectionSubtitle, emptyConnection, validateConnection, type ConnectionDef } from './shared/model'
 import { exportConnections, importConnections } from './shared/transfer'
+import { createView, explainAggregate, explainFind, PipelineLibraryStore, previewStage } from './worker/aggregate'
 import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
 import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
@@ -65,6 +66,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   const sessions = new QuerySessions((id) => clients.get(id))
   queries = sessions
   const library = new QueryLibraryStore(orca)
+  const pipelines = new PipelineLibraryStore(orca)
   const shells = new ShellService({
     client: (id) => clients.get(id),
     connectionName: async (id) => (await requireDef(id)).name,
@@ -131,6 +133,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     await clients.disconnect(id)
     await store.remove(id)
     await library.forget(id)
+    await pipelines.forget(id)
     await broadcast()
     return null
   })
@@ -223,6 +226,29 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('doc.replace', async ({ ns, id, doc }) => replaceDocument(await clientFor(ns.connectionId), ns, id, doc))
   orca.panels.handle('doc.insert', async ({ ns, docs }) => insertDocuments(await clientFor(ns.connectionId), ns, docs))
   orca.panels.handle('doc.deleteMany', async ({ ns, ids }) => deleteDocuments(await clientFor(ns.connectionId), ns, ids))
+
+  orca.panels.handle('query.explain', async ({ ns, spec, verbosity }) => explainFind(await clientFor(ns.connectionId), ns, spec, verbosity))
+
+  // ---- Aggregation ----
+
+  orca.panels.handle('agg.run', async ({ ns, pipeline, options, pageSize }) => {
+    await requireDef(ns.connectionId)
+    return sessions.pageAggregate(randomUUID(), ns, pipeline, options ?? {}, 0, pageSize, true)
+  })
+  orca.panels.handle('agg.page', async ({ queryId, ns, pipeline, options, offset, pageSize }) => {
+    await requireDef(ns.connectionId)
+    return sessions.pageAggregate(queryId, ns, pipeline, options ?? {}, offset, pageSize, false)
+  })
+  orca.panels.handle('agg.count', async ({ ns, pipeline, options }) => {
+    await requireDef(ns.connectionId)
+    return sessions.countAggregate(ns, pipeline, options ?? {})
+  })
+  orca.panels.handle('agg.preview', async ({ ns, before, stage, size, options }) => previewStage(await clientFor(ns.connectionId), ns, before, stage, size, options ?? {}))
+  orca.panels.handle('agg.explain', async ({ ns, pipeline, options, verbosity }) => explainAggregate(await clientFor(ns.connectionId), ns, pipeline, options ?? {}, verbosity))
+  orca.panels.handle('view.create', async ({ ns, name, pipeline }) => createView(await clientFor(ns.connectionId), ns, name, pipeline))
+  orca.panels.handle('pipelines.list', ({ ns }) => pipelines.read(ns))
+  orca.panels.handle('pipelines.save', ({ ns, name, stages }) => pipelines.save(ns, name, stages, Date.now()))
+  orca.panels.handle('pipelines.delete', ({ ns, name }) => pipelines.remove(ns, name))
 
   orca.panels.handle('history.list', ({ ns }) => library.read(ns))
   orca.panels.handle('history.clear', ({ ns }) => library.clearHistory(ns))

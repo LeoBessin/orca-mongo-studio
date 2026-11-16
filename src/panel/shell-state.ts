@@ -7,6 +7,8 @@ import type { CodeLanguage } from '../shared/codegen'
 import { toShellInline } from '../shared/ejson-view'
 import type { Operation } from '../shared/operation'
 import { collTabs, defaultPageSize, goToPage, newTab, openNamespace, tab, type CollTab } from './collection-state'
+import { stagesFromPipeline } from '../shared/pipeline'
+import { openAggregation } from './aggregate-state'
 import { errorText, view } from './state'
 
 export const SHELL_TAB = 'shell'
@@ -95,4 +97,13 @@ export async function openAsQuery(info: ShellResultInfo): Promise<void> {
       return t ? { ...prev, [SHELL_TAB]: { ...t, notice: { tone: 'danger' as const, text: errorText(error) } } } : prev
     })
   }
+}
+
+/** An aggregate result's pipeline, in its collection's aggregation tab. */
+export async function openAsPipeline(info: ShellResultInfo): Promise<void> {
+  const run = read(shellRun)
+  if (!run || info.op?.kind !== 'aggregate') return
+  const { stages, error } = stagesFromPipeline(info.op.pipeline)
+  if (!stages) throw new Error(error)
+  await openAggregation({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, 'coll', stages, `the shell (line ${info.line})`)
 }

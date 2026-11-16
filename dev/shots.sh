@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screenshots of every panel view, in light and dark, into .orca/shots/p1 and .orca/shots/p2.
+# Screenshots of every panel view, in light and dark, into .orca/shots/p1, p2 and p4.
 #
 # `orca plugin shot --act/--scenario/--theme` only works while Orca's window is hidden or
 # minimized. Hide it (or switch to a session whose compositor can minimize it), run this, and keep
@@ -10,11 +10,15 @@ cd "$(dirname "$0")/.."
 ORCA=(env ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js)
 KEY=local.orca-mongo-studio
 WIDTH=${WIDTH:-420}
-mkdir -p .orca/shots/p1 .orca/shots/p2
+mkdir -p .orca/shots/p1 .orca/shots/p2 .orca/shots/p4
 
 CONN=$("${ORCA[@]}" plugin dev request . connections.state --json |
   node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));const c=r.result.result.connections.find(c=>c.name==="Local dev (rs0)");if(!c)process.exit(1);process.stdout.write("conn:"+encodeURIComponent(c.id))')
 T='{"type":"Tree"}'
+open_agg() { # db collection kind: the aggregation tab, from the tree's Aggregate button
+  printf '{"expand":%s,"key":"%s"},{"expand":%s,"key":"%s/db:%s"},{"selectItem":%s,"key":"%s/db:%s/%s:%s"},{"press":{"text":"Aggregate"}}' \
+    "$T" "$CONN" "$T" "$CONN" "$1" "$T" "$CONN" "$1" "$3" "$2"
+}
 open_coll() { # db collection kind
   printf '{"expand":%s,"key":"%s"},{"expand":%s,"key":"%s/db:%s"},{"activateItem":%s,"key":"%s/db:%s/%s:%s"}' \
     "$T" "$CONN" "$T" "$CONN" "$1" "$T" "$CONN" "$1" "$3" "$2"
@@ -56,3 +60,17 @@ shot p2 field-editor "$(open_coll types_zoo everything coll),{\"selectRows\":$RO
 shot p2 delete "$(open_coll types_zoo everything coll),{\"selectRows\":$ROWS,\"keys\":[\"\\\"edge-numbers\\\"\",\"\\\"big-array\\\"\"]},{\"press\":{\"text\":\"Delete 2\"}}"
 shot p2 view "$(open_coll shop order_totals_by_month view)"
 shot p2 history "$(open_coll shop orders coll),{\"toggle\":{\"label\":\"History and saved queries\"}}"
+
+# ---- Phase 4 ----
+VALUE='{"type":"Textarea","label":"Value"}'
+GROUP="{\"type\":$VALUE,\"text\":\"{ status: 'shipped' }\",\"replace\":true},{\"select\":{\"label\":\"Add a stage\"},\"value\":\"\$group\"},{\"type\":$VALUE,\"text\":\"{ _id: '\$payment.method', n: { \$sum: 1 } }\",\"replace\":true,\"submit\":true}"
+shot p4 agg-open "$(open_agg shop orders coll)"
+shot p4 agg-stages "$(open_agg shop orders coll),$GROUP"
+shot p4 agg-input "$(open_agg shop orders coll),$GROUP,{\"press\":{\"text\":\"Input\"}}"
+shot p4 agg-results "$(open_agg shop orders coll),$GROUP,{\"press\":{\"text\":\"Run\"}}"
+shot p4 agg-text "$(open_agg shop orders coll),$GROUP,{\"press\":{\"text\":\"Edit as text\"}}"
+shot p4 agg-out "$(open_agg shop orders coll),{\"select\":{\"label\":\"Add a stage\"},\"value\":\"\$out\"},{\"press\":{\"text\":\"Run\"}}"
+shot p4 agg-explain "$(open_agg shop orders coll),$GROUP,{\"press\":{\"text\":\"Explain\"}}"
+shot p4 agg-view "$(open_agg shop orders coll),{\"toggle\":{\"label\":\"Create a view\"}}"
+shot p4 explain-find "$(open_coll shop orders coll),{\"type\":{\"label\":\"Filter\"},\"text\":\"{ status: 'shipped' }\"},{\"press\":{\"label\":\"Explain the query\"}}"
+shot p4 explain-raw "$(open_coll shop orders coll),{\"press\":{\"label\":\"Explain the query\"}},{\"press\":{\"text\":\"Raw\"}}"

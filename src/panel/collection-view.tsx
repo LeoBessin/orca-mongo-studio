@@ -18,6 +18,7 @@ import {
   type OrcaNode
 } from 'orca'
 import type { QueryText } from '../protocol'
+import { stagesFromFind } from '../shared/pipeline'
 import { needsValue, newCondition, emptyGroup, mapGroup, OPERATORS, removeItem, updateCondition, countConditions, type Condition, type Group, type Operator } from '../shared/query-builder'
 import {
   applyBuilder,
@@ -35,11 +36,15 @@ import {
   saveQuery,
   setBuilder,
   setText,
+  specFromText,
   useQuery,
   type CollTab,
   type QueryField
 } from './collection-state'
+import { openAggregation } from './aggregate-state'
 import { Editors } from './editors-view'
+import { ExplainSection } from './explain-view'
+import { runExplain } from './explain-state'
 import { guard } from './guard'
 import { CodeSection, tabOperation } from './shell-view'
 import { Results } from './results-view'
@@ -219,6 +224,13 @@ function Library({ t }: { t: CollTab }): OrcaNode {
 
 // ---- The tab ----
 
+/** The aggregation tab of this collection, started from the query in the bar when it parses. */
+function openAsAggregation(t: CollTab): Promise<void> {
+  const { spec } = specFromText(t.text)
+  const typed = spec && (Object.keys(spec.filter).length || spec.projection || spec.sort || spec.skip || spec.limit)
+  return openAggregation(t.ns, t.kind, typed ? stagesFromFind(spec) : undefined, typed ? 'the query bar' : undefined)
+}
+
 const KIND_LABEL: Partial<Record<CollTab['kind'], string>> = { view: 'View · read only', timeseries: 'Time-series' }
 
 export function CollectionTab({ id }: { id: string }): OrcaNode {
@@ -239,6 +251,8 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
           {t.loading ? 'Running…' : 'Run'}
         </Button>
         <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
+        <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
+        <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
         {!t.readOnly ? <Button icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
       </Toolbar>
       <Builder t={t} />
@@ -253,6 +267,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
       {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
       <Results t={t} />
       <Editors t={t} />
+      <ExplainSection t={t} />
       <Library t={t} />
       <CodeSection op={tabOperation(t)} description="The query in the bar as driver code." />
     </Box>

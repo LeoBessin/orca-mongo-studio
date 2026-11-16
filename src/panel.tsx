@@ -3,6 +3,7 @@
 // own components, so every Orca theme applies.
 import { plugin, read, set, Tab, Tabs, type IconName, type OrcaNode, type PanelContext } from 'orca'
 import { collTabs, tabOrder } from './panel/collection-state'
+import { AggregationTab } from './panel/aggregate-view'
 import { CollectionTab } from './panel/collection-view'
 import { ConnectionForm } from './panel/connection-form'
 import {
@@ -78,8 +79,8 @@ export default function Panel(): OrcaNode {
       {read(tabOrder).map((id) => {
         const t = read(collTabs)[id]
         return t ? (
-          <Tab key={id} value={id} label={t.title} icon={TAB_ICONS[t.kind] ?? 'file-text'}>
-            <CollectionTab id={id} />
+          <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
+            {t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />}
           </Tab>
         ) : null
       })}

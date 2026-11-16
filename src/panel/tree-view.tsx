@@ -25,6 +25,7 @@ import {
 } from 'orca'
 import type { ConnectionSummary, TreeNode } from '../protocol'
 import type { NodeKind } from '../shared/nodes'
+import { openAggregationForNode } from './aggregate-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
@@ -211,6 +212,11 @@ function actionBar(key: string): OrcaNode {
       {openable ? (
         <Button size="sm" icon="open-external" variant="solid" tone="accent" onPress={act(() => openCollection(real))}>
           {meta.kind === 'view' ? 'Open view' : 'Open'}
+        </Button>
+      ) : null}
+      {openable ? (
+        <Button size="sm" icon="layers" variant="ghost" onPress={act(() => openAggregationForNode(real))}>
+          Aggregate
         </Button>
       ) : null}
       {refresh}

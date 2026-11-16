@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 3).
+Last updated: 2026-11-16 (end of Phase 4).
 
 ## Decisions
 
@@ -17,6 +17,10 @@ Last updated: 2026-11-16 (end of Phase 3).
 | Shell execution | Scripts run synchronously in a `worker_thread` (`src/worker/shell-thread.mjs`) inside a `vm` context; each database call blocks the thread (`Atomics.wait` + `receiveMessageOnPort`) while the worker's main thread runs it on the pooled MongoClient. | Legacy-shell semantics (`findOne().x`, `forEach`, loops) without mongosh's async rewriter, and Stop can terminate a runaway loop. Results reuse the panel's paging. |
 | Shell target | A header comment in the file: `// @mongo-studio connection="<name>" db="<db>"`. | Editors never learn their file path, so the file has to carry its own target. Names, not ids, so a script works on another machine with a connection of the same name. |
 | Shell results | Shown in the panel's Shell tab, which is a collection tab backed by `shell.page` instead of `query.page`. Only the newest run's results stay open. | Reuses Table/Tree/JSON and paging; bounds open cursors. |
+| Aggregation tabs | A collection tab with `agg` set (`agg-<hash>` ids, next to `coll-<hash>`). Stages are a Table plus an editor for the selected stage; move, toggle, duplicate and remove are buttons. | Reuses the results views, paging and counting. Orca has no drag and drop, and a Table + one editor fits a 420 px panel better than a card per stage. |
+| Stage preview | `agg.preview` runs the enabled stages before the selected one (input) and with it (output), each + `$limit: size + 1`, in parallel, each half the page budget. Bodies are previewed on selection, structural changes and Ctrl+Enter, not per keystroke. | No timers in the panel; a request per keystroke would flood the worker. |
+| Writes (`$out`, `$merge`) | Never previewed, counted, re-run for a page (`agg.page` refuses unless it reads on from the open cursor) or explained with execution (forced to queryPlanner). Run asks first, naming the target. | A write must happen exactly once, when the person asks. |
+| Explain | The worker runs `explain` (inner `maxTimeMS` 120 s), serializes the answer as relaxed EJSON, and `src/shared/explain.ts` reads it into a summary and a stage tree; the raw text goes as one string (cut at 600 K chars). | One string costs one object in Orca's measure; the summary is small. The reader is pure, so it is tested on fixtures of every shape. |
 | CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
 ## Status
@@ -206,6 +210,56 @@ live worker (`orca plugin dev request`): runs, errors, autocomplete, Code and SQ
   across runs, await, cursor paging and its operation, every BSON constructor round-trip, errors
   with line and server code, stopping an endless loop, autocomplete names.
 
+### Done: Phase 4, aggregation and explain
+
+Checked live through the real host (`orca plugin dev request`: `agg.preview`, `agg.explain` with the
+SBE plan of a `$group`).
+
+- **Aggregation tab** (`src/panel/aggregate-*.ts(x)`, `src/shared/pipeline.ts`): opened from the
+  tree ("Aggregate"), a collection tab (layers button: the query bar becomes `$match`/`$sort`/
+  `$skip`/`$limit`/`$project`), or a shell aggregate result. Stage table, add after the selected
+  stage (30 operators with templates), up/down, on/off, duplicate, remove; the selected stage's
+  editor (shell syntax, errors with line and column) with its input/output preview (5–100 docs);
+  text mode for the whole pipeline; Run with paging and `$count` counting; allow disk use;
+  `$out`/`$merge` confirmation; create a view (tree refreshed, "Open the view"); saved pipelines
+  (`pipelines.v1.<connId>.<hash>`, removed with the connection); Code section.
+- **Worker** (`src/worker/aggregate.ts`, `query.ts`): `QuerySessions` now pages any cursor
+  (`read()`), with `pageAggregate` and `countAggregate`; previews, explain for finds and
+  pipelines, `createView` (checks the name, refuses a taken name and writes), saved pipelines.
+- **Explain** (`src/shared/explain.ts`, `src/panel/explain-*.ts(x)`): queryPlanner,
+  executionStats, allPlansExecution. Classic stages; SBE (`winningPlan.queryPlan`, stats matched by
+  `planNodeId`, the outermost SBE stage of a node gives its output); `stages` with `$cursor`;
+  sharded finds (`SHARD_MERGE` + `shards`) and pipelines (`shards: {}` + `splitPipeline`). Summary,
+  warnings (collection scan, in-memory sort, disk spill, examined/returned ≥ 10 past 1,000 docs,
+  failed run), tree with per-stage numbers and details, raw JSON. The verbosity choice persists.
+- **Shell:** `cursor.explain(v)`, `db.c.explain(v).find(…)` (shows the plan; `.finish()` returns
+  it), `.aggregate`, `.count`, `.distinct`; `explain` in autocomplete.
+
+**Tests:** 330 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass.
+
+- Stage model, text round trip, previews and write detection (`pipeline.test.ts`).
+- Explain reader on classic, SBE, `$cursor` pipelines, sharded finds and pipelines, plan-only,
+  `_id` lookups, failed runs (`explain.test.ts`).
+- 13 panel tests (`panel-aggregate.test.tsx`): building, moving and toggling stages, broken stages,
+  run/page/count, `$out` confirmation, text mode, views, saved pipelines, opening from a
+  collection tab and from the shell, explain on both tab kinds.
+- Live on the dev replica set (`test/aggregate.test.ts`): previews (size limit, refused writes),
+  paging with `$skip`, counts, `$out` once, views, saved pipelines, explain of indexed and
+  unindexed finds and of pushed-down and `$cursor` pipelines, shell explain.
+
+### Open items from Phase 4
+
+1. **Screenshots (blocked, as before).** `dev/shots.sh` now has a Phase 4 section (aggregation
+   tab, preview input, results, text mode, `$out` confirmation, explain visual and raw, create
+   view) writing to `.orca/shots/p4/`. Its `"replace":true` on typed text is what the test kit
+   takes; check that `plugin shot --act` takes it too. Look at the stage Table and the Preview
+   toolbar at 420 px in particular.
+2. Explain is not tested against a real sharded cluster (fixtures follow the documented shapes).
+3. The preview reads the whole input of the stages before the selected one; Compass offers a
+   "sample the source first" mode. Worth adding if previews on big collections are slow.
+4. Saved pipelines and query history are separate stores; Phase 7's saved tasks may unify them.
+
 ### Open items from Phase 3
 
 1. **Screenshots (blocked, as before).** Editor shots work only without `--act` while Orca's
@@ -219,7 +273,7 @@ live worker (`orca plugin dev request`): runs, errors, autocomplete, Code and SQ
    prototype, losing the field. Needs a computed key (`['__proto__']`) and own-property writes in
    the parser.
 4. **Not covered by the shell yet:** `rs.*`, `sh.*`, `load()`, change streams, sessions and
-   transactions, `explain()` (Phase 4).
+   transactions. (`explain()` came with Phase 4.)
 5. The editor's UI is tested in a scratch harness (headless Chromium + `playwright-core` + a stub
    `window.orca` proxying to `orca plugin dev request`), not in the repo. Worth adding to `dev/` if
    the editor grows.
@@ -288,10 +342,7 @@ collections, every index kind, GridFS, users and roles.
 
 ## Later phases (from the brief)
 
-- **Phase 4, aggregation (next; ask before starting):** a stage-by-stage builder that can add, reorder, enable, disable and
-  duplicate stages, with a preview of each stage's input and output. Explain plans, visual and
-  raw, for finds and aggregations. Create a view from a pipeline.
-- **Phase 5, admin and schema**
+- **Phase 5, admin and schema (next; ask before starting)**
   - Index manager: every index kind, hide/unhide, sizes and usage.
   - Collection operations: capped, time-series, clustered and validated collections; rename,
     drop, clear, stats, and a validation-rule editor.

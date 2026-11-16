@@ -75,7 +75,7 @@ export function Pager({ t }: { t: CollTab }): OrcaNode {
         <IconButton icon="collapse" label="First page" size="sm" variant="ghost" disabled={!p || p.offset === 0 || t.loading} onPress={guard(t.id, () => goToPage(t.id, 0))} />
         <IconButton icon="remove" label="Previous page" size="sm" variant="ghost" disabled={!p || p.offset === 0 || t.loading} onPress={guard(t.id, () => previousPage(t.id))} />
         <IconButton icon="next" label="Next page" size="sm" variant="ghost" disabled={!p?.hasMore || t.loading} onPress={guard(t.id, () => nextPage(t.id))} />
-        <IconButton icon="refresh" label="Count again" size="sm" variant="ghost" disabled={!t.spec || c === 'counting'} onPress={guard(t.id, () => recount(t.id))} />
+        <IconButton icon="refresh" label="Count again" size="sm" variant="ghost" disabled={!(t.spec || t.agg?.ran) || c === 'counting'} onPress={guard(t.id, () => recount(t.id))} />
       </Toolbar>
       <Text size="xs" muted={total === undefined}>{countText(t)}</Text>
       <Select label="Page size" labelHidden value={String(t.pageSize)} options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: `${n} per page` }))} onChange={(v) => void guard(t.id, () => setPageSize(t.id, Number(v)))()} />

@@ -5,16 +5,16 @@ import type { Operation } from '../shared/operation'
 import { change, collTabs, specFromText, type CollTab } from './collection-state'
 import { guard } from './guard'
 import { Results } from './results-view'
-import { closeShell, codeLanguage, openAsQuery, resultOptions, selectResult, SHELL_TAB, shellRun } from './shell-state'
+import { closeShell, codeLanguage, openAsPipeline, openAsQuery, resultOptions, selectResult, SHELL_TAB, shellRun } from './shell-state'
 
 /** Driver code for an operation, in the language the person last picked. */
-export function CodeSection({ op, description }: { op: Operation | undefined; description: string }): OrcaNode {
+export function CodeSection({ op, description, emptyText }: { op: Operation | undefined; description: string; emptyText?: string }): OrcaNode {
   const lang = read(codeLanguage)
   return (
     <Collapsible title="Code" description={description}>
       <Box gap="xs">
         <Select label="Language" value={lang} options={CODE_LANGUAGES} onChange={(v) => set(codeLanguage, v as CodeLanguage)} />
-        {op ? <CodeView code={generateCode(op, lang)} label={`${lang} code`} maxHeight="md" /> : <Text muted size="xs">Run a query first: its code appears here.</Text>}
+        {op ? <CodeView code={generateCode(op, lang)} label={`${lang} code`} maxHeight="md" /> : <Text muted size="xs">{emptyText ?? 'Run a query first: its code appears here.'}</Text>}
       </Box>
     </Collapsible>
   )
@@ -53,6 +53,11 @@ export function ShellTab(): OrcaNode {
           {info.op?.kind === 'find' ? (
             <Button size="sm" icon="open-external" variant="ghost" onPress={guard(SHELL_TAB, () => openAsQuery(info))}>
               Open as query
+            </Button>
+          ) : null}
+          {info.op?.kind === 'aggregate' ? (
+            <Button size="sm" icon="layers" variant="ghost" onPress={guard(SHELL_TAB, () => openAsPipeline(info))}>
+              Open in the aggregation editor
             </Button>
           ) : null}
         </Toolbar>
