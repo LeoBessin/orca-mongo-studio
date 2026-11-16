@@ -87,7 +87,7 @@ It works in Orca as a development plugin (`orca plugin dev load .`, key `local.o
    and `mongodb+srv` against a real Atlas cluster. All are covered by unit and mock tests.
 4. **Known limit:** through SSH the plugin talks to the first database host only. The form warns
    about this.
-5. The project isn't a git repository yet. Ask before running `git init`.
+5. Git: public at https://github.com/LeoBessin/orca-mongo-studio (MIT), branch `main`.
 
 ### Done: Phase 2, querying and data viewing
 
