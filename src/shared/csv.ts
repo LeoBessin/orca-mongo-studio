@@ -3,7 +3,7 @@
 // mongoimport's `--columnsHaveTypes` does (`age.int32()`), and each cell becomes canonical Extended
 // JSON. Writing flattens documents into dotted columns; values that are not plain scalars are
 // written as relaxed Extended JSON, which the `json` type reads back.
-import { bsonType, dateMillis, isObject, isoDate, toRelaxed, type JsonObject, type JsonValue } from './ejson-view'
+import { bsonType, dateMillis, isObject, isoDate, setOwn, toRelaxed, type JsonObject, type JsonValue } from './ejson-view'
 
 export type CsvType = 'string' | 'int' | 'long' | 'double' | 'decimal' | 'bool' | 'date' | 'objectId' | 'json' | 'skip'
 
@@ -351,12 +351,16 @@ export function rowDocument(columns: readonly CsvColumn[], row: readonly string[
     const parts = c.field.trim().split('.')
     let at = doc
     for (const p of parts.slice(0, -1)) {
-      const next = at[p]
-      if (next === undefined) at = at[p] = {}
+      const next = Object.prototype.hasOwnProperty.call(at, p) ? at[p] : undefined
+      if (next === undefined) {
+        const child: JsonObject = {}
+        setOwn(at, p, child)
+        at = child
+      }
       else if (isObject(next) && bsonType(next) === 'object') at = next
       else throw new Error(`${c.name}: "${p}" is already a value`)
     }
-    at[parts[parts.length - 1]!] = v
+    setOwn(at, parts[parts.length - 1]!, v)
   }
   if (row.length > columns.length && row.slice(columns.length).some((x) => x !== '')) throw new Error(`The row has ${row.length} values for ${columns.length} columns.`)
   return doc

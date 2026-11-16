@@ -267,6 +267,9 @@ async function writeText(path: string, text: string, overwrite: boolean, result:
   result.written?.push(path)
 }
 
+/** Collections of a database copied at once. */
+const COPY_PARALLEL = 3
+
 async function copyParts(source: MongoClient, target: MongoClient, from: ExportSource, parts: Part[], db: string, options: ExportOptions, job: JobHandle, result: ExportResult): Promise<ExportResult> {
   const o = options.collection
   if (!o) throw invalid('Choose the collection to copy into.')
@@ -278,16 +281,32 @@ async function copyParts(source: MongoClient, target: MongoClient, from: ExportS
   result.failed = 0
   result.indexes = 0
   const sameServer = source === target
+  const targetName = (part: Part): string => (many ? part.name : (o.collection ?? '').trim())
+  // Every target is checked before anything is written.
   for (const part of parts) {
-    checkSignal(job.signal)
-    const toName = many ? part.name : (o.collection ?? '').trim()
+    const toName = targetName(part)
     checkTarget({ db: toDb, collection: toName })
     if (sameServer && toDb === db && toName === part.name) throw invalid(`${db}.${part.name} would be copied onto itself. Choose another database or collection name.`)
+  }
+  /** What each collection in progress is doing, for the job's phase. */
+  const active = new Map<string, string>()
+  const show = (name: string, phase: string | undefined): void => {
+    if (phase === undefined) active.delete(name)
+    else active.set(name, phase)
+    if (active.size === 1) job.progress({ phase: [...active.values()][0]! })
+    else if (active.size > 1) job.progress({ phase: `Copying ${active.size} collections: ${[...active.keys()].join(', ')}` })
+  }
+  /** Set when one collection fails: the others stop at their next document. */
+  let failed = false
+
+  const copyPart = async (part: Part): Promise<void> => {
+    const toName = targetName(part)
     const label = `${toDb}.${toName}`
     const tdb = target.db(toDb)
     const coll = tdb.collection(toName)
+    const step = (phase: string | undefined): void => show(part.name, phase)
     if (o.mode === 'replace') {
-      job.progress({ phase: `Dropping ${label}` })
+      step(`Dropping ${label}`)
       await coll.drop().catch((error: { codeName?: string }) => {
         if (error.codeName !== 'NamespaceNotFound') throw error
       })
@@ -297,17 +316,19 @@ async function copyParts(source: MongoClient, target: MongoClient, from: ExportS
       if (!exists) await tdb.createCollection(toName, creationOptions(part.options))
       else job.error({ ns: label, message: 'A collection of this name exists already, so the view was not copied.' })
       result.collections++
-      continue
+      step(undefined)
+      return
     }
     if (!exists && (o.options || part.kind === 'timeseries') && part.kind !== 'view' && Object.keys(part.options).length) {
       await tdb.createCollection(toName, creationOptions(part.options))
     }
-    job.progress({ phase: `Copying ${db}.${part.name} to ${label}` })
+    step(`Copying ${db}.${part.name} to ${label}`)
     const writer = new CollectionWriter(coll, o.mode === 'replace' ? 'insert' : o.mode, false, job, label)
     const cursor = part.cursor()
     let n = 0
     try {
       for await (const d of cursor) {
+        if (failed) return
         n++
         await writer.add(d, n)
       }
@@ -316,23 +337,42 @@ async function copyParts(source: MongoClient, target: MongoClient, from: ExportS
       await cursor.close().catch(() => undefined)
     }
     result.docs += n
-    result.inserted += writer.counts.inserted
-    result.updated += writer.counts.updated
-    result.failed += writer.counts.failed
+    result.inserted! += writer.counts.inserted
+    result.updated! += writer.counts.updated
+    result.failed! += writer.counts.failed
     result.collections++
     if (o.indexes && part.collection && part.kind !== 'view') {
       const specs = indexDescriptions(await source.db(db).collection(part.name).listIndexes().toArray().catch(() => []))
       if (specs.length) {
-        job.progress({ phase: `Creating ${specs.length} index${specs.length === 1 ? '' : 'es'} on ${label}` })
+        step(`Creating ${specs.length} index${specs.length === 1 ? '' : 'es'} on ${label}`)
         try {
           await coll.createIndexes(specs)
-          result.indexes += specs.length
+          result.indexes! += specs.length
         } catch (error) {
           job.error({ ns: label, message: `Indexes: ${error instanceof Error ? error.message : String(error)}` })
         }
       }
     }
+    step(undefined)
   }
+
+  // A database is copied a few collections at a time; one collection is just that.
+  let next = 0
+  let firstError: unknown
+  const copier = async (): Promise<void> => {
+    while (!failed && next < parts.length) {
+      const part = parts[next++]!
+      try {
+        checkSignal(job.signal)
+        await copyPart(part)
+      } catch (error) {
+        if (!failed) firstError = error
+        failed = true
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(COPY_PARALLEL, parts.length) }, copier))
+  if (failed) throw firstError
   return result
 }
 

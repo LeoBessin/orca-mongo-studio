@@ -220,6 +220,11 @@ export function adminTabId(kind: AdminKind, parts: readonly string[]): string {
   return `adm-${kind}-${h.toString(36)}`
 }
 
+/** The connection is marked read only: the worker refuses its writes, so tabs leave them out. */
+export function isReadOnly(connectionId: string | undefined): boolean {
+  return Boolean(connectionId && read(connections)?.connections.find((c) => c.id === connectionId)?.readOnly)
+}
+
 export function connectionName(connectionId: string): string {
   return read(connections)?.connections.find((c) => c.id === connectionId)?.name ?? 'Connection'
 }

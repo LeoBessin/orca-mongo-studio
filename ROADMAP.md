@@ -4,7 +4,7 @@ The handoff for the next session. It covers where the project stands, the decisi
 Orca platform facts that shape the design, and the plan for each remaining phase. The original
 brief asks for the non-AI feature set of Studio 3T, built only from Orca's own components.
 
-Last updated: 2026-11-16 (end of Phase 7: every phase of the brief is done).
+Last updated: 2026-11-16 (polish after Phase 7: every phase of the brief is done).
 
 ## Decisions
 
@@ -32,6 +32,7 @@ Last updated: 2026-11-16 (end of Phase 7: every phase of the brief is done).
 | Saved tasks | A task stores the exact start request of its tab (`TaskRequest` in `src/shared/tasks.ts`: export/copy, import from a path, compare, sync) in one storage key (`tasks.v1`, 250 KB). `tasks.run` calls the same start function as the tab's request, with an `onEnd` hook on the job that records the last run and posts `tasks.changed`. "Open in its tab" lays the request back into the tab. | A run does exactly what the tab does, with one code path; nothing to migrate when a tab's form changes. |
 | Task schedule | On demand only (the Tasks tab, or its palette command). | Orca automations start AI agents (no-AI rule), and Orca stops an idle worker, so a scheduler in it would miss runs. |
 | Read-only connections | `ConnectionDef.readOnly`, enforced in the worker: every request that writes calls `writable(connectionId, action)` before connecting and throws `not_permitted`; the shell checks each call from the script thread with `shellCallWrites`, and `db.runCommand` passes only for an allowlist of commands that read (`src/shared/read-only.ts`). | Refusing before connecting means nothing reaches the server; an allowlist fails closed on commands it doesn't know. |
+| Tasks in connection exports | The Mongo Studio export file gains an optional `tasks` list: tasks that use only the exported connections, with connection names in place of ids and no last run. On import a name resolves to a connection from the same file first, then a saved one; none or several means the task is left out with a reason. Names already taken get a number. | Same rule as shell scripts (names travel, ids don't); the file stays readable by older versions, which ignore `tasks`. |
 | Keybindings | Manifest shortcuts on Mod+Alt+Shift chords, checked against a snapshot of Orca's global and tab defaults (`src/shared/orca-keys.ts`, from `dev/orca-keys.mjs`); the shell editor drops CodeMirror defaults that clash (only the fold keys do). | Orca's own shortcuts must keep working in Mongo Studio. |
 | CodeMirror | Bundled once into `src/editor/vendor/codemirror.js` by `dev/build-codemirror.mjs`; the `.d.ts` re-exports the npm typings. | Frames import only relative files, and the build step stays out of everyday work. |
 
@@ -393,8 +394,7 @@ preview with inferred types, `gridfs.list`, a BSON download read back with `job.
    `mongorestore` of a dump folder written by Export restores every `shop` collection with its
    indexes and both views; `mongoimport` reads our canonical JSON of `types_zoo.everything`
    identically, and our CSV of 20,000 orders.
-4. A database copy writes collections one after another; a big database would gain from a few in
-   parallel.
+4. ~~A database copy writes collections one after another.~~ Done after Phase 7: three at a time.
 5. Phase 7 could reuse jobs for saved tasks (an export or copy saved with its options and run on
    demand).
 
@@ -449,14 +449,40 @@ clone's deletion removing its task). The manifest's new command and keybindings 
    `.orca/shots/p7/` (empty Tasks tab, Save as task in Export and Compare, the Read only switch).
    It shoots nothing that saves, so a Tasks tab with tasks and the run confirmation need a task
    seeded first. Check the tasks Table and the Save as task button row at 420 px.
-2. Collection tabs of a read-only connection hide editing, as for a view. The admin tabs (Manage,
-   Database, Users) still show their write buttons; the badge says changes are refused, and the
-   worker refuses them with a clear message. Hiding those is polish.
+2. ~~Admin tabs of a read-only connection still show their write buttons.~~ Done after Phase 7.
 3. A sync task's options are shown only after a comparison in the Compare tab (the Sync section
    needs one); "Open in its tab" sets them, and they show once compared.
-4. Tasks could be exported and imported with connections, mapped by connection name like shell
-   scripts. Not done.
+4. ~~Tasks exported and imported with connections.~~ Done after Phase 7.
 5. Saved pipelines and query history remain separate from tasks.
+
+### Done: polish after Phase 7
+
+Four open items, closed:
+
+- **`__proto__` fields** (Phase 3, item 3): `toShell`/`toShellInline` write `['__proto__']: v`;
+  `parseShell` reads a quoted string in `[ ]` as a key, and every key form it takes makes an own
+  field. `setOwn` (`ejson-view.ts`) writes such keys with `defineProperty`; `toRelaxed`, compare
+  keys and CSV rows use it. Checked that `bson` keeps an own `__proto__` through EJSON and BSON.
+- **Read-only admin tabs** (Phase 7, item 2): `isReadOnly(connectionId)` in `admin-state.ts`. Manage
+  leaves out index changes, saving rules (Check documents stays), and rename/clear/drop; Database
+  leaves out Create a collection, profiler settings (entries still read) and Drop; Users leaves
+  out New, Edit and Drop; Server leaves out Stop operation; GridFS leaves out upload, rename and
+  delete; Import previews but doesn't import or save a task.
+- **Tasks in connection exports** (Phase 7, item 4): see Decisions. `exportableTasks`,
+  `resolveTasks` and the file's `tasks` are in `src/shared/transfer.ts`; `mapTaskConnections` in
+  `tasks.ts`; `TaskStore.addMany` adds them. The export has an "Include saved tasks" checkbox, and
+  its Save button and the import report count them.
+- **Database copies in parallel** (Phase 6, item 4): `copyParts` checks every target first, then
+  runs three copiers over the collections; the phase names those in progress; the first failure
+  stops the others at their next document and is the job's error.
+
+**Tests:** 470 pass in each of `npm test`, `npm run test:it` and `npm run test:enterprise`;
+`npm run typecheck` and `npm run check` pass. New: `__proto__` through the parser, `toShell`, real
+JavaScript, relaxed JSON, compare keys and CSV rows (`shell-parse.test.ts`); tasks exported,
+resolved and refused (`transfer.test.ts`); a round trip between two workers with a name clash and a
+missing connection (`worker.test.ts`); read-only Manage, Database, Users and Server tabs
+(`panel-admin.test.tsx`); the export checkbox and import report (`panel.test.tsx`); a live copy of
+the whole `shop` database, every collection and view checked (`test/data.test.ts`).
 
 ### Open items from Phase 3
 
@@ -466,10 +492,7 @@ clone's deletion removing its task). The manifest's new command and keybindings 
 2. **Release packaging** now also needs `src/worker/shell-thread.mjs` (it loads `bson` by the
    absolute path the worker passes; in a bundle, give it its own bundled `bson`) and the vendored
    CodeMirror file, which is already self-contained.
-3. **`__proto__` keys:** `shellKey` in `ejson-view.ts` writes `__proto__: v`, which a JavaScript
-   object literal (and probably `parseShell`, which assigns keys with `obj[key] =`) reads as a
-   prototype, losing the field. Needs a computed key (`['__proto__']`) and own-property writes in
-   the parser.
+3. ~~**`__proto__` keys** lost in shell syntax.~~ Done after Phase 7.
 4. **Not covered by the shell yet:** `rs.*`, `sh.*`, `load()`, change streams, sessions and
    transactions. (`explain()` came with Phase 4.)
 5. The editor's UI is tested in a scratch harness (headless Chromium + `playwright-core` + a stub

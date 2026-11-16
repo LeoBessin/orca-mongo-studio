@@ -27,7 +27,11 @@ shell and code, aggregation and explain, administration and schema, data movemen
   and definition. The tree has a filter and favourites, and each node can be refreshed.
 - **Import and export.**
   - Import connection strings (one per line), Mongo Studio exports or MongoDB Compass exports.
-  - Export saves through Orca's save dialog and never includes secrets.
+  - Export saves through Orca's save dialog and never includes secrets. It also carries the saved
+    tasks that use only the chosen connections (unless "Include saved tasks" is off), naming
+    connections by name; on import they find the connections of that name, from the file first,
+    then those already saved. A task whose connection can't be found, or is ambiguous, is left out
+    and the import says why.
 - **Palette commands:** New connection, Import connections, Export connections, Disconnect all.
 
 ## What Phase 2 does
@@ -185,7 +189,8 @@ dialog (up to 64 MiB) or to a path the worker writes (as `<name>.part`, renamed 
 - **Copy and paste** (copy button on a collection, a database or selected documents; Paste on a
   connection, database or collection, on any connection): opens the Export tab set to "Another
   collection". Copies keep every BSON type, and can copy indexes and collection options (capped,
-  validation, collation, time series). A database copy recreates views. Insert, replace or merge
+  validation, collation, time series). A database copy recreates views and copies three
+  collections at a time; a failure in one stops the rest. Insert, replace or merge
   by `_id`, or drop the target first (asked, with its count).
 - **Compare and sync** (branch button on a collection or a collection tab): two collections on
   the same or different connections, matched by `_id`, with a filter for both sides, fields to
@@ -219,7 +224,11 @@ dialog (up to 64 MiB) or to a path the worker writes (as `<name>.part`, renamed 
   deletes. In the shell, reads work as usual and each write is refused at its line; commands sent
   with `db.runCommand` pass only when they are known to read. Exports, compares and copies *from*
   a read-only connection still work. Its tree row and every tab of it say "read only", and a saved
-  task that writes to it can't run.
+  task that writes to it can't run. Its tabs leave out what would write: document editing; new,
+  hidden, dropped or TTL-changed indexes; saving validation rules (checking documents against
+  rules still works); rename, clear and drop; creating collections and dropping the database;
+  profiler settings (its entries can still be read); user and role editing; stopping operations;
+  imports; GridFS uploads, renames and deletes.
 - **Confirmations** before anything is removed or replaced name the namespace and its document
   count: dropping or clearing a collection, dropping a database (collections and documents),
   renaming over a collection that exists, `$out`/`$merge` into a collection, dropping an index,

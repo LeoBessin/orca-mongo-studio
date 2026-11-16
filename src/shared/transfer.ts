@@ -1,7 +1,10 @@
 // Import and export of connection definitions. Exports never carry secrets: an inline PEM or a
 // password must be entered again after import. Accepts Mongo Studio's own format, MongoDB Compass
-// exports, and plain connection strings (one per line).
+// exports, and plain connection strings (one per line). Mongo Studio's format also carries the
+// saved tasks that use only the exported connections, naming connections by name (as shell scripts
+// do), so they find their connections on another machine.
 import { cloneDef, connectionSubtitle, type ConnectionDef, type SecretDraft } from './model'
+import { mapTaskConnections, taskConnections, type Task, type TaskRequest } from './tasks'
 import { ConnectionStringError, parseConnectionString } from './uri'
 
 export const EXPORT_FORMAT = 'mongo-studio.connections'
@@ -11,9 +14,21 @@ export type ExportFile = {
   version: 1
   exportedAt: string
   connections: Omit<ConnectionDef, 'id' | 'createdAt' | 'updatedAt'>[]
+  tasks?: ExportedTask[]
 }
 
-export function exportConnections(defs: readonly ConnectionDef[], now: number): string {
+/** A saved task in an export: its request names connections by name instead of id. */
+export type ExportedTask = { name: string; request: TaskRequest }
+
+/** The tasks that travel with these connections: those that use no other connection. */
+export function exportableTasks(defs: readonly ConnectionDef[], tasks: readonly Task[]): Task[] {
+  const ids = new Set(defs.map((d) => d.id))
+  return tasks.filter((t) => taskConnections(t.request).every((id) => ids.has(id)))
+}
+
+export function exportConnections(defs: readonly ConnectionDef[], now: number, tasks: readonly Task[] = []): string {
+  const names = new Map(defs.map((d) => [d.id, d.name]))
+  const travel = exportableTasks(defs, tasks)
   const file: ExportFile = {
     format: EXPORT_FORMAT,
     version: 1,
@@ -21,13 +36,66 @@ export function exportConnections(defs: readonly ConnectionDef[], now: number): 
     connections: defs.map((d) => {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = cloneDef(d)
       return rest
-    })
+    }),
+    ...(travel.length ? { tasks: travel.map((t) => ({ name: t.name, request: mapTaskConnections(t.request, (id) => names.get(id)!) })) } : {})
   }
   return `${JSON.stringify(file, null, 2)}\n`
 }
 
 export type ImportedConnection = { def: ConnectionDef; secrets: SecretDraft; warnings: string[] }
-export type ImportResult = { items: ImportedConnection[]; errors: string[] }
+export type ImportResult = { items: ImportedConnection[]; errors: string[]; tasks: ExportedTask[] }
+
+/**
+ * Gives imported tasks connection ids again. A name means a connection from the same file first,
+ * then a saved one; a name that matches none, or more than one, leaves the task out with a reason.
+ */
+export function resolveTasks(
+  tasks: readonly ExportedTask[],
+  imported: readonly { id: string; name: string }[],
+  saved: readonly { id: string; name: string }[]
+): { tasks: ExportedTask[]; errors: string[] } {
+  const out: ExportedTask[] = []
+  const errors: string[] = []
+  const find = (name: string): { id?: string; problem?: string } => {
+    for (const pool of [imported, saved]) {
+      const hits = pool.filter((c) => c.name === name)
+      if (hits.length === 1) return { id: hits[0]!.id }
+      if (hits.length > 1) return { problem: `more than one connection is named "${name}"` }
+    }
+    return { problem: `no connection is named "${name}"` }
+  }
+  for (const t of tasks) {
+    const problems: string[] = []
+    let request: TaskRequest
+    try {
+      request = mapTaskConnections(t.request, (name) => {
+        const hit = find(name)
+        if (hit.problem) problems.push(hit.problem)
+        return hit.id ?? name
+      })
+    } catch {
+      errors.push(`The task "${t.name}" was not imported: its settings are not readable.`)
+      continue
+    }
+    if (problems.length) errors.push(`The task "${t.name}" was not imported: ${[...new Set(problems)].join('; ')}.`)
+    else out.push({ name: t.name, request })
+  }
+  return { tasks: out, errors }
+}
+
+function readTasks(raw: unknown, errors: string[]): ExportedTask[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    errors.push('The tasks of this file are not a list; they were left out.')
+    return []
+  }
+  const out: ExportedTask[] = []
+  raw.forEach((t, i) => {
+    if (isRecord(t) && typeof t.name === 'string' && isRecord(t.request) && typeof t.request.kind === 'string') out.push({ name: t.name, request: t.request as TaskRequest })
+    else errors.push(`Task ${i + 1} of the file is not a task; it was left out.`)
+  })
+  return out
+}
 
 type IdFactory = () => string
 
@@ -77,25 +145,26 @@ export function importConnections(
   const trimmed = text.trim()
   const items: ImportedConnection[] = []
   const errors: string[] = []
-  if (!trimmed) return { items, errors: ['Nothing to import.'] }
+  const tasks: ExportedTask[] = []
+  if (!trimmed) return { items, errors: ['Nothing to import.'], tasks }
 
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     let data: unknown
     try {
       data = JSON.parse(trimmed)
     } catch (e) {
-      return { items, errors: [`This is not valid JSON: ${(e as Error).message}`] }
+      return { items, errors: [`This is not valid JSON: ${(e as Error).message}`], tasks }
     }
     if (isRecord(data) && data.format === EXPORT_FORMAT && Array.isArray(data.connections)) {
       data.connections.forEach((c, i) => {
         if (isRecord(c)) items.push(fromStudio(c, base, newId))
         else errors.push(`Connection ${i + 1} is not an object.`)
       })
-      return { items, errors }
+      return { items, errors, tasks: readTasks(data.tasks, errors) }
     }
     // MongoDB Compass: { connections: [{ connectionOptions: { connectionString }, favorite: { name } }] }
     const list = isRecord(data) && Array.isArray(data.connections) ? data.connections : Array.isArray(data) ? data : null
-    if (!list) return { items, errors: ['This JSON is neither a Mongo Studio nor a Compass export.'] }
+    if (!list) return { items, errors: ['This JSON is neither a Mongo Studio nor a Compass export.'], tasks }
     list.forEach((c, i) => {
       const uri =
         typeof c === 'string'
@@ -118,7 +187,7 @@ export function importConnections(
         errors.push(`Entry ${i + 1}: ${(e as Error).message}`)
       }
     })
-    return { items, errors }
+    return { items, errors, tasks }
   }
 
   trimmed.split(/\r?\n/).forEach((line, i) => {
@@ -130,5 +199,5 @@ export function importConnections(
       errors.push(`Line ${i + 1}: ${e instanceof ConnectionStringError ? e.message : String(e)}`)
     }
   })
-  return { items, errors }
+  return { items, errors, tasks }
 }

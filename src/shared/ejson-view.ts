@@ -65,6 +65,15 @@ export function isObject(v: JsonValue | undefined): v is JsonObject {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+/**
+ * Sets a field as an own property. `o[k] = v` with `k === '__proto__'` would set the object's
+ * prototype instead, and the field would be lost; data from JSON.parse can hold such a key.
+ */
+export function setOwn<T>(o: { [key: string]: T }, k: string, v: T): void {
+  if (k === '__proto__') Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true })
+  else o[k] = v
+}
+
 export function isTruncated(v: JsonValue | undefined): v is Truncated {
   return isObject(v) && isObject(v.$msTruncated) && Object.keys(v).length === 1
 }
@@ -181,7 +190,7 @@ export function toRelaxed(v: JsonValue): JsonValue {
     }
     case 'object': {
       const out: JsonObject = {}
-      for (const [k, val] of Object.entries(v)) out[k] = toRelaxed(val)
+      for (const [k, val] of Object.entries(v)) setOwn(out, k, toRelaxed(val))
       return out
     }
     default:
@@ -213,6 +222,8 @@ export function shellString(s: string): string {
 }
 
 function shellKey(k: string): string {
+  // `__proto__: v`, quoted or not, sets the prototype in JavaScript; a computed key adds a field.
+  if (k === '__proto__') return "['__proto__']"
   return IDENT.test(k) ? k : shellString(k)
 }
 

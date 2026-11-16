@@ -1,5 +1,8 @@
 // Golden tests for the shell literal parser: what people type, and where errors point.
 import { assert, describe, test } from 'orca/testing'
+import { compareKey } from './compare'
+import { rowDocument } from './csv'
+import { toRelaxed, toShell, toShellInline, type JsonObject } from './ejson-view'
 import { parseShell, parseShellDocument, ShellParseError, shellProblem } from './shell-parse'
 
 const ok = (text: string, expected: unknown, now?: number): void => {
@@ -118,5 +121,43 @@ describe('shell parser: errors point at the problem', () => {
 
   test('a query field must be a document', () => {
     assert.match(shellProblem('[1]', 'projection')!.message, /projection must be a document/)
+  })
+})
+
+describe('a field named __proto__ stays a field', () => {
+  // JSON.parse makes `__proto__` an own field, as it is in documents from the worker.
+  const doc = JSON.parse('{"_id":{"$numberInt":"1"},"__proto__":{"x":{"$numberInt":"1"}},"a":{"__proto__":"y"}}') as JsonObject
+  const own = (o: unknown, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k)
+
+  test('toShell writes a computed key, and the parser reads it back', () => {
+    const text = toShell(doc)
+    assert.match(text, /\['__proto__'\]: \{/)
+    assert.match(toShellInline(doc), /\['__proto__'\]: 'y'/)
+    const back = parseShell(text) as JsonObject
+    assert.ok(own(back, '__proto__'))
+    assert.equal(Object.getPrototypeOf(back), Object.prototype)
+    assert.equal(JSON.stringify(back), JSON.stringify(doc))
+    // In real JavaScript, as in the shell editor, the computed key is a field too.
+    const js = new Function(`return (${toShellInline(JSON.parse('{"__proto__":"v"}') as JsonObject)})`)() as object
+    assert.ok(own(js, '__proto__'))
+    assert.equal(Object.getPrototypeOf(js), Object.prototype)
+  })
+
+  test('every key form the parser takes makes an own field', () => {
+    for (const text of ['{ __proto__: 1 }', "{ '__proto__': 1 }", '{ "__proto__": 1 }', "{ ['__proto__']: 1 }", '{ [ "__proto__" ] : 1 }']) {
+      const v = parseShell(text) as JsonObject
+      assert.ok(own(v, '__proto__'), text)
+      assert.deepEqual(Object.keys(v), ['__proto__'], text)
+    }
+    assert.match(err('{ [a]: 1 }').message, /must be a quoted string/)
+    assert.match(err("{ ['a': 1 }").message, /Expected "\]"/)
+    assert.match(err('{ __proto__: 1, "__proto__": 2 }').message, /appears twice/)
+  })
+
+  test('relaxed JSON, compare keys and CSV rows keep it', () => {
+    assert.ok(own(toRelaxed(doc), '__proto__'))
+    assert.match(compareKey(doc, { ignoreFields: [], ignoreOrder: true }), /"__proto__"/)
+    const row = rowDocument([{ name: 'p', field: '__proto__.x', type: 'string' }, { name: 'c', field: 'constructor.y', type: 'string' }], ['a', 'b'], true)
+    assert.equal(JSON.stringify(row), '{"__proto__":{"x":"a"},"constructor":{"y":"b"}}')
   })
 })

@@ -1,7 +1,7 @@
 // Comparing documents for Compare and sync: what makes two documents equal (canonical Extended
 // JSON, so Int32 1 and Double 1.0 differ; field order counts unless told not to; some fields can be
 // left out), and the field-by-field differences shown for one pair.
-import { bsonType, isObject, valueText, type JsonObject, type JsonValue } from './ejson-view'
+import { bsonType, isObject, setOwn, valueText, type JsonObject, type JsonValue } from './ejson-view'
 
 export type CompareRules = {
   /** Dotted paths left out of the comparison (`_id` is never compared: it is the key). */
@@ -23,7 +23,7 @@ export function comparable(doc: JsonObject, rules: CompareRules): JsonValue {
     const keys = Object.keys(v).filter((k) => !ignore.some((p) => p.length === path.length + 1 && p[path.length] === k && path.every((s, i) => p[i] === s)))
     if (rules.ignoreOrder) keys.sort()
     const out: JsonObject = {}
-    for (const k of keys) out[k] = walk(v[k]!, [...path, k])
+    for (const k of keys) setOwn(out, k, walk(v[k]!, [...path, k]))
     return out
   }
   const out = walk(doc, []) as JsonObject

@@ -21,7 +21,7 @@ import {
 } from 'orca'
 import { CSV_TYPES, type CsvType } from '../shared/csv'
 import { toShell } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { openNamespace } from './collection-state'
 import { bytesText, jobRunning } from './data-state'
@@ -120,6 +120,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
   const csvLike = fmt === 'csv' || fmt === 'tsv'
   const running = jobRunning(t.job)
   const problems = importProblems(t)
+  const ro = isReadOnly(t.connectionId)
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">
@@ -189,16 +190,20 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
         </Callout>
       ) : null}
       {problems.length && p ? <Text size="xs" tone="danger">{problems.join(' ')}</Text> : null}
-      <Row gap="xs" align="center">
-        <Button variant="solid" tone="accent" icon="upload" disabled={running || Boolean(t.confirmDrop)} onPress={aguard(t.id, () => startImport(t.id))}>
-          {running ? 'Importing…' : 'Import'}
-        </Button>
-        {t.job?.state?.status === 'done' && !folder && t.collection ? (
-          <Button variant="ghost" icon="open-external" onPress={aguard(t.id, () => openNamespace({ connectionId: t.connectionId, db: t.db, collection: t.collection }, 'coll'))}>Open the collection</Button>
-        ) : null}
-      </Row>
+      {ro ? (
+        <Text size="xs" muted>{`${connectionName(t.connectionId)} is read only: the source can be previewed, but nothing is imported into it.`}</Text>
+      ) : (
+        <Row gap="xs" align="center">
+          <Button variant="solid" tone="accent" icon="upload" disabled={running || Boolean(t.confirmDrop)} onPress={aguard(t.id, () => startImport(t.id))}>
+            {running ? 'Importing…' : 'Import'}
+          </Button>
+          {t.job?.state?.status === 'done' && !folder && t.collection ? (
+            <Button variant="ghost" icon="open-external" onPress={aguard(t.id, () => openNamespace({ connectionId: t.connectionId, db: t.db, collection: t.collection }, 'coll'))}>Open the collection</Button>
+          ) : null}
+        </Row>
+      )}
       <JobProgress box={t.job} what="import" onCancel={aguard(t.id, () => cancelImport(t.id))} />
-      {t.sourceKind === 'path' ? (
+      {ro ? null : t.sourceKind === 'path' ? (
         <TaskSaver tabId={t.id} task={t.task} taskName={t.taskName} placeholder={t.title} kinds={[{ kind: 'import', label: 'Save the import as a task' }]} />
       ) : (
         <Text size="xs" muted>An import from a file or folder path can be saved as a task; pasted text can't.</Text>

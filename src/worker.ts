@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { CollectionKind, ConnectionsState, ImportReport, SaveResult } from './protocol'
 import { cloneDef, connectionSubtitle, emptyConnection, validateConnection, type ConnectionDef } from './shared/model'
-import { exportConnections, importConnections } from './shared/transfer'
+import { exportableTasks, exportConnections, importConnections, resolveTasks } from './shared/transfer'
 import {
   checkValidation,
   clearCollection,
@@ -198,19 +198,28 @@ export default function activate(orca: OrcaWorkerApi): void {
     const now = Date.now()
     const result = importConnections(text, () => randomUUID(), now, (id) => emptyConnection(id, now))
     const report: ImportReport = { imported: [], errors: result.errors }
+    const saved = await store.list()
     for (const item of result.items) {
       await store.applySecrets(item.def.id, item.secrets)
       report.imported.push({ id: item.def.id, name: item.def.name, warnings: item.warnings })
     }
     await store.putMany(result.items.map((i) => i.def))
     await broadcast()
+    if (result.tasks.length) {
+      const resolved = resolveTasks(result.tasks, result.items.map((i) => i.def), saved)
+      const out = resolved.tasks.length ? await tasks.addMany(resolved.tasks).catch((error: unknown) => ({ added: [], errors: [error instanceof Error ? error.message : String(error)] })) : { added: [], errors: [] }
+      report.errors.push(...resolved.errors, ...out.errors)
+      report.tasks = out.added
+      if (out.added.length) await broadcastTasks()
+    }
     return report
   })
 
-  orca.panels.handle('connections.export', async ({ ids }) => {
+  orca.panels.handle('connections.export', async ({ ids, tasks: withTasks }) => {
     const all = await store.list()
     const chosen = ids ? all.filter((d) => ids.includes(d.id)) : all
-    return { json: exportConnections(chosen, Date.now()), count: chosen.length }
+    const travel = withTasks === false ? [] : exportableTasks(chosen, await tasks.list())
+    return { json: exportConnections(chosen, Date.now(), travel), count: chosen.length, tasks: travel.length }
   })
 
   orca.panels.handle('connections.test', async ({ def, secrets, id }, { panel }) => {

@@ -20,7 +20,7 @@ import {
   type OrcaNode
 } from 'orca'
 import { toShell } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, type RoleEditor, type UserEditor, type UsersTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, type RoleEditor, type UserEditor, type UsersTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { addGrantedRole, changeEditor, closeEditor, dropConfirmed, editRole, editUser, loadUsers, newRole, newUser, removeGrantedRoles, roleKey, saveEditor } from './users-state'
 
@@ -121,6 +121,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
   const user = s?.users.find((u) => u.user === t.userSelected)
   const role = s?.roles.find((r) => r.role === t.roleSelected)
   const c = t.confirmDrop
+  const ro = isReadOnly(t.connectionId)
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">
@@ -131,8 +132,8 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
         <IconButton icon="close" label={`Close users and roles of ${t.db}`} variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>
       <Toolbar label="Users and roles actions" gap="xs">
-        <Button size="sm" icon="add" onPress={() => newUser(t.id)}>New user</Button>
-        <Button size="sm" icon="add" variant="ghost" onPress={() => newRole(t.id)}>New role</Button>
+        {ro ? null : <Button size="sm" icon="add" onPress={() => newUser(t.id)}>New user</Button>}
+        {ro ? null : <Button size="sm" icon="add" variant="ghost" onPress={() => newRole(t.id)}>New role</Button>}
         <IconButton icon="refresh" label="Refresh" size="sm" variant="ghost" disabled={t.loading} onPress={aguard(t.id, () => loadUsers(t.id))} />
       </Toolbar>
       <NoticeBar id={t.id} notice={t.notice} />
@@ -167,14 +168,16 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             emptyText={`No users in ${t.db}.`}
             maxHeight="sm"
             onSelectionChange={({ keys }) => changeAdmin(t.id, 'users', () => ({ userSelected: keys[0]?.slice(2), confirmDrop: undefined }))}
-            onRowAction={({ key }) => editUser(t.id, key.slice(2))}
+            onRowAction={({ key }) => (ro ? undefined : editUser(t.id, key.slice(2)))}
           />
           {user ? (
             <Box gap="xs">
-              <Toolbar label={`${user.user} actions`} gap="xs">
-                <Button size="sm" icon="edit" onPress={() => editUser(t.id, user.user)}>Edit</Button>
-                <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'users', () => ({ confirmDrop: { kind: 'user', name: user.user } }))}>Drop</Button>
-              </Toolbar>
+              {ro ? null : (
+                <Toolbar label={`${user.user} actions`} gap="xs">
+                  <Button size="sm" icon="edit" onPress={() => editUser(t.id, user.user)}>Edit</Button>
+                  <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'users', () => ({ confirmDrop: { kind: 'user', name: user.user } }))}>Drop</Button>
+                </Toolbar>
+              )}
               <KeyValue label={`${user.user} details`} items={[{ label: 'Roles', value: refs(user.roles, '') }, { label: 'Sign-in', value: user.mechanisms.join(', ') || 'external' }, ...(user.customData ? [{ label: 'Custom data', value: user.customData, code: true }] : [])]} />
             </Box>
           ) : null}
@@ -192,14 +195,16 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             emptyText={`No custom roles in ${t.db}. Built-in roles such as read and readWrite are always there.`}
             maxHeight="sm"
             onSelectionChange={({ keys }) => changeAdmin(t.id, 'users', () => ({ roleSelected: keys[0]?.slice(2), confirmDrop: undefined }))}
-            onRowAction={({ key }) => editRole(t.id, key.slice(2))}
+            onRowAction={({ key }) => (ro ? undefined : editRole(t.id, key.slice(2)))}
           />
           {role ? (
             <Box gap="xs">
-              <Toolbar label={`${role.role} actions`} gap="xs">
-                <Button size="sm" icon="edit" onPress={() => editRole(t.id, role.role)}>Edit</Button>
-                <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'users', () => ({ confirmDrop: { kind: 'role', name: role.role } }))}>Drop</Button>
-              </Toolbar>
+              {ro ? null : (
+                <Toolbar label={`${role.role} actions`} gap="xs">
+                  <Button size="sm" icon="edit" onPress={() => editRole(t.id, role.role)}>Edit</Button>
+                  <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'users', () => ({ confirmDrop: { kind: 'role', name: role.role } }))}>Drop</Button>
+                </Toolbar>
+              )}
               <CodeView label={`${role.role} privileges`} code={toShell(role.privileges)} language="javascript" maxHeight="sm" />
             </Box>
           ) : null}

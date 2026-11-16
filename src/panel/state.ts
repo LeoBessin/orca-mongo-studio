@@ -51,7 +51,9 @@ export const saving = atom(false)
 export const importText = atom('')
 export const importResult = atom<import('../protocol').ImportReport | null>(null)
 export const exportSelection = atom<string[] | null>(null)
-export const exportJson = atom<{ json: string; count: number } | null>(null)
+export const exportJson = atom<{ json: string; count: number; tasks: number } | null>(null)
+/** Saved tasks that use only the chosen connections go into the file too. */
+export const exportTasks = atom<boolean>(true)
 
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -338,5 +340,5 @@ export async function runImport(): Promise<void> {
 
 export async function refreshExport(): Promise<void> {
   const ids = read(exportSelection)
-  set(exportJson, await plugin.request('connections.export', ids ? { ids } : {}))
+  set(exportJson, await plugin.request('connections.export', { ...(ids ? { ids } : {}), tasks: read(exportTasks) }))
 }

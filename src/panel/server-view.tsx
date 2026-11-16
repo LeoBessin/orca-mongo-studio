@@ -22,7 +22,7 @@ import {
   type OrcaNode
 } from 'orca'
 import { formatBytes } from '../shared/nodes'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText, type ServerTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText, type ServerTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { killConfirmed, LIVE_MS, loadOps, loadStatus, rates, setLive } from './server-state'
 
@@ -98,9 +98,11 @@ function Ops({ t }: { t: ServerTab }): OrcaNode {
             <Collapsible title="Everything the server says about it">
               <CodeView label="Operation" code={sel.raw} language="json" maxHeight="md" />
             </Collapsible>
-            <Row gap="xs">
-              <Button size="sm" icon="stop" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'server', () => ({ confirmKill: sel.opid }))}>Stop operation</Button>
-            </Row>
+            {isReadOnly(t.connectionId) ? null : (
+              <Row gap="xs">
+                <Button size="sm" icon="stop" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'server', () => ({ confirmKill: sel.opid }))}>Stop operation</Button>
+              </Row>
+            )}
           </Box>
         ) : null}
         {kill ? (

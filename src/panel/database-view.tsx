@@ -20,7 +20,7 @@ import {
   Toolbar,
   type OrcaNode
 } from 'orca'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText, type DatabaseTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText, type DatabaseTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import {
   applyProfiler,
@@ -152,6 +152,7 @@ function CreateCollection({ t }: { t: DatabaseTab }): OrcaNode {
 }
 
 function Profiler({ t }: { t: DatabaseTab }): OrcaNode {
+  const ro = isReadOnly(t.connectionId)
   const p = t.profiler
   const d = t.profilerDraft
   const f = t.profileFilter
@@ -165,23 +166,27 @@ function Profiler({ t }: { t: DatabaseTab }): OrcaNode {
     >
       <Box gap="sm">
         {t.profilerError ? <Callout tone="warning" icon="warning" title="The profiler can't be read here">{t.profilerError}</Callout> : null}
-        <RadioGroup
-          label="Record"
-          orientation="horizontal"
-          value={d.level}
-          options={[
-            { value: '0', label: 'Nothing' },
-            { value: '1', label: 'Slow operations' },
-            { value: '2', label: 'Everything' }
-          ]}
-          onChange={(level) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, level } }))}
-        />
-        <Row gap="xs" align="end">
-          <Input label="Slow means over (ms)" value={d.slowms} onChange={(slowms) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, slowms } }))} />
-          <Input label="Sample rate (0 to 1)" value={d.sampleRate} onChange={(sampleRate) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, sampleRate } }))} />
-          <Button onPress={aguard(t.id, () => applyProfiler(t.id))}>Apply</Button>
-        </Row>
-        <Text size="xs" muted>The slow threshold and sample rate apply to the whole server, and to its log. Recording everything slows the server down.</Text>
+        {ro ? null : (
+          <Box gap="sm">
+            <RadioGroup
+              label="Record"
+              orientation="horizontal"
+              value={d.level}
+              options={[
+                { value: '0', label: 'Nothing' },
+                { value: '1', label: 'Slow operations' },
+                { value: '2', label: 'Everything' }
+              ]}
+              onChange={(level) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, level } }))}
+            />
+            <Row gap="xs" align="end">
+              <Input label="Slow means over (ms)" value={d.slowms} onChange={(slowms) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, slowms } }))} />
+              <Input label="Sample rate (0 to 1)" value={d.sampleRate} onChange={(sampleRate) => changeAdmin(t.id, 'database', (x) => ({ profilerDraft: { ...x.profilerDraft, sampleRate } }))} />
+              <Button onPress={aguard(t.id, () => applyProfiler(t.id))}>Apply</Button>
+            </Row>
+          </Box>
+        )}
+        {ro ? null : <Text size="xs" muted>The slow threshold and sample rate apply to the whole server, and to its log. Recording everything slows the server down.</Text>}
         {p?.note ? <Text size="xs" muted>{p.note}</Text> : null}
         <Row gap="xs" align="end" wrap>
           <Select label="Operation" value={f.op || 'any'} options={OPS} onChange={(op) => changeAdmin(t.id, 'database', (x) => ({ profileFilter: { ...x.profileFilter, op: op === 'any' ? '' : op } }))} />
@@ -257,6 +262,7 @@ function Drop({ t }: { t: DatabaseTab }): OrcaNode {
 export function DatabaseTabView({ id }: { id: string }): OrcaNode {
   const t = read(adminTabs)[id]
   if (!t || t.kind !== 'database') return null
+  const ro = isReadOnly(t.connectionId)
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">
@@ -282,9 +288,9 @@ export function DatabaseTabView({ id }: { id: string }): OrcaNode {
       ) : (
         <Overview t={t} />
       )}
-      <CreateCollection t={t} />
+      {ro ? null : <CreateCollection t={t} />}
       {t.isNew ? null : <Profiler t={t} />}
-      {t.isNew ? null : <Drop t={t} />}
+      {t.isNew || ro ? null : <Drop t={t} />}
     </Box>
   )
 }

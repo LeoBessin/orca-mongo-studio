@@ -594,6 +594,56 @@ describe('every tab', () => {
   })
 })
 
+describe('a read-only connection', () => {
+  const readOnly = { 'connections.state': { ...state, connections: [{ ...state.connections[0]!, readOnly: true }] } }
+
+  test('Manage shows the collection and checks rules, but offers no changes', async () => {
+    const { host } = setup(readOnly)
+    const view = await atCollection(host)
+    await view.press({ label: 'Manage the collection: indexes, validation, rename, drop' })
+    assert.ok(view.find({ type: 'Badge', text: 'Read only' }))
+    assert.equal(view.rowsOf({ type: 'Table', label: 'Indexes' }).length, 3)
+    assert.equal(view.find({ text: 'New index' }), null)
+    await view.selectRows({ type: 'Table', label: 'Indexes' }, ['i:ttl_at'])
+    assert.equal(view.find({ text: 'Hide' }), null)
+    assert.equal(view.find({ text: 'Drop' }), null)
+    assert.equal(view.find({ type: 'Input', label: 'Expire after (seconds)' }), null)
+    assert.ok((view.find({ type: 'KeyValue', label: 'ttl_at details' })!.props.items as { label: string }[]).some((i) => i.label === 'Expires after'))
+    await view.toggle({ type: 'Collapsible', label: 'Validation' })
+    assert.ok(view.find({ text: 'Check documents' }))
+    assert.equal(view.find({ text: 'Save rules' }), null)
+    assert.equal(view.find({ type: 'Select', label: 'Level' }), null)
+    assert.equal(view.find({ type: 'Collapsible', label: 'Rename, clear and drop' }), null)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('the database tab reads the profiler; users and server tabs only look', async () => {
+    const { host } = setup(readOnly)
+    const view = await mount(panel, { host })
+    await view.expand(tree, 'conn:c1')
+    await view.selectItem(tree, 'conn:c1/db:shop')
+    await view.press({ text: 'Manage' })
+    assert.equal(view.find({ type: 'Collapsible', label: 'Create a collection' }), null)
+    assert.equal(view.find({ type: 'Collapsible', label: 'Drop the database' }), null)
+    await view.toggle({ type: 'Collapsible', label: 'Profiler' })
+    assert.ok(view.find({ text: 'Read entries' }))
+    assert.equal(view.find({ text: 'Apply' }), null)
+    await view.press({ text: 'Users and roles' })
+    assert.equal(view.rowsOf({ type: 'Table', label: 'Users' }).length, 1)
+    assert.equal(view.find({ text: 'New user' }), null)
+    assert.equal(view.find({ text: 'New role' }), null)
+    await view.selectRows({ type: 'Table', label: 'Users' }, [view.rowsOf({ type: 'Table', label: 'Users' })[0]!])
+    assert.equal(view.find({ text: 'Edit' }), null)
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.selectItem(tree, 'conn:c1')
+    await view.press({ label: 'Server status and operations' })
+    await view.selectRows({ type: 'Table', label: 'Current operations' }, ['4242'])
+    assert.ok(view.find({ type: 'KeyValue', label: 'Operation 4242' }))
+    assert.equal(view.find({ text: 'Stop operation' }), null)
+    assert.deepEqual(view.errors, [])
+  })
+})
+
 describe('closing', () => {
   test('deleting a connection closes its administration tabs', async () => {
     const { host } = setup()

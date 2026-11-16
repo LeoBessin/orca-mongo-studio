@@ -27,7 +27,7 @@ import type { IndexInfo } from '../protocol'
 import { toShell, toShellInline, valueText } from '../shared/ejson-view'
 import { buildIndex, createIndexCommand, defaultIndexName, INDEX_KIND_OPTIONS, type IndexKeyKind } from '../shared/index-spec'
 import { formatBytes } from '../shared/nodes'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText, type ManageTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText, type ManageTab } from './admin-state'
 import { openNamespace } from './collection-state'
 import {
   addKey,
@@ -86,21 +86,20 @@ function indexRow(i: IndexInfo) {
 
 function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
   const isId = i.name === '_id_'
+  const ro = isReadOnly(t.connectionId)
   return (
     <Box gap="xs">
-      <Toolbar label={`${i.name} actions`} gap="xs">
-        {isId ? null : (
+      {ro || isId ? null : (
+        <Toolbar label={`${i.name} actions`} gap="xs">
           <Button size="sm" icon={i.hidden ? 'play' : 'pause'} variant="ghost" onPress={aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden))}>
             {i.hidden ? 'Unhide' : 'Hide'}
           </Button>
-        )}
-        {isId ? null : (
           <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'manage', () => ({ confirmDropIndex: i.name }))}>
             Drop
           </Button>
-        )}
-      </Toolbar>
-      {i.ttl !== undefined ? (
+        </Toolbar>
+      )}
+      {i.ttl !== undefined && !ro ? (
         <Row gap="xs" align="end">
           <Input label="Expire after (seconds)" value={t.ttlText ?? String(i.ttl)} onChange={(v) => changeAdmin(t.id, 'manage', () => ({ ttlText: v }))} onSubmit={() => void aguard(t.id, () => saveTtl(t.id, i.name))()} />
           <Button size="sm" disabled={(t.ttlText ?? String(i.ttl)) === String(i.ttl)} onPress={aguard(t.id, () => saveTtl(t.id, i.name))}>Change TTL</Button>
@@ -122,6 +121,7 @@ function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
         items={[
           { label: 'Key', value: toShellInline(i.key), code: true },
           { label: 'Kind', value: i.kinds.join(', ') || 'ascending/descending' },
+          ...(i.ttl !== undefined ? [{ label: 'Expires after', value: `${numberText(i.ttl)} s` }] : []),
           ...(i.size !== undefined ? [{ label: 'Size', value: formatBytes(i.size) }] : []),
           ...(i.ops !== undefined ? [{ label: 'Used', value: `${numberText(i.ops)} times${i.since ? ` since ${new Date(i.since).toISOString().slice(0, 16).replace('T', ' ')}` : ''}` }] : []),
           ...(i.hidden ? [{ label: 'Hidden', value: 'yes: the planner ignores it', tone: 'warning' as const }] : [])
@@ -233,7 +233,7 @@ function Indexes({ t }: { t: ManageTab }): OrcaNode {
             onSelectionChange={({ keys }) => selectIndex(t.id, keys[0]?.slice(2))}
           />
         ) : null}
-        {t.draft ? null : (
+        {t.draft || isReadOnly(t.connectionId) ? null : (
           <Row gap="xs">
             <Button size="sm" icon="add" onPress={() => newIndex(t.id)}>New index</Button>
           </Row>
@@ -250,6 +250,7 @@ function Indexes({ t }: { t: ManageTab }): OrcaNode {
 function Validation({ t }: { t: ManageTab }): OrcaNode {
   const v = t.validation
   const check = v.check
+  const ro = isReadOnly(t.connectionId)
   return (
     <Collapsible
       title="Validation"
@@ -259,11 +260,11 @@ function Validation({ t }: { t: ManageTab }): OrcaNode {
     >
       <Box gap="sm">
         <Textarea label="Validator" rows={10} placeholder={"{\n  $jsonSchema: {\n    bsonType: 'object',\n    required: ['name']\n  }\n}"} value={v.text} invalid={Boolean(v.error)} onChange={(text) => setValidation(t.id, { text })} onSubmit={() => void aguard(t.id, () => checkValidation(t.id))()} />
-        {v.error ? <Text size="xs" tone="danger">{v.error}</Text> : <Text size="xs" muted>A query filter or $jsonSchema, in shell syntax. Empty removes the rules.</Text>}
-        <Select label="Level" value={v.level} options={LEVELS} onChange={(level) => setValidation(t.id, { level: level as typeof v.level })} />
-        <Select label="Action" value={v.action} options={ACTIONS} onChange={(action) => setValidation(t.id, { action: action as typeof v.action })} />
+        {v.error ? <Text size="xs" tone="danger">{v.error}</Text> : <Text size="xs" muted>{ro ? 'A query filter or $jsonSchema, in shell syntax. Check documents tries rules without saving them.' : 'A query filter or $jsonSchema, in shell syntax. Empty removes the rules.'}</Text>}
+        {ro ? null : <Select label="Level" value={v.level} options={LEVELS} onChange={(level) => setValidation(t.id, { level: level as typeof v.level })} />}
+        {ro ? null : <Select label="Action" value={v.action} options={ACTIONS} onChange={(action) => setValidation(t.id, { action: action as typeof v.action })} />}
         <Toolbar label="Validation actions" gap="xs">
-          <Button size="sm" variant="solid" tone="accent" icon="check" onPress={aguard(t.id, () => saveValidation(t.id))}>Save rules</Button>
+          {ro ? null : <Button size="sm" variant="solid" tone="accent" icon="check" onPress={aguard(t.id, () => saveValidation(t.id))}>Save rules</Button>}
           <Button size="sm" icon="search" variant="ghost" disabled={check === 'checking'} onPress={aguard(t.id, () => checkValidation(t.id))}>
             {check === 'checking' ? 'Checking…' : 'Check documents'}
           </Button>
@@ -389,7 +390,7 @@ export function ManageTabView({ id }: { id: string }): OrcaNode {
       </Collapsible>
       {noIndexes ? <Text size="xs" muted>{noIndexes}</Text> : <Indexes t={t} />}
       {noIndexes || isTimeseries(t) ? null : <Validation t={t} />}
-      <Operations t={t} />
+      {isReadOnly(t.connectionId) ? null : <Operations t={t} />}
     </Box>
   )
 }

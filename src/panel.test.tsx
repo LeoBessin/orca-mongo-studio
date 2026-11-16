@@ -224,7 +224,7 @@ describe('import and export', () => {
           state = oneConn
           return { imported: [{ id: 'c1', name: 'Local dev', warnings: [] }], errors: ['Line 2: nope'] }
         },
-        'connections.export': { json: '{"format":"mongo-studio.connections"}', count: 1 }
+        'connections.export': { json: '{"format":"mongo-studio.connections"}', count: 1, tasks: 0 }
       },
       results: { 'files.saveAs': { status: 'saved' } }
     })
@@ -237,6 +237,32 @@ describe('import and export', () => {
     await view.press({ text: 'Save 1 as JSON…' })
     const [call] = host.callsOf('files.saveAs') as { data: string; suggestedName: string }[]
     assert.equal(call!.suggestedName, 'mongo-studio-connections.json')
+    assert.deepEqual(view.refusals, [])
+  })
+
+  test('saved tasks go into the export unless left out, and the import names the tasks it brought', async () => {
+    const exports: unknown[] = []
+    const host = mockHost({
+      requests: {
+        'connections.state': oneConn,
+        'connections.import': { imported: [{ id: 'c1', name: 'Local dev', warnings: [] }], errors: ['The task "B only" was not imported: no connection is named "B".'], tasks: ['Nightly export'] },
+        'connections.export': (input) => {
+          exports.push(input)
+          return { json: '{}', count: 1, tasks: (input as { tasks?: boolean }).tasks === false ? 0 : 2 }
+        }
+      }
+    })
+    const view = await mount(panel, { host })
+    await view.press({ label: 'Import connections' })
+    await view.type({ label: "Connection strings or an export file's JSON" }, '{}')
+    await view.press({ type: 'Button', text: 'Import' })
+    assert.ok(view.find({ text: 'With 1 saved task: Nightly export.' }))
+    assert.ok(view.find({ text: /"B only" was not imported/ }))
+    assert.deepEqual(exports.at(-1), { tasks: true })
+    assert.ok(view.find({ text: 'Save 1 with 2 tasks as JSON…' }))
+    await view.toggle({ type: 'Checkbox', label: 'Include saved tasks' })
+    assert.deepEqual(exports.at(-1), { tasks: false })
+    assert.ok(view.find({ text: 'Save 1 as JSON…' }))
     assert.deepEqual(view.refusals, [])
   })
 })

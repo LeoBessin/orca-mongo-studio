@@ -1,6 +1,7 @@
 import { assert, test } from 'orca/testing'
 import { emptyConnection, SECRET_KEYS } from './model'
-import { exportConnections, importConnections } from './transfer'
+import type { Task } from './tasks'
+import { exportConnections, importConnections, resolveTasks, type ExportedTask } from './transfer'
 
 let n = 0
 const newId = () => `new-${++n}`
@@ -59,4 +60,34 @@ test('imports connection strings, one per line', () => {
 test('rejects unknown JSON', () => {
   assert.deepEqual(importConnections('{"x":1}', newId, 0, base).errors, ['This JSON is neither a Mongo Studio nor a Compass export.'])
   assert.match(importConnections('{oops', newId, 0, base).errors[0]!, /not valid JSON/)
+})
+
+test('tasks go with the connections they use, by name, and resolve by name on import', () => {
+  const a = { ...emptyConnection('id-a', 0), name: 'A' }
+  const b = { ...emptyConnection('id-b', 0), name: 'B' }
+  const ns = (connectionId: string) => ({ connectionId, db: 'shop', collection: 'orders' })
+  const rules = { ignoreFields: [], ignoreOrder: false }
+  const task = (id: string, name: string, request: Task['request']): Task => ({ id, name, request, createdAt: 0, updatedAt: 0, lastRun: { at: 1, status: 'done', ms: 1, summary: 'x', errorCount: 0 } })
+  const copy = task('t1', 'Copy A to B', { kind: 'export', source: { kind: 'database', connectionId: 'id-a', db: 'shop' }, options: { format: 'collection', collection: { connectionId: 'id-b', db: 'shop', collection: '', mode: 'insert', indexes: true, options: true } }, destination: { kind: 'download' } })
+  const sync = task('t2', 'Sync', { kind: 'sync', from: ns('id-a'), to: ns('id-a'), rules, insert: true, replace: false, remove: false })
+  const file = JSON.parse(exportConnections([a, b], 0, [copy, sync])) as { tasks: ExportedTask[] }
+  assert.deepEqual(file.tasks.map((t) => t.name), ['Copy A to B', 'Sync'])
+  assert.equal(JSON.stringify(file.tasks).includes('id-'), false, 'no ids, no last run')
+  assert.equal(JSON.stringify(file.tasks).includes('lastRun'), false)
+  assert.equal(JSON.parse(exportConnections([a], 0, [copy, sync])).tasks.length, 1, 'a task using B stays behind')
+  assert.equal(JSON.parse(exportConnections([a], 0, [])).tasks, undefined)
+
+  const read = importConnections(JSON.stringify({ ...file, connections: [] }), newId, 0, base)
+  assert.deepEqual(read.tasks, file.tasks)
+  const imported = [{ id: 'n-a', name: 'A' }]
+  const saved = [{ id: 's-a', name: 'A' }, { id: 's-b', name: 'B' }, { id: 's-b2', name: 'B' }]
+  const out = resolveTasks(file.tasks, imported, saved)
+  assert.deepEqual(out.tasks.map((t) => t.name), ['Sync'], 'the file\'s A comes before the saved one')
+  assert.deepEqual(out.tasks[0]!.request, { ...sync.request, from: ns('n-a'), to: ns('n-a') })
+  assert.deepEqual(out.errors, ['The task "Copy A to B" was not imported: more than one connection is named "B".'])
+  assert.deepEqual(resolveTasks(file.tasks, [], []).errors.length, 2)
+
+  const bad = importConnections(JSON.stringify({ format: 'mongo-studio.connections', version: 1, connections: [], tasks: [{ name: 'x' }, 3] }), newId, 0, base)
+  assert.deepEqual(bad.tasks, [])
+  assert.deepEqual(bad.errors, ['Task 1 of the file is not a task; it was left out.', 'Task 2 of the file is not a task; it was left out.'])
 })

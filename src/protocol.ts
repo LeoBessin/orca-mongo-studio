@@ -72,7 +72,7 @@ export type TestReport = {
   sshHostKey?: string
 }
 
-export type ImportReport = { imported: { id: string; name: string; warnings: string[] }[]; errors: string[] }
+export type ImportReport = { imported: { id: string; name: string; warnings: string[] }[]; errors: string[]; /** Names of the saved tasks the file brought. */ tasks?: string[] }
 
 export type SaveResult = { ok: true; id: string } | { ok: false; errors: FieldError[] }
 
@@ -512,7 +512,7 @@ declare module 'orca' {
     'connections.renameGroup': { input: { from: string; to: string }; output: null }
     'connections.import': { input: { text: string }; output: ImportReport }
     /** JSON with every definition named, or all; secrets are never included. */
-    'connections.export': { input: { ids?: string[] }; output: { json: string; count: number } }
+    'connections.export': { input: { ids?: string[]; tasks?: boolean }; output: { json: string; count: number; tasks: number } }
     /** Tests an unsaved draft; `id` lets it reuse that connection's saved secrets. */
     'connections.test': { input: { def: ConnectionDef; secrets: SecretDraft; id?: string }; output: TestReport }
     'connections.connect': { input: { id: string }; output: null }

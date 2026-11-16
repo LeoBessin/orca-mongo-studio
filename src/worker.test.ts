@@ -243,6 +243,46 @@ describe('saved tasks', () => {
     assert.deepEqual(worker.posts.filter((p) => p.event === 'tasks.changed').at(-1)?.payload, await worker.request('tasks.list'))
   })
 
+  test('tasks travel with exported connections, named by connection, and find them on import', async () => {
+    const from = await mountWorker(main, { host: mockHost() })
+    const a = await from.request('connections.save', { def: draft('A'), secrets: {} })
+    const b = await from.request('connections.save', { def: draft('B'), secrets: {} })
+    assert.ok(a.ok && b.ok)
+    if (!a.ok || !b.ok) return
+    await from.request('tasks.save', { name: 'Only A', request: exportTask(a.id) })
+    await from.request('tasks.save', { name: 'A against B', request: { kind: 'compare', a: ns(a.id), b: ns(b.id), rules: { ignoreFields: [], ignoreOrder: false } } })
+    const onlyA = await from.request('connections.export', { ids: [a.id] })
+    assert.equal(onlyA.tasks, 1, 'a task using B stays behind when only A is exported')
+    assert.equal(onlyA.json.includes(a.id), false, 'connection ids are not exported')
+    assert.equal((await from.request('connections.export', { ids: [a.id], tasks: false })).tasks, 0)
+    const both = await from.request('connections.export', {})
+    assert.equal(both.tasks, 2)
+
+    // Another machine already has a task named "Only A" and a connection named B.
+    const to = await mountWorker(main, { host: mockHost() })
+    const theirB = await to.request('connections.save', { def: draft('B'), secrets: {} })
+    assert.ok(theirB.ok)
+    if (!theirB.ok) return
+    await to.request('tasks.save', { name: 'Only A', request: exportTask(theirB.id) })
+    const file = JSON.parse(both.json) as { connections: unknown[] }
+    file.connections = file.connections.slice(0, 1)
+    const report = await to.request('connections.import', { text: JSON.stringify(file) })
+    assert.deepEqual(report.errors, [])
+    assert.deepEqual(report.tasks, ['Only A (2)', 'A against B'])
+    const newA = report.imported[0]!.id
+    const list = (await to.request('tasks.list')).tasks
+    assert.deepEqual(list.find((t) => t.name === 'Only A (2)')!.request, exportTask(newA))
+    assert.deepEqual(list.find((t) => t.name === 'A against B')!.request, { kind: 'compare', a: ns(newA), b: ns(theirB.id), rules: { ignoreFields: [], ignoreOrder: false } })
+    assert.deepEqual(to.posts.filter((p) => p.event === 'tasks.changed').at(-1)?.payload, { tasks: list })
+
+    // Without a connection named B, the compare can't be placed and says why.
+    const lone = await mountWorker(main, { host: mockHost() })
+    const partial = await lone.request('connections.import', { text: JSON.stringify(file) })
+    assert.deepEqual(partial.tasks, ['Only A'])
+    assert.deepEqual(partial.errors, ['The task "A against B" was not imported: no connection is named "B".'])
+    assert.deepEqual([from.refusals, to.refusals, lone.refusals], [[], [], []])
+  })
+
   test('"Show saved tasks" posts to open panels', async () => {
     const worker = await mountWorker(main, { host: mockHost() })
     await worker.command('mongoStudio.showTasks')

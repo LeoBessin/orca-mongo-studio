@@ -20,7 +20,7 @@ import {
   type OrcaNode
 } from 'orca'
 import { idKey, isoDate, valueText } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { bytesText, jobRunning } from './data-state'
 import { cancelGridJob, deleteSelected, downloadFile, loadFiles, renameSelected, saveFile, selectedFile, selectFile, uploadFile, type GridfsTab } from './gridfs-state'
@@ -88,13 +88,15 @@ function Selected({ t }: { t: GridfsTab }): OrcaNode {
           <JobProgress box={d.job} what="download" onCancel={aguard(t.id, () => cancelGridJob(t.id, 'download'))} onSave={aguard(t.id, () => saveFile(t.id))} />
         </Box>
       </Collapsible>
-      <Row gap="xs" align="end">
-        <Box grow>
-          <Input label="Name" value={t.rename} onChange={(v) => changeAdmin(t.id, 'gridfs', () => ({ rename: v }))} onSubmit={() => void aguard(t.id, () => renameSelected(t.id))()} />
-        </Box>
-        <Button icon="edit" disabled={!t.rename.trim() || t.rename.trim() === f.filename} onPress={aguard(t.id, () => renameSelected(t.id))}>Rename</Button>
-        <IconButton icon="delete" label={`Delete ${f.filename}`} variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'gridfs', (x) => ({ confirmDelete: x.selected }))} />
-      </Row>
+      {isReadOnly(t.connectionId) ? null : (
+        <Row gap="xs" align="end">
+          <Box grow>
+            <Input label="Name" value={t.rename} onChange={(v) => changeAdmin(t.id, 'gridfs', () => ({ rename: v }))} onSubmit={() => void aguard(t.id, () => renameSelected(t.id))()} />
+          </Box>
+          <Button icon="edit" disabled={!t.rename.trim() || t.rename.trim() === f.filename} onPress={aguard(t.id, () => renameSelected(t.id))}>Rename</Button>
+          <IconButton icon="delete" label={`Delete ${f.filename}`} variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'gridfs', (x) => ({ confirmDelete: x.selected }))} />
+        </Row>
+      )}
       {t.confirmDelete === t.selected ? (
         <Callout tone="danger" icon="warning" title={`Delete ${f.filename}?`}>
           <Box gap="sm">
@@ -190,7 +192,7 @@ export function GridfsTabView({ id }: { id: string }): OrcaNode {
         </Box>
       ) : null}
       <Selected t={t} />
-      <Upload t={t} />
+      {isReadOnly(t.connectionId) ? null : <Upload t={t} />}
     </Box>
   )
 }

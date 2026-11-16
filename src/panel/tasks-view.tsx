@@ -20,7 +20,7 @@ import {
   type OrcaNode
 } from 'orca'
 import { describeTask, taskConnections, taskKindLabel, taskWriteConnection, type Task } from '../shared/tasks'
-import { aguard, connectionName, numberText } from './admin-state'
+import { aguard, connectionName, isReadOnly, numberText } from './admin-state'
 import { jobRunning } from './data-state'
 import { JobProgress } from './job-view'
 import { connections, errorText } from './state'
@@ -56,10 +56,6 @@ function tguard(run: () => Promise<unknown> | unknown): () => Promise<void> {
 }
 
 const STATUS_TEXT = { done: 'Done', failed: 'Failed', cancelled: 'Cancelled', running: 'Running' } as const
-
-function isReadOnly(connectionId: string | undefined): boolean {
-  return Boolean(connectionId && read(connections)?.connections.find((c) => c.id === connectionId)?.readOnly)
-}
 
 function missingConnection(task: Task): boolean {
   const known = new Set(read(connections)?.connections.map((c) => c.id) ?? [])

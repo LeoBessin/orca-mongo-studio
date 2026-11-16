@@ -56,6 +56,27 @@ export function taskConnections(r: TaskRequest): string[] {
   return [...new Set(ids)]
 }
 
+/** A copy of the request with every connection id passed through `f`. */
+export function mapTaskConnections(r: TaskRequest, f: (connectionId: string) => string): TaskRequest {
+  const c = JSON.parse(JSON.stringify(r)) as TaskRequest
+  const at = (ns: { connectionId: string }): void => {
+    ns.connectionId = f(ns.connectionId)
+  }
+  if (c.kind === 'export') {
+    if (c.source.kind === 'database') at(c.source)
+    else at(c.source.ns)
+    if (c.options.format === 'collection' && c.options.collection) at(c.options.collection)
+  } else if (c.kind === 'import') at(c.ns)
+  else if (c.kind === 'compare') {
+    at(c.a)
+    at(c.b)
+  } else {
+    at(c.from)
+    at(c.to)
+  }
+  return c
+}
+
 /** The connection a task writes to, if it writes to a database at all. */
 export function taskWriteConnection(r: TaskRequest): string | undefined {
   if (r.kind === 'export') return r.options.format === 'collection' ? r.options.collection?.connectionId : undefined

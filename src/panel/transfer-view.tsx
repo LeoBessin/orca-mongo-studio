@@ -1,7 +1,7 @@
 // Import and export of connection definitions. Exports never include passwords, keys or pasted
 // certificates; the file is offered through Orca's save dialog, so the plugin never sees a path.
 import { Box, Button, Callout, Checkbox, files, Heading, read, Row, set, Text, Textarea, type OrcaNode } from 'orca'
-import { connections, exportJson, exportSelection, importResult, importText, refreshExport, runImport, view } from './state'
+import { connections, exportJson, exportSelection, exportTasks, importResult, importText, refreshExport, runImport, view } from './state'
 
 function importSection(): OrcaNode {
   const result = read(importResult)
@@ -23,6 +23,7 @@ function importSection(): OrcaNode {
       {result ? (
         <Callout tone={result.errors.length ? (result.imported.length ? 'warning' : 'danger') : 'success'} icon={result.errors.length ? 'warning' : 'check'} title={`Imported ${result.imported.length} connection${result.imported.length === 1 ? '' : 's'}`}>
           <Box gap="xs">
+            {result.tasks?.length ? <Text size="sm">{`With ${result.tasks.length} saved task${result.tasks.length === 1 ? '' : 's'}: ${result.tasks.join(', ')}.`}</Text> : null}
             {result.imported.flatMap((i) => i.warnings.map((w) => <Text key={`${i.id}:${w}`} size="sm">{i.name}: {w}</Text>))}
             {result.errors.map((e) => <Text key={e} size="sm" tone="danger">{e}</Text>)}
           </Box>
@@ -53,6 +54,17 @@ function exportSection(): OrcaNode {
           ))}
         </Box>
       )}
+      {all.length ? (
+        <Checkbox
+          label="Include saved tasks"
+          description={`Tasks that use only the chosen connections${prepared && read(exportTasks) ? ` (${prepared.tasks})` : ''}. They name connections by name, so they find them on another machine.`}
+          checked={read(exportTasks)}
+          onChange={(on) => {
+            set(exportTasks, on)
+            void refreshExport()
+          }}
+        />
+      ) : null}
       <Callout tone="neutral" icon="info">Passwords, keys and pasted certificates are never exported. Whoever imports the file enters them again.</Callout>
       <Row gap="xs">
         <Button
@@ -65,7 +77,7 @@ function exportSection(): OrcaNode {
             await files.saveAs({ suggestedName: 'mongo-studio-connections.json', mimeType: 'application/json', data: prepared.json })
           }}
         >
-          Save {prepared?.count ?? 0} as JSON…
+          {`Save ${prepared?.count ?? 0}${prepared?.tasks ? ` with ${prepared.tasks} task${prepared.tasks === 1 ? '' : 's'}` : ''} as JSON…`}
         </Button>
       </Row>
     </Box>

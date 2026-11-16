@@ -3,7 +3,7 @@
 // comments, and the shell's BSON constructors) and returns canonical Extended JSON as plain data.
 // The panel uses it to check input as it is typed; the worker turns its output into BSON with
 // `EJSON.parse`. Keys that start with `$` and were typed as Extended JSON pass through as written.
-import type { JsonValue } from './ejson-view'
+import { setOwn, type JsonValue } from './ejson-view'
 
 export class ShellParseError extends Error {
   constructor(
@@ -131,7 +131,7 @@ class Parser {
       const key = this.key()
       this.expect(':')
       if (Object.prototype.hasOwnProperty.call(out, key)) this.fail(`The key "${key}" appears twice`, keyAt)
-      out[key] = this.value()
+      setOwn(out, key, this.value())
       const next = this.peek()
       if (next === ',') this.pos++
       else if (next !== '}') this.fail(next === undefined ? 'This object is never closed with }' : `Expected "," or "}" but found "${next}"`, next === undefined ? start : this.pos)
@@ -141,6 +141,16 @@ class Parser {
   private key(): string {
     const c = this.peek()
     if (c === '"' || c === "'") return this.quoted()
+    if (c === '[') {
+      // A computed key holding a string, as `toShell` writes `['__proto__']`.
+      const start = this.pos
+      this.pos++
+      const q = this.peek()
+      if (q !== '"' && q !== "'") this.fail('A key in [ ] must be a quoted string', start)
+      const key = this.quoted()
+      this.expect(']')
+      return key
+    }
     const m = /^[A-Za-z0-9_$][A-Za-z0-9_$.]*/.exec(this.src.slice(this.pos))
     if (!m) this.fail(c === ',' ? 'Expected a key after ","' : `Expected a key but found "${c}"`)
     this.pos += m[0].length

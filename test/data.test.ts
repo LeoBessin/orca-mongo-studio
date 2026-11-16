@@ -339,6 +339,19 @@ describe('data movement', () => {
         assert.equal(ts.type, 'timeseries')
         assert.equal(await c.db(SCRATCH2).collection('pageviews').countDocuments(), await c.db('analytics').collection('pageviews').countDocuments())
       })
+      // A database of several collections and views is copied a few at a time; every one arrives whole.
+      const shop = await done(worker, exportJob(worker, { kind: 'database', connectionId, db: 'shop' }, { format: 'collection', collection: { connectionId: otherId, db: SCRATCH2, mode: 'insert', indexes: true, options: true } }))
+      await direct(async (c) => {
+        const listed = await c.db('shop').listCollections({}, { nameOnly: false }).toArray()
+        const source = listed.filter((x) => !x.name.startsWith('system.'))
+        assert.ok(source.length > 3)
+        assert.equal((shop.result as { collections: number }).collections, source.length)
+        const copied = new Map((await c.db(SCRATCH2).listCollections().toArray()).map((x) => [x.name, x.type]))
+        for (const x of source) {
+          assert.equal(copied.get(x.name), x.type, x.name)
+          if (x.type === 'collection') assert.equal(await c.db(SCRATCH2).collection(x.name).estimatedDocumentCount(), await c.db('shop').collection(x.name).estimatedDocumentCount(), x.name)
+        }
+      })
     } finally {
       await cleanup(dir, worker)
     }

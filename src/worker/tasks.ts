@@ -61,6 +61,29 @@ export class TaskStore {
     })
   }
 
+  /**
+   * Adds tasks from a connections file. A name already taken gets a number; a task whose settings
+   * don't pass the checks is left out with the reason. Answers the names given.
+   */
+  addMany(incoming: readonly { name: unknown; request: unknown }[], now = Date.now()): Promise<{ added: string[]; errors: string[] }> {
+    return this.exclusive(async () => {
+      const items = await this.list()
+      const added: string[] = []
+      const errors: string[] = []
+      for (const t of incoming) {
+        try {
+          const name = freeTaskName(checkTaskName(t.name), items.map((x) => x.name))
+          items.push({ id: randomUUID(), name, request: checkTaskRequest(t.request), createdAt: now, updatedAt: now })
+          added.push(name)
+        } catch (error) {
+          errors.push(`The task "${String(t.name)}" was not imported: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      if (added.length) await this.write(items)
+      return { added, errors }
+    })
+  }
+
   rename(id: string, name: unknown, now = Date.now()): Promise<Task[]> {
     const clean = checkTaskName(name)
     return this.exclusive(async () => {
