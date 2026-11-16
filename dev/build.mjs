@@ -1,4 +1,5 @@
-// Bundles what the manifest runs into dist/. Run after changing anything under src/ other than the
+// Bundles what the manifest runs into dist/, minified to keep the plugin small (the source and
+// this script are in the repository; the npm packages' license comments stay at each file's end). Run after changing anything under src/ other than the
 // shell editor (or keep `npm run build:watch` running):
 //   npm run build
 //
@@ -27,8 +28,9 @@ const common = {
   outdir,
   bundle: true,
   format: 'esm',
-  minify: false,
-  legalComments: 'inline',
+  minify: true,
+  keepNames: true,
+  legalComments: 'eof',
   charset: 'utf8',
   logLevel: 'info'
 }
