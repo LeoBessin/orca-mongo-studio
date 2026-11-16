@@ -16,7 +16,7 @@
         "id": "mongo-studio",
         "title": "Mongo Studio",
         "icon": "database",
-        "entry": "src/panel.tsx",
+        "entry": "dist/panel.js",
         "ui": "components"
       }
     ],

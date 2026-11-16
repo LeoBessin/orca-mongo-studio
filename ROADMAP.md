@@ -96,11 +96,13 @@ it was `local.orca-mongo-studio` before the id dropped Orca's reserved `orca-` p
    The script is now `dev/shots.sh` in the repo, covering Phases 1 and 2 in light and dark. It
    writes to `.orca/shots/p1/` and `.orca/shots/p2/`. The only screenshot so far is the tree in dark:
    `.orca/shots/p1-tree-dark-420-top.png`. Look at each image and fix what looks off.
-2. **Release packaging (done).** `dev/build-worker.mjs` bundles the worker into `dist/worker.mjs`
+2. **Release packaging (done).** `dev/build.mjs` bundles the worker into `dist/worker.mjs`
    and the shell thread, with its own `bson`, into `dist/shell-thread.mjs`; the manifest's `main`
    is the bundle. Native modules are left out because the plugin directory refuses binaries:
    Kerberos needs a development install and says so. Checked from a copy with no `node_modules`
-   in Orca: connect, tree, query, shell run, SSH tunnel and the Kerberos message.
+   in Orca: connect, tree, query, shell run, SSH tunnel and the Kerberos message. The panel is
+   bundled too (`dist/panel.js`): installed, its ~60 modules overran the frame server's 32
+   concurrent requests and the panel failed to load; development folders don't show this.
 3. **Not tested live:** AWS IAM and OIDC browser sign-in against real providers (no account),
    and `mongodb+srv` against a real Atlas cluster. All are covered by unit and mock tests.
 4. **Known limit:** through SSH the plugin talks to the first database host only. The form warns

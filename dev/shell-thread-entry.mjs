@@ -1,4 +1,4 @@
-// The bundled shell thread's entry (see dev/build-worker.mjs): it gives the thread its own copy of
+// The bundled shell thread's entry (see dev/build.mjs): it gives the thread its own copy of
 // `bson`, since an installed plugin has no node_modules to load it from, then runs the thread.
 import * as bson from 'bson'
 
