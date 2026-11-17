@@ -489,4 +489,46 @@ describe('switching sidebar tabs', () => {
     assert.equal(treeReads, 0, 'the tree does not open a closed connection')
     assert.ok(after.find({ text: /This connection is not open/ }))
   })
+
+  // Orca stops an idle worker after a few minutes, and every connection closes with it.
+  async function afterWorkerStop(resumable: boolean) {
+    const first = setup()
+    const before = await openOrders(first.host)
+    const persisted = await saved(before)
+    await before.unmount()
+    assert.deepEqual((persisted[LAYOUT] as { open?: string[] }).open, ['c1'])
+
+    let connected = false
+    let treeReads = 0
+    const conn = () => ({ ...state, connections: [{ ...state.connections[0]!, connected, resumable }] })
+    const second = setup({
+      'connections.state': conn,
+      'tree.children': ({ key }) => {
+        treeReads++
+        connected = true
+        return key === 'conn:c1'
+          ? { nodes: [{ key: 'conn:c1/db:shop', kind: 'db', label: 'shop', hasChildren: true }] }
+          : { nodes: [{ key: 'conn:c1/db:shop/coll:orders', kind: 'coll', label: 'orders', hasChildren: true }] }
+      }
+    })
+    const after = await mount(panel, { host: second.host, persisted: { workspace: persisted } })
+    await after.settled()
+    return { after, calls: second.calls, treeReads: () => treeReads }
+  }
+
+  test('after the worker stopped, a connection that was open connects again and its tabs run', async () => {
+    const { after, calls, treeReads } = await afterWorkerStop(true)
+    assert.ok(treeReads() > 0)
+    assert.equal(after.valueOf({ type: 'Tabs' }), ordersTab)
+    assert.equal(calls.runs.length, 1)
+    assert.ok(!after.find({ text: /This connection is not open/ }))
+    assert.deepEqual(after.errors, [])
+  })
+
+  test('a connection that would need the person (browser sign-in) is not connected again', async () => {
+    const { after, calls, treeReads } = await afterWorkerStop(false)
+    assert.equal(treeReads(), 0)
+    assert.equal(calls.runs.length, 0)
+    assert.ok(after.find({ text: /This connection is not open/ }))
+  })
 })

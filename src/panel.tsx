@@ -87,9 +87,10 @@ function withReadOnly(connectionId: string, content: OrcaNode): OrcaNode {
 export default function Panel(): OrcaNode {
   const current = read(view)
   const def = read(formDef)
-  // Read so that opening or selecting in the tree also saves the layout.
+  // Read so that opening or selecting in the tree, and connecting, also save the layout.
   read(expanded)
   read(selected)
+  read(connections)
   scheduleLayoutSave()
   return (
     <Tabs label="Mongo Studio" value={current} onChange={changeView}>

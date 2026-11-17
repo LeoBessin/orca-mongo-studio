@@ -4,7 +4,7 @@ A full MongoDB client inside [Orca](https://orca.dev): browse, query, aggregate,
 administer your databases without leaving your editor. It is built from Orca's own components, so
 it follows every Orca theme, light or dark.
 
-![Mongo Studio](media/cover.png)
+![Mongo Studio](media/cover.webp)
 
 ## Install
 
@@ -44,6 +44,9 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   users and roles, with counts, sizes and a filter.
 - One tab per collection. The query bar takes filter, projection, sort, collation, skip and limit
   in mongo shell syntax.
+- Tabs, their queries and pipelines, and the tree's open nodes come back when you return to the
+  panel from another sidebar tab. Connections Orca closed while the panel was idle reopen by
+  themselves, except ones that sign in through the browser.
 - A **Query Builder** with nested AND/OR groups.
 - Results as a **Table**, a **Tree** with BSON types, or **JSON** (relaxed or canonical Extended
   JSON). Results page through the open cursor, and the total is counted separately so the first
@@ -67,7 +70,7 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 - **SQL** translates a `SELECT` (with `WHERE`, `GROUP BY`, `JOIN`, `ORDER BY` and more) into
   MongoDB queries.
 
-![The Mongo Shell editor](media/shell-editor.png)
+![The Mongo Shell editor](media/shell-editor.webp)
 
 ### Aggregation and performance
 
@@ -79,7 +82,7 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   in-memory sorts and the plan as a tree. Works with the classic and slot-based engines and with
   sharded clusters.
 
-![Shell results in the panel](media/shell-results.png)
+![Shell results in the panel](media/shell-results.webp)
 
 ### Administration
 

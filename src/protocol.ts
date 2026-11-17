@@ -19,6 +19,9 @@ export type ConnectionSummary = {
   connected: boolean
   /** Changes through it are refused by the worker. */
   readOnly: boolean
+  /** It can connect again without the person: no browser sign-in, and its secrets are kept. The
+   *  panel reconnects such a connection when it was open before Orca stopped the worker. */
+  resumable?: boolean
 }
 
 export type ConnectionsState = {

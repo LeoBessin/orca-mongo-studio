@@ -5,7 +5,10 @@
 // Results, documents and edits in progress are never saved: they can be large or sensitive, and
 // re-running is cheap. Tabs of a connection that is no longer open come back without results and
 // never connect by themselves, so restoring cannot prompt for a password or an SSH key.
-import { atom, read, set, update } from 'orca'
+// Orca also stops an idle worker after a few minutes, closing every connection. A connection that
+// was open when the layout was last saved, and can connect again without the person (its secrets
+// are kept and it signs in without a browser), is opened again before the tabs come back.
+import { atom, plugin, read, set, update } from 'orca'
 import type { Namespace, QueryText } from '../protocol'
 import type { JsonValue } from '../shared/ejson-view'
 import type { NodeKind } from '../shared/nodes'
@@ -20,7 +23,7 @@ import { openGridfs } from './gridfs-state'
 import { openManage } from './manage-state'
 import { openSchema } from './schema-state'
 import { openServer } from './server-state'
-import { connections, expanded, realKey, selected, selectNode, toggleNode, view } from './state'
+import { connections, errorText, expanded, notice, realKey, refreshState, selected, selectNode, toggleNode, view } from './state'
 import { openUsers } from './users-state'
 
 type SavedBase = { id: string; ns: Namespace; kind: NodeKind; title: string }
@@ -52,9 +55,17 @@ export type SavedTab =
   | { type: 'server'; id: string; connectionId: string }
   | { type: 'gridfs'; id: string; connectionId: string; db: string; bucket: string }
 
-export type Layout = { view: string; order: string[]; tabs: SavedTab[]; expanded: string[]; selected: string | null }
+export type Layout = {
+  view: string
+  order: string[]
+  tabs: SavedTab[]
+  expanded: string[]
+  selected: string | null
+  /** The connections open at the time, to open again after the worker stopped. */
+  open?: string[]
+}
 
-const EMPTY: Layout = { view: 'tree', order: [], tabs: [], expanded: [], selected: null }
+const EMPTY: Layout = { view: 'tree', order: [], tabs: [], expanded: [], selected: null, open: [] }
 
 export const layout = atom<Layout>('mongo-studio.layout', EMPTY, { persist: 'workspace', version: 1 })
 
@@ -125,7 +136,8 @@ export function currentLayout(): Layout {
     const saved = c ? saveColl(c) : a ? saveAdmin(a) : undefined
     if (saved) tabs.push(saved)
   }
-  return { view: read(view), order: tabs.map((t) => t.id), tabs, expanded: read(expanded), selected: read(selected) }
+  const open = read(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? []
+  return { view: read(view), order: tabs.map((t) => t.id), tabs, expanded: read(expanded), selected: read(selected), open }
 }
 
 /** Called after each render of the panel: saves the layout shortly after it settles. */
@@ -216,15 +228,40 @@ function restoreAdmin(t: SavedTab): Promise<unknown> {
   }
 }
 
+/** Opens connections again, as the tree does: the worker connects to list the databases.
+ *  Answers the ones that opened; the others are named in a notice. */
+async function resume(ids: readonly string[]): Promise<Set<string>> {
+  const opened = new Set<string>()
+  if (ids.length === 0) return opened
+  const failed: string[] = []
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        await plugin.request('tree.children', { key: `conn:${encodeURIComponent(id)}` }, { timeoutMs: 60000 })
+        opened.add(id)
+      } catch (error) {
+        const name = read(connections)?.connections.find((c) => c.id === id)?.name ?? id
+        failed.push(`${name}: ${errorText(error)}`)
+      }
+    })
+  )
+  await refreshState().catch(() => undefined)
+  if (failed.length) set(notice, { tone: 'danger', text: `Could not reconnect. ${failed.join('; ')}` })
+  return opened
+}
+
 /** Rebuilds the saved layout. Call once per run, after the connections' state has loaded (or
  *  failed to: then every connection counts as closed). */
 export async function restoreLayout(): Promise<void> {
   const saved = read(layout)
-  const state = read(connections)
-  const known = new Set(state?.connections.map((c) => c.id) ?? [])
-  const open = new Set(state?.connections.filter((c) => c.connected).map((c) => c.id) ?? [])
   const pending: Promise<unknown>[] = []
   try {
+    const before = read(connections)?.connections ?? []
+    const known = new Set(before.map((c) => c.id))
+    const open = new Set(before.filter((c) => c.connected).map((c) => c.id))
+    const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable))
+    for (const id of await resume(again)) open.add(id)
+
     const existing = new Set(read(tabOrder))
     for (const t of saved.tabs) {
       const conn = connectionOf(t)

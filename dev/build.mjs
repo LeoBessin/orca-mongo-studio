@@ -34,6 +34,20 @@ const common = {
   logLevel: 'info'
 }
 
+// The driver's connection-string parser (mongodb-connection-string-url) takes `URL` from the
+// `whatwg-url` package, which brings its own Unicode tables (tr46): about 340 KB of the worker.
+// Node's own `URL` is the same WHATWG URL, so the bundle uses that instead.
+const nodeUrl = {
+  name: 'node-url',
+  setup(b) {
+    b.onResolve({ filter: /^whatwg-url$/ }, () => ({ path: 'whatwg-url', namespace: 'node-url' }))
+    b.onLoad({ filter: /.*/, namespace: 'node-url' }, () => ({
+      contents: 'module.exports = { URL: globalThis.URL, URLSearchParams: globalThis.URLSearchParams }',
+      loader: 'js'
+    }))
+  }
+}
+
 const worker = {
   ...common,
   entryPoints: {
@@ -41,6 +55,7 @@ const worker = {
     'shell-thread': 'dev/shell-thread-entry.mjs'
   },
   outExtension: { '.js': '.mjs' },
+  plugins: [nodeUrl],
   platform: 'node',
   target: 'node22',
   external: [

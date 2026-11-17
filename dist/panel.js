@@ -2,7 +2,7 @@
 
 
 // src/panel.tsx
-import { Badge as Badge8, Box as Box22, plugin as plugin17, read as read27, Row as Row23, set as set14, Tab, Tabs, Text as Text23 } from "orca";
+import { Badge as Badge8, Box as Box22, plugin as plugin18, read as read27, Row as Row23, set as set14, Tab, Tabs, Text as Text23 } from "orca";
 
 // src/panel/collection-state.ts
 import { atom as atom2, plugin as plugin2, read as read2, set as set2, update as update2 } from "orca";
@@ -10143,8 +10143,8 @@ function ConnectionForm() {
 }
 
 // src/panel/layout-state.ts
-import { atom as atom8, read as read24, set as set11, update as update9 } from "orca";
-var EMPTY = { view: "tree", order: [], tabs: [], expanded: [], selected: null };
+import { atom as atom8, plugin as plugin17, read as read24, set as set11, update as update9 } from "orca";
+var EMPTY = { view: "tree", order: [], tabs: [], expanded: [], selected: null, open: [] };
 var layout = atom8("mongo-studio.layout", EMPTY, { persist: "workspace", version: 1 });
 var restored = false;
 var timer;
@@ -10205,7 +10205,8 @@ function currentLayout() {
     const saved = c ? saveColl(c) : a ? saveAdmin(a) : void 0;
     if (saved) tabs.push(saved);
   }
-  return { view: read24(view), order: tabs.map((t) => t.id), tabs, expanded: read24(expanded), selected: read24(selected) };
+  const open = read24(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? [];
+  return { view: read24(view), order: tabs.map((t) => t.id), tabs, expanded: read24(expanded), selected: read24(selected), open };
 }
 function scheduleLayoutSave() {
   if (!restored) return;
@@ -10287,13 +10288,34 @@ function restoreAdmin(t) {
       return Promise.resolve();
   }
 }
+async function resume(ids) {
+  const opened = /* @__PURE__ */ new Set();
+  if (ids.length === 0) return opened;
+  const failed = [];
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        await plugin17.request("tree.children", { key: `conn:${encodeURIComponent(id)}` }, { timeoutMs: 6e4 });
+        opened.add(id);
+      } catch (error) {
+        const name = read24(connections)?.connections.find((c) => c.id === id)?.name ?? id;
+        failed.push(`${name}: ${errorText(error)}`);
+      }
+    })
+  );
+  await refreshState().catch(() => void 0);
+  if (failed.length) set11(notice, { tone: "danger", text: `Could not reconnect. ${failed.join("; ")}` });
+  return opened;
+}
 async function restoreLayout() {
   const saved = read24(layout);
-  const state = read24(connections);
-  const known = new Set(state?.connections.map((c) => c.id) ?? []);
-  const open = new Set(state?.connections.filter((c) => c.connected).map((c) => c.id) ?? []);
   const pending = [];
   try {
+    const before = read24(connections)?.connections ?? [];
+    const known = new Set(before.map((c) => c.id));
+    const open = new Set(before.filter((c) => c.connected).map((c) => c.id));
+    const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable));
+    for (const id of await resume(again)) open.add(id);
     const existing = new Set(read24(tabOrder));
     for (const t of saved.tabs) {
       const conn = connectionOf(t);
@@ -10726,8 +10748,8 @@ import { jsx as jsx24, jsxs as jsxs23 } from "orca/jsx-runtime";
 function setup(ctx) {
   resetLayoutRun();
   ctx.subscriptions.push(
-    plugin17.on("connections.changed", (state) => setConnections(state)),
-    plugin17.on("ui.navigate", ({ view: target }) => {
+    plugin18.on("connections.changed", (state) => setConnections(state)),
+    plugin18.on("ui.navigate", ({ view: target }) => {
       if (target === "new") openNewConnection();
       else if (target === "tasks") openTasks();
       else if (target === "shell") {
@@ -10737,10 +10759,10 @@ function setup(ctx) {
         void refreshExport();
       } else set14(view, "tree");
     }),
-    plugin17.on("oidc.signIn", (payload) => set14(oidc, payload)),
-    plugin17.on("oidc.done", () => set14(oidc, null)),
-    plugin17.on("shell.results", (run) => void showRun(run, true)),
-    plugin17.on("tasks.changed", (state) => setTasks(state))
+    plugin18.on("oidc.signIn", (payload) => set14(oidc, payload)),
+    plugin18.on("oidc.done", () => set14(oidc, null)),
+    plugin18.on("shell.results", (run) => void showRun(run, true)),
+    plugin18.on("tasks.changed", (state) => setTasks(state))
   );
   void loadLatestRun();
   refreshState().catch((error) => set14(notice, { tone: "danger", text: `Mongo Studio could not start: ${errorText(error)}` })).finally(() => void restoreLayout());
@@ -10767,6 +10789,7 @@ function Panel() {
   const def = read27(formDef);
   read27(expanded);
   read27(selected);
+  read27(connections);
   scheduleLayoutSave();
   return /* @__PURE__ */ jsxs23(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
     /* @__PURE__ */ jsx24(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx24(TreeView, {}) }),

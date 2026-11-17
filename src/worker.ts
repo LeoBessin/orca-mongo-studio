@@ -72,7 +72,8 @@ export default function activate(orca: OrcaWorkerApi): void {
         subtitle: connectionSubtitle(d),
         topology: d.topology,
         connected: pool?.isOpen(d.id) ?? false,
-        readOnly: d.readOnly
+        readOnly: d.readOnly,
+        resumable: secretsProtection === 'os-keyring' && !(d.auth.mechanism === 'MONGODB-OIDC' && d.auth.oidcFlow === 'browser')
       })),
       favourites,
       secretsProtection
