@@ -431,3 +431,62 @@ describe('collection tabs', () => {
     assert.equal(view.findAll({ type: 'Tab' }).length, 1)
   })
 })
+
+describe('switching sidebar tabs', () => {
+  // Orca ends the panel's run when another sidebar tab is shown; the next run starts from
+  // persisted atoms only. The layout save waits for the panel to settle.
+  const LAYOUT = 'mongo-studio.layout'
+  async function saved(view: Awaited<ReturnType<typeof mount>>): Promise<Record<string, unknown>> {
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    await view.settled()
+    return view.persisted.workspace
+  }
+  const ordersTab = tabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' })
+
+  test('the next run brings back the tabs, the query and the tree, and runs the query again', async () => {
+    const first = setup()
+    const before = await openOrders(first.host)
+    await before.type({ label: 'Filter' }, "{ status: 'shipped' }")
+    await before.press({ text: 'Run' })
+    const persisted = await saved(before)
+    assert.ok(persisted[LAYOUT])
+    assert.ok(!JSON.stringify(persisted[LAYOUT]).includes('6542f1a2'), 'no documents are saved')
+    await before.unmount()
+
+    const second = setup()
+    const after = await mount(panel, { host: second.host, persisted: { workspace: persisted } })
+    await after.settled()
+    assert.equal(after.valueOf({ type: 'Tabs' }), ordersTab)
+    assert.equal(after.valueOf({ label: 'Filter' }), "{ status: 'shipped' }")
+    assert.equal(second.calls.runs.length, 1)
+    assert.deepEqual(second.calls.runs[0]!.spec.filter, { status: 'shipped' })
+    assert.equal(second.calls.runs[0]!.text, undefined, 'restoring is not recorded in the history')
+    assert.ok(after.find({ text: '1–3 of 4' }))
+    await after.select({ type: 'Tabs' }, 'tree')
+    assert.deepEqual(after.expandedOf({ type: 'Tree' }).filter((k) => k.startsWith('conn:')), ['conn:c1', 'conn:c1/db:shop'])
+    assert.deepEqual(after.errors, [])
+  })
+
+  test('a connection that is no longer open keeps its tabs but does not connect', async () => {
+    const first = setup()
+    const before = await openOrders(first.host)
+    const persisted = await saved(before)
+    await before.unmount()
+
+    const closed: ConnectionsState = { ...state, connections: [{ ...state.connections[0]!, connected: false }] }
+    let treeReads = 0
+    const second = setup({
+      'connections.state': closed,
+      'tree.children': () => {
+        treeReads++
+        return { nodes: [] }
+      }
+    })
+    const after = await mount(panel, { host: second.host, persisted: { workspace: persisted } })
+    await after.settled()
+    assert.equal(after.valueOf({ type: 'Tabs' }), ordersTab)
+    assert.equal(second.calls.runs.length, 0)
+    assert.equal(treeReads, 0, 'the tree does not open a closed connection')
+    assert.ok(after.find({ text: /This connection is not open/ }))
+  })
+})

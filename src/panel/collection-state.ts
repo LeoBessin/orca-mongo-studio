@@ -287,7 +287,7 @@ export function canOpenDocuments(t: CollTab): boolean {
   return !t.shell && !t.agg
 }
 
-function newFocus(docId: JsonValue): DocFocus {
+export function newFocus(docId: JsonValue): DocFocus {
   return { id: docId, loading: true, view: 'tree', relaxed: true, expanded: [treeKey(0, [])] }
 }
 

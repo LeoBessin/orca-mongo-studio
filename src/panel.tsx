@@ -12,6 +12,7 @@ import { ConnectionForm } from './panel/connection-form'
 import {
   connections,
   errorText,
+  expanded,
   formDef,
   formIsNew,
   notice,
@@ -19,10 +20,12 @@ import {
   openNewConnection,
   refreshExport,
   refreshState,
+  selected,
   setConnections,
   view,
   type View
 } from './panel/state'
+import { restoreLayout, resetLayoutRun, scheduleLayoutSave } from './panel/layout-state'
 import { TransferView } from './panel/transfer-view'
 import { loadLatestRun, SHELL_TAB, shellRun, showRun } from './panel/shell-state'
 import { ShellTab } from './panel/shell-view'
@@ -31,6 +34,7 @@ import { openTasks, setTasks, TASKS_TAB, tasksOpen } from './panel/tasks-state'
 import { TasksView } from './panel/tasks-view'
 
 export function setup(ctx: PanelContext): void {
+  resetLayoutRun()
   ctx.subscriptions.push(
     plugin.on('connections.changed', (state) => setConnections(state)),
     plugin.on('ui.navigate', ({ view: target }) => {
@@ -50,7 +54,11 @@ export function setup(ctx: PanelContext): void {
     plugin.on('tasks.changed', (state) => setTasks(state))
   )
   void loadLatestRun()
-  refreshState().catch((error) => set(notice, { tone: 'danger', text: `Mongo Studio could not start: ${errorText(error)}` }))
+  // Orca ends the panel's run on every switch to another sidebar tab; this brings back what was
+  // open. It waits for the connections' state, to know which ones are still open.
+  refreshState()
+    .catch((error) => set(notice, { tone: 'danger', text: `Mongo Studio could not start: ${errorText(error)}` }))
+    .finally(() => void restoreLayout())
 }
 
 function changeView(next: string): void {
@@ -79,6 +87,10 @@ function withReadOnly(connectionId: string, content: OrcaNode): OrcaNode {
 export default function Panel(): OrcaNode {
   const current = read(view)
   const def = read(formDef)
+  // Read so that opening or selecting in the tree also saves the layout.
+  read(expanded)
+  read(selected)
+  scheduleLayoutSave()
   return (
     <Tabs label="Mongo Studio" value={current} onChange={changeView}>
       <Tab value="tree" label="Connections" icon="database">

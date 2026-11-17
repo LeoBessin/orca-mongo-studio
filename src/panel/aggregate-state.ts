@@ -32,7 +32,7 @@ export function aggTabId(ns: Namespace): string {
   return tabIdFor(ns).replace(/^coll-/, 'agg-')
 }
 
-function newAgg(stages: StageDraft[]): AggState {
+export function newAgg(stages: StageDraft[]): AggState {
   return {
     stages,
     ...(stages[0] ? { selected: stages[0].id } : {}),
