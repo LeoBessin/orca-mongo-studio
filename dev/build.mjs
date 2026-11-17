@@ -1,5 +1,5 @@
-// Bundles what the manifest runs into dist/, minified to keep the plugin small (the source and
-// this script are in the repository; the npm packages' license comments stay at each file's end). Run after changing anything under src/ other than the
+// Bundles what the manifest runs into dist/, readable: not minified, so what ships can be read
+// against the source. Orca's plugin directory holds minified code for review. Run after changing anything under src/ other than the
 // shell editor (or keep `npm run build:watch` running):
 //   npm run build
 //
@@ -28,9 +28,8 @@ const common = {
   outdir,
   bundle: true,
   format: 'esm',
-  minify: true,
-  keepNames: true,
-  legalComments: 'eof',
+  minify: false,
+  legalComments: 'inline',
   charset: 'utf8',
   logLevel: 'info'
 }

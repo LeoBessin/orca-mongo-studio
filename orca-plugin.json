@@ -2,8 +2,9 @@
   "manifestVersion": 2,
   "id": "mongo-studio",
   "name": "Mongo Studio",
-  "version": "1.0.1",
-  "description": "A MongoDB client for Orca: connections, browsing, querying, aggregation, a shell and administration. Not affiliated with or endorsed by MongoDB, Inc.",
+  "version": "1.0.2",
+  "description": "Browse, query and edit MongoDB databases without leaving Orca: aggregation pipelines, a mongo shell, import and export, indexes, users and server status. Not affiliated with or endorsed by MongoDB, Inc.",
+  "icon": "media/icon.png",
   "engines": {
     "orca": ">=1.4.248"
   },

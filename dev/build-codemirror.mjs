@@ -39,8 +39,8 @@ const result = await build({
   stdin: { contents: entry, resolveDir: root, loader: 'js' },
   bundle: true,
   format: 'esm',
-  minify: true,
-  legalComments: 'eof',
+  minify: false,
+  legalComments: 'inline',
   target: 'es2022',
   write: false
 })
