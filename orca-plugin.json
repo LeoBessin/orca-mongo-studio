@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "mongo-studio",
   "name": "Mongo Studio",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Browse, query and edit MongoDB databases without leaving Orca: aggregation pipelines, a mongo shell, import and export, indexes, users and server status. Not affiliated with or endorsed by MongoDB, Inc.",
   "icon": "media/icon.png",
   "engines": {
