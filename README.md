@@ -48,6 +48,9 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 - Results as a **Table**, a **Tree** with BSON types, or **JSON** (relaxed or canonical Extended
   JSON). Results page through the open cursor, and the total is counted separately so the first
   page never waits for it.
+- **Open** a document to see it whole, as a tree, Extended JSON or shell syntax, over the results;
+  **Back to results** returns to them as they were. **Open in a tab** keeps it in a tab of its own
+  next to its collection.
 - Edit fields with inputs that match their BSON type, or edit whole documents. Insert, clone and
   delete documents, one at a time or in bulk.
 - Per-collection query history and saved queries.

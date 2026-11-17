@@ -47,6 +47,7 @@ import {
   type QueryField
 } from './collection-state'
 import { openAggregation } from './aggregate-state'
+import { DocumentView } from './document-view'
 import { Editors } from './editors-view'
 import { ExplainSection } from './explain-view'
 import { runExplain } from './explain-state'
@@ -242,6 +243,18 @@ function exportQuery(t: CollTab): void {
   openExport({ kind: 'query', ns: t.ns, collKind: t.kind }, queryText(t.text))
 }
 
+function Notice({ t }: { t: CollTab }): OrcaNode {
+  if (!t.notice) return null
+  return (
+    <Callout tone={t.notice.tone} icon={t.notice.tone === 'danger' ? 'error' : t.notice.tone === 'success' ? 'check' : 'info'}>
+      <Row justify="between" align="center">
+        <Text>{t.notice.text}</Text>
+        <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => change(t.id, () => ({ notice: undefined }))} />
+      </Row>
+    </Callout>
+  )
+}
+
 const KIND_LABEL: Partial<Record<CollTab['kind'], string>> = { view: 'View · read only', timeseries: 'Time-series' }
 
 export function CollectionTab({ id }: { id: string }): OrcaNode {
@@ -249,6 +262,16 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
   if (!raw) return null
   // A read-only connection's tab offers no editing, like a view's (the worker refuses it anyway).
   const t = !raw.readOnly && read(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw
+  // A document opened on its own covers the query and results until Back; a document tab is only that.
+  if (t.focus) {
+    return (
+      <Box gap="sm">
+        <Notice t={t} />
+        <DocumentView t={t} />
+        <Editors t={t} />
+      </Box>
+    )
+  }
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">
@@ -274,14 +297,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
       </Toolbar>
       <Builder t={t} />
-      {t.notice ? (
-        <Callout tone={t.notice.tone} icon={t.notice.tone === 'danger' ? 'error' : t.notice.tone === 'success' ? 'check' : 'info'}>
-          <Row justify="between" align="center">
-            <Text>{t.notice.text}</Text>
-            <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => change(t.id, () => ({ notice: undefined }))} />
-          </Row>
-        </Callout>
-      ) : null}
+      <Notice t={t} />
       {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
       <Results t={t} />
       <Editors t={t} />

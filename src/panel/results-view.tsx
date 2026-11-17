@@ -26,6 +26,7 @@ import {
   addField,
   addToQuery,
   askDelete,
+  canOpenDocuments,
   change,
   cloneDocument,
   currentSort,
@@ -33,11 +34,13 @@ import {
   editField,
   goToPage,
   nextPage,
+  openDocument,
+  openDocumentTab,
   PAGE_SIZE_OPTIONS,
   parseTreeKey,
   previousPage,
   recount,
-  rowKey,
+  rowKeys,
   say,
   selectedDocs,
   setPageSize,
@@ -50,7 +53,8 @@ import {
 import { copyToClipboard } from './data-state'
 import { guard } from './guard'
 
-const MAX_COLUMNS = 40
+/** Orca draws a Table of at most 32 columns, and refuses the whole table past that. */
+const MAX_COLUMNS = 32
 
 // ---- Pager ----
 
@@ -94,13 +98,18 @@ function topKeys(docs: readonly JsonObject[]): string[] {
   return keys.sort((a, b) => (a === '_id' ? -1 : b === '_id' ? 1 : 0))
 }
 
-/** Columns: every top-level key, with flattened sub-documents as dotted columns. */
-export function tableColumns(t: CollTab): string[] {
+/** A table column: the field it shows (a top-level key, or a sub-document's key when that
+ *  sub-document is shown as columns) and its dotted name. */
+export type ResultColumn = { field: string; sub?: string; name: string }
+
+/** Columns: every top-level key, with sub-documents shown as columns spread into their keys.
+ *  Past 32, `_id` and the sub-document columns asked for stay, and the last other fields go. */
+export function tableColumns(t: CollTab): { columns: ResultColumn[]; total: number } {
   const docs = t.page?.docs ?? []
-  const out: string[] = []
+  const all: ResultColumn[] = []
   for (const key of topKeys(docs)) {
     if (!t.flattened.includes(key)) {
-      out.push(key)
+      all.push({ field: key, name: key })
       continue
     }
     const subs: string[] = []
@@ -108,34 +117,53 @@ export function tableColumns(t: CollTab): string[] {
       const v = d[key]
       if (v !== undefined && bsonType(v) === 'object') for (const s of Object.keys(v as JsonObject)) if (!subs.includes(s)) subs.push(s)
     }
-    out.push(...(subs.length ? subs.map((s) => `${key}.${s}`) : [key]))
+    all.push(...(subs.length ? subs.map((s) => ({ field: key, sub: s, name: `${key}.${s}` })) : [{ field: key, name: key }]))
   }
-  return out.slice(0, MAX_COLUMNS)
+  const keep = [...all]
+  for (let i = keep.length - 1; keep.length > MAX_COLUMNS && i >= 0; i--) {
+    const c = keep[i]!
+    if (c.field !== '_id' && c.sub === undefined) keep.splice(i, 1)
+  }
+  return { columns: keep.slice(0, MAX_COLUMNS), total: all.length }
 }
 
-function cellValue(doc: JsonObject, column: string, t: CollTab): JsonValue | undefined {
-  const dot = column.indexOf('.')
-  if (dot > 0 && t.flattened.includes(column.slice(0, dot))) {
-    const parent = doc[column.slice(0, dot)]
-    return isObject(parent) && bsonType(parent) === 'object' ? parent[column.slice(dot + 1)] : undefined
-  }
-  return doc[column]
+/** Orca needs column keys of 1 to 64 characters, each used once. A column's key is its dotted
+ *  name when that fits; an empty or long name, or one that repeats (a top-level `a.b` next to `a`
+ *  shown as columns), gets its place instead (`#3`). */
+export function columnKeys(columns: readonly ResultColumn[]): string[] {
+  const used = new Set<string>()
+  return columns.map((c, i) => {
+    let key = c.name && c.name.length <= 64 && !used.has(c.name) ? c.name : `#${i}`
+    while (used.has(key)) key = `${key}'`
+    used.add(key)
+    return key
+  })
+}
+
+function cellValue(doc: JsonObject, column: ResultColumn): JsonValue | undefined {
+  const v = doc[column.field]
+  if (column.sub === undefined) return v
+  return v !== undefined && isObject(v) && bsonType(v) === 'object' ? v[column.sub] : undefined
 }
 
 function ResultTable({ t }: { t: CollTab }): OrcaNode {
   const docs = t.page?.docs ?? []
-  const keys = tableColumns(t)
-  const columns: TableColumn[] = keys.map((k) => ({ key: k, label: k, sortable: true, minWidth: k === '_id' ? 'md' : 'sm' }))
+  const { columns: shown, total } = tableColumns(t)
+  const colKeys = columnKeys(shown)
+  const columns: TableColumn[] = shown.map((c, i) => ({ key: colKeys[i]!, label: c.name || '(empty name)', sortable: true, minWidth: c.field === '_id' ? 'md' : 'sm' }))
+  const keys = rowKeys(docs)
   const rows: TableRow[] = docs.map((d, i) => {
     const cells: TableRow['cells'] = {}
-    for (const k of keys) {
-      const v = cellValue(d, k, t)
-      cells[k] = v === undefined ? '' : valueText(v, 80)
-    }
-    return { key: rowKey(d, i), cells }
+    shown.forEach((c, j) => {
+      const v = cellValue(d, c)
+      cells[colKeys[j]!] = v === undefined ? '' : valueText(v, 80)
+    })
+    return { key: keys[i]!, cells }
   })
-  const sort = currentSort(t)
-  const objectColumns = topKeys(docs).filter((k) => docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
+  const sorted = currentSort(t)
+  const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1
+  const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: sorted.direction } : undefined
+  const objectColumns = topKeys(docs).filter((k) => k !== '' && k.length <= 1000 && docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
   return (
     <Box gap="xs">
       <Table
@@ -148,14 +176,21 @@ function ResultTable({ t }: { t: CollTab }): OrcaNode {
         loading={t.loading}
         emptyText="No documents match."
         maxHeight="lg"
-        onSortChange={({ column, direction }) => void guard(t.id, () => sortBy(t.id, column, direction))()}
+        onSortChange={({ column, direction }) => {
+          const c = shown[colKeys.indexOf(column)]
+          if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
+        }}
         onSelectionChange={({ keys: sel }) => change(t.id, () => ({ selectedRows: sel, confirmDelete: undefined }))}
         onRowAction={({ key }) => {
-          const i = rows.findIndex((r) => r.key === key)
+          const i = keys.indexOf(key)
           const d = docs[i]
-          if (d && '_id' in d) void guard(t.id, () => (t.readOnly ? Promise.resolve(change(t.id, () => ({ resultView: 'tree' as const, treeExpanded: [`r${i}`], treeSelected: `r${i}` }))) : editDocument(t.id, d._id!)))()
+          if (!d || !('_id' in d)) return
+          if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id!))()
+          else if (canOpenDocuments(t)) void guard(t.id, () => openDocument(t.id, d._id!))()
+          else change(t.id, () => ({ resultView: 'tree' as const, treeExpanded: [`r${i}`], treeSelected: `r${i}` }))
         }}
       />
+      {total > shown.length ? <Text size="xs" muted>{`Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.`}</Text> : null}
       {objectColumns.length ? (
         <Select
           label="Show a sub-document as columns"
@@ -236,9 +271,20 @@ function ResultJson({ t }: { t: CollTab }): OrcaNode {
 
 // ---- Selection actions ----
 
+/** Open (over the results) and Open in a tab, for one document of the collection. */
+function OpenButtons({ t, doc }: { t: CollTab; doc: JsonObject | undefined }): OrcaNode {
+  if (!doc || !('_id' in doc) || !canOpenDocuments(t)) return null
+  return (
+    <>
+      <Button size="sm" icon="expand" variant="ghost" onPress={guard(t.id, () => openDocument(t.id, doc._id!))}>Open</Button>
+      <IconButton icon="file-text" label="Open in a tab" size="sm" variant="ghost" onPress={guard(t.id, () => openDocumentTab(t.id, doc._id!))} />
+    </>
+  )
+}
+
 function TableActions({ t }: { t: CollTab }): OrcaNode {
   const docs = selectedDocs(t)
-  if (docs.length === 0) return <Text muted size="xs">{t.readOnly ? 'Select a row to look at it in the Tree view.' : 'Select rows to edit, clone or delete. Enter on a row edits it.'}</Text>
+  if (docs.length === 0) return <Text muted size="xs">{t.readOnly ? (canOpenDocuments(t) ? 'Select a row to open it. Enter on a row opens it.' : 'Select a row to look at it in the Tree view.') : 'Select rows to open, edit, clone or delete. Enter on a row edits it.'}</Text>
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
   const copy = hasId && !t.shell ? (
@@ -250,16 +296,19 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
   if (t.readOnly) {
     return (
       <Toolbar label="Row actions" gap="xs">
-        {one ? <Button size="sm" icon="search" onPress={() => change(t.id, (x) => ({ resultView: 'tree' as const, treeExpanded: [treeKey(x.page!.docs.indexOf(one), [])], treeSelected: treeKey(x.page!.docs.indexOf(one), []) }))}>Show in Tree</Button> : null}
+        <OpenButtons t={t} doc={one} />
+        {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => change(t.id, (x) => ({ resultView: 'tree' as const, treeExpanded: [treeKey(x.page!.docs.indexOf(one), [])], treeSelected: treeKey(x.page!.docs.indexOf(one), []) }))}>Show in Tree</Button> : null}
         {copy}
       </Toolbar>
     )
   }
-  const fields = one ? Object.keys(one).filter((k) => k !== '_id') : []
+  // Orca refuses a Select option with an empty value, and $set can't name an empty field either.
+  const fields = one ? Object.keys(one).filter((k) => k !== '_id' && k !== '' && k.length <= 1000) : []
   return (
     <Box gap="xs">
       <Toolbar label="Row actions" gap="xs">
         {one && hasId ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, one._id!))}>Edit document</Button> : null}
+        <OpenButtons t={t} doc={one} />
         {one && hasId ? <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => cloneDocument(t.id, one._id!))}>Clone</Button> : null}
         {hasId ? (
           <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => askDelete(t.id)}>
@@ -291,6 +340,7 @@ function TreeActions({ t }: { t: CollTab }): OrcaNode {
       {canEdit && path.length && path[0] !== '_id' ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editField(t.id, doc._id!, path))}>Edit field</Button> : null}
       {canEdit && !path.length ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, doc._id!))}>Edit document</Button> : null}
       {canEdit && !path.length ? <Button size="sm" icon="add" variant="ghost" onPress={() => addField(t.id, doc._id!)}>Add field</Button> : null}
+      {!path.length ? <OpenButtons t={t} doc={doc} /> : null}
       {path.length && !path.some((p) => typeof p === 'number') ? (
         <Button size="sm" icon="filter" variant="ghost" onPress={() => addToQuery(t.id, path, value)}>Add to query</Button>
       ) : null}

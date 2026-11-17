@@ -42,6 +42,22 @@ export type DocEditor = {
 export type Editor = FieldEditor | DocEditor
 export type TabNotice = { tone: 'success' | 'danger' | 'neutral'; text: string }
 
+export type DocView = 'tree' | 'json' | 'shell'
+/** One document, read whole from the server, shown on its own: over a tab's results (opened
+ *  from them, closed with Back), or as a document tab's whole content. */
+export type DocFocus = {
+  id: JsonValue
+  doc?: JsonObject
+  loading: boolean
+  error?: string
+  /** It was deleted from here: there is nothing left to show. */
+  deleted?: boolean
+  view: DocView
+  relaxed: boolean
+  expanded: string[]
+  selected?: string
+}
+
 /** A tab's explain plan: the section under the query or pipeline. */
 export type ExplainState = {
   open: boolean
@@ -131,6 +147,10 @@ export type CollTab = {
   /** An aggregation tab: results come from its pipeline. */
   agg?: AggState
   explain?: ExplainState
+  /** A document opened on its own. In a collection tab it covers the results until Back. */
+  focus?: DocFocus
+  /** A document tab: it shows only `focus`, for this `_id`, and has no query. */
+  docTab?: { id: JsonValue }
 }
 
 export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
@@ -165,12 +185,21 @@ export function nsLabel(ns: Namespace): string {
 /** A tab id from the namespace (FNV-1a), so reopening a collection finds its tab. Plain letters
  *  and digits: Orca keys and tab values stay simple. */
 export function tabIdFor(ns: Namespace): string {
+  return `coll-${hash([ns.connectionId, ns.db, ns.collection])}`
+}
+
+function hash(parts: string[]): string {
   let h = 0x811c9dc5
-  for (const ch of JSON.stringify([ns.connectionId, ns.db, ns.collection])) {
+  for (const ch of JSON.stringify(parts)) {
     h ^= ch.codePointAt(0)!
     h = Math.imul(h, 0x01000193) >>> 0
   }
-  return `coll-${h.toString(36)}`
+  return h.toString(36)
+}
+
+/** A document tab's id: one tab per document, found again when the same document is opened. */
+export function docTabIdFor(ns: Namespace, docId: JsonValue): string {
+  return `doc-${hash([ns.connectionId, ns.db, ns.collection, idKey(docId)])}`
 }
 
 /** Opens (or shows) the tab for a collection, view or time-series node of the tree. */
@@ -186,7 +215,7 @@ export async function openCollection(nodeKey: string): Promise<void> {
 export async function openNamespace(ns: Namespace, kind: NodeKind, text?: QueryText): Promise<void> {
   const existing = read(tabOrder).find((id) => {
     const t = tab(id)
-    return t && t.ns.connectionId === ns.connectionId && t.ns.db === ns.db && t.ns.collection === ns.collection
+    return t && !t.docTab && !t.agg && t.ns.connectionId === ns.connectionId && t.ns.db === ns.db && t.ns.collection === ns.collection
   })
   if (existing) {
     set(view, existing)
@@ -248,6 +277,75 @@ export function closeTab(id: string): void {
 /** Closes the tabs of a deleted connection. */
 export function closeTabsFor(connectionId: string): void {
   for (const id of read(tabOrder)) if (tab(id)?.ns.connectionId === connectionId) closeTab(id)
+}
+
+// ---- One document on its own ----
+
+/** Whether a tab's documents can be opened on their own: they must come from the collection
+ *  itself, so that reading one by `_id` finds the same document. */
+export function canOpenDocuments(t: CollTab): boolean {
+  return !t.shell && !t.agg
+}
+
+function newFocus(docId: JsonValue): DocFocus {
+  return { id: docId, loading: true, view: 'tree', relaxed: true, expanded: [treeKey(0, [])] }
+}
+
+/** Reads the open document again, whole, from the server. */
+export async function loadFocus(id: string): Promise<void> {
+  const t = tab(id)
+  const f = t?.focus
+  if (!t || !f) return
+  change(id, (x) => (x.focus ? { focus: { ...x.focus, loading: true, error: undefined } } : {}))
+  let next: Partial<DocFocus>
+  try {
+    const { doc } = await plugin.request('doc.get', { ns: t.ns, id: f.id }, { timeoutMs: 60000 })
+    next = doc ? { doc, loading: false } : { doc: undefined, loading: false, error: 'This document is no longer there: it was deleted, or its _id changed.' }
+  } catch (error) {
+    next = { loading: false, error: errorText(error) }
+  }
+  change(id, (x) => (x.focus && idKey(x.focus.id) === idKey(f.id) ? { focus: { ...x.focus, ...next } } : {}))
+}
+
+/** Opens a document over the tab's results, like a dialog: Back returns to them as they were. */
+export async function openDocument(id: string, docId: JsonValue): Promise<void> {
+  patch(id, { focus: newFocus(docId), editor: undefined, confirmDelete: undefined })
+  await loadFocus(id)
+}
+
+/** Closes the document opened over the results. */
+export function closeDocument(id: string): void {
+  patch(id, { focus: undefined, editor: undefined, confirmDelete: undefined })
+}
+
+/** Opens a document in a tab of its own, next to the tab it came from, or shows its tab. */
+export async function openDocumentTab(fromId: string, docId: JsonValue): Promise<void> {
+  const from = tab(fromId)
+  if (!from) return
+  const id = docTabIdFor(from.ns, docId)
+  if (tab(id)) {
+    set(view, id)
+    await loadFocus(id)
+    return
+  }
+  const t: CollTab = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId) }
+  update(collTabs, (prev) => ({ ...prev, [id]: t }))
+  update(tabOrder, (prev) => {
+    const at = prev.indexOf(fromId)
+    return at < 0 ? [...prev, id] : [...prev.slice(0, at + 1), id, ...prev.slice(at + 1)]
+  })
+  set(view, id)
+  await loadFocus(id)
+}
+
+export function setFocus(id: string, values: Partial<DocFocus>): void {
+  change(id, (t) => (t.focus ? { focus: { ...t.focus, ...values } } : {}))
+}
+
+/** Asks before deleting the open document. */
+export function askDeleteFocused(id: string): void {
+  const f = tab(id)?.focus
+  if (f) patch(id, { confirmDelete: { ids: [f.id] }, editor: undefined })
 }
 
 export function setText(id: string, field: QueryField, value: string): void {
@@ -384,10 +482,13 @@ export async function setPageSize(id: string, size: number): Promise<void> {
   if (t?.page) await goToPage(id, t.page.offset)
 }
 
-/** Reloads the page on screen, after an edit. */
+/** Reloads what is on screen after an edit: the page, and the document open on its own. */
 export async function reloadPage(id: string): Promise<void> {
   const t = tab(id)
-  if (!t?.page) return runQuery(id, false)
+  if (!t) return
+  if (t.docTab) return loadFocus(id)
+  if (t.focus) void loadFocus(id)
+  if (!t.page) return runQuery(id, false)
   const keepNotice = t.notice
   await goToPage(id, t.page.offset)
   patch(id, { notice: keepNotice })
@@ -427,14 +528,27 @@ export function resetQuery(id: string): Promise<void> {
 
 // ---- Rows, selection and documents ----
 
-/** Table row key for a document: its `_id`, or its place on the page when it has none. */
-export function rowKey(doc: JsonObject, index: number): string {
-  return '_id' in doc ? idKey(doc._id!) : `#${index}`
+/** Orca refuses a whole Table when a row key passes 1,024 characters or two rows share one. */
+const ROW_KEY_MAX = 1000
+
+/** Table row keys for a page: each document's `_id`, or its place on the page (`#3`) when it has
+ *  none, when the `_id` is too long for a key, or when it repeats (as `$unwind` makes it). An `_id`
+ *  key is JSON, so a string `_id` is quoted and never looks like a place. */
+export function rowKeys(docs: readonly JsonObject[]): string[] {
+  const seen = new Set<string>()
+  return docs.map((d, i) => {
+    const id = '_id' in d ? idKey(d._id!) : ''
+    const key = id && id.length <= ROW_KEY_MAX && !seen.has(id) ? id : `#${i}`
+    seen.add(key)
+    return key
+  })
 }
 
 export function selectedDocs(t: CollTab): JsonObject[] {
-  const keys = new Set(t.selectedRows)
-  return (t.page?.docs ?? []).filter((d, i) => keys.has(rowKey(d, i)))
+  const selected = new Set(t.selectedRows)
+  const docs = t.page?.docs ?? []
+  const keys = rowKeys(docs)
+  return docs.filter((_, i) => selected.has(keys[i]!))
 }
 
 /** Fields sampled from the documents on screen, for the builder and the field picker. */
@@ -637,6 +751,9 @@ export async function confirmDeletion(id: string): Promise<void> {
     const r = await plugin.request('doc.deleteMany', { ns: t.ns, ids }, { timeoutMs: 120000 })
     patch(id, { confirmDelete: undefined, selectedRows: [] })
     say(id, 'success', `Deleted ${r.deleted.toLocaleString('en-US')} document${r.deleted === 1 ? '' : 's'} from ${nsLabel(t.ns)}.`)
+    const focused = t.focus && ids.some((x) => idKey(x) === idKey(t.focus!.id))
+    if (focused && t.docTab) return setFocus(id, { deleted: true, doc: undefined, error: undefined })
+    if (focused) patch(id, { focus: undefined })
     await reloadPage(id)
   } catch (error) {
     patch(id, { confirmDelete: undefined })

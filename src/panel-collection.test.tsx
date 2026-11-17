@@ -4,7 +4,7 @@ import { assert, describe, mockHost, mount, test, type MockRequests } from 'orca
 import type { ConnectionsState, QueryLibrary, QueryPage, QuerySpec, QueryText } from './protocol'
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import * as panel from './panel'
-import { tabIdFor } from './panel/collection-state'
+import { docTabIdFor, tabIdFor } from './panel/collection-state'
 
 const state: ConnectionsState = {
   connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false }],
@@ -149,6 +149,34 @@ describe('collection tabs', () => {
     assert.deepEqual(view.columnsOf(table), ['_id', 'status', 'total', 'qty', 'payment.method', 'payment.last4', 'createdAt'])
   })
 
+  test('wide documents stay within the columns and keys Orca draws, sub-document columns first', async () => {
+    const long = 'x'.repeat(80)
+    const wide: JsonObject = { _id: oid(0), options: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`o${i}`, i])), '': 'empty', [long]: 'long', 'options.o1': 'literal' }
+    for (let i = 0; i < 30; i++) wide[`f${String(i).padStart(2, '0')}`] = i
+    const twin: JsonObject = { ...wide, f00: 'unwound' }
+    const { host } = setup({ 'query.run': () => ({ queryId: 'q1', offset: 0, docs: [wide, twin], truncated: [], hasMore: false, stoppedForSize: false, ms: 1 }) })
+    const view = await openOrders(host)
+    const cols = (): { key: string; label: string }[] => view.find(table)!.props.columns as { key: string; label: string }[]
+    assert.equal(cols().length, 32)
+    assert.ok(view.find({ text: 'Showing 32 of 35 columns, as many as Orca draws. Tree, JSON and Open show every field.' }))
+    assert.ok(cols().some((c) => c.label === '(empty name)'))
+    assert.ok(cols().every((c) => c.key.length >= 1 && c.key.length <= 64))
+
+    await view.select({ label: 'Show a sub-document as columns' }, 'options')
+    assert.equal(cols().length, 32)
+    const labels = cols().map((c) => c.label)
+    assert.deepEqual(labels.slice(0, 11), ['_id', ...Array.from({ length: 10 }, (_, i) => `options.o${i}`)], 'the sub-document asked for keeps its columns')
+    const keys = cols().map((c) => c.key)
+    assert.equal(new Set(keys).size, keys.length, 'a top-level "options.o1" next to options.o1 gets its own key')
+    const rows = view.find(table)!.props.rows as { key: string; cells: Record<string, string> }[]
+    assert.deepEqual(rows.map((r) => r.key), [JSON.stringify(oid(0)), '#1'], 'a repeated _id gets its place as a key')
+    assert.equal(rows[0]!.cells[keys[labels.indexOf('options.o3')]!], '3')
+    await view.selectRows(table, ['#1'])
+    assert.ok(view.find({ text: 'Edit document' }))
+    assert.deepEqual(view.errors, [])
+    assert.deepEqual(view.warnings, [])
+  })
+
   test('field editor: the type is its own choice, and saving sets that path', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
@@ -281,6 +309,113 @@ describe('collection tabs', () => {
     await view.selectRows(table, [JSON.stringify(oid(0))])
     assert.equal(view.find({ text: 'Edit document' }), null)
     assert.ok(view.find({ text: 'Show in Tree' }))
+  })
+
+  test('Open shows one whole document over the results, and Back returns to them as they were', async () => {
+    const gets: JsonValue[] = []
+    const { host, calls } = setup({
+      'doc.get': ({ id }) => {
+        gets.push(id)
+        return { doc: orders.find((o) => JSON.stringify(o._id) === JSON.stringify(id)) ?? null }
+      }
+    })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Open' })
+    assert.deepEqual(gets, [oid(1)], 'the document is read whole from the server')
+    assert.equal(view.find({ label: 'Filter' }), null, 'it covers the query bar and the results')
+    assert.equal(view.find(table), null)
+    assert.ok(view.find({ text: "ObjectId('6542f1a2b3c4d5e6f7a8b901')" }))
+    assert.ok(view.find({ text: 'shop.orders · 6 fields' }))
+    const fields = { type: 'Tree', label: 'Fields' }
+    const labels = (): string[] => (view.find(fields)!.props.items as { label: string }[]).map((i) => i.label)
+    assert.deepEqual(labels().slice(0, 3), ['_id: ObjectId(6542f1a2b3c4d5e6f7a8b901)', 'status: pending', 'total: 20.5'])
+    await view.expand(fields, 'r0/payment')
+    const payment = (view.find(fields)!.props.items as { key: string; children?: { label: string }[] }[]).find((i) => i.key === 'r0/payment')!
+    assert.deepEqual(payment.children!.map((c) => c.label), ['method: card', 'last4: 1234'])
+
+    await view.press({ text: 'Shell' })
+    assert.match(view.find({ type: 'CodeView' })!.props.code as string, /qty: 2,/)
+    await view.press({ text: 'JSON' })
+    assert.match(view.find({ type: 'CodeView' })!.props.code as string, /"status": "pending"/)
+
+    await view.press({ text: 'Tree' })
+    await view.activateItem(fields, 'r0/qty')
+    await view.type({ label: 'Value' }, '7', { replace: true })
+    await view.press({ text: 'Save field' })
+    assert.deepEqual(calls.updates, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' }, id: oid(1), path: ['qty'], value: { $numberInt: '7' } }])
+    assert.equal(gets.length, 3, 'Edit field reads it whole, and saving reads it again')
+    assert.ok(view.find({ text: 'Saved qty.' }))
+
+    const runs = calls.runs.length
+    await view.press({ text: 'Back to results' })
+    assert.ok(view.find(table))
+    assert.ok(view.find({ label: 'Filter' }))
+    assert.equal(calls.runs.length, runs, 'going back does not run the query again')
+    assert.deepEqual(view.errors, [])
+    assert.deepEqual(view.warnings, [])
+  })
+
+  test('deleting the open document asks first, then goes back to the results', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    await view.press({ text: 'Open' })
+    await view.press({ text: 'Delete' })
+    assert.ok(view.find({ type: 'Callout', label: 'Delete 1 document from shop.orders?' }))
+    assert.deepEqual(calls.deletes, [])
+    await view.press({ text: 'Delete document' })
+    assert.deepEqual((calls.deletes![0] as { ids: JsonValue[] }).ids, [oid(2)])
+    assert.ok(view.find(table), 'back on the results')
+    assert.ok(view.find({ text: 'Deleted 1 document from shop.orders.' }))
+  })
+
+  test('Open in a tab adds one tab per document, next to its collection, that edits on its own', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    const collTab = tabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' })
+    const docTab = docTabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' }, oid(0))
+    await view.press({ text: 'Tree' })
+    await view.selectItem({ type: 'Tree', label: 'Documents' }, 'r0')
+    await view.press({ label: 'Open in a tab' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), docTab)
+    assert.deepEqual(view.findAll({ type: 'Tab' }).map((t) => t.props.value), ['tree', collTab, docTab])
+    assert.match(view.findAll({ type: 'Tab' })[2]!.props.label as string, /^orders · ObjectId\('6542f1a2b3c4/)
+    assert.equal(view.find({ text: 'Back to results' }), null, 'a tab closes instead of going back')
+
+    await view.press({ text: 'Edit document' })
+    const text = view.valueOf({ label: 'Document' }) as string
+    await view.type({ label: 'Document' }, text.replace("status: 'shipped'", "status: 'returned'"), { replace: true })
+    await view.press({ text: 'Save document' })
+    assert.equal((calls.replaces![0] as { doc: JsonObject }).doc.status, 'returned')
+    assert.ok(view.find({ text: 'Document saved.' }))
+    assert.equal(calls.runs.length, 1, 'the document tab never runs a query')
+
+    await view.select({ type: 'Tabs' }, collTab)
+    await view.press({ text: 'Table' })
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ label: 'Open in a tab' })
+    assert.equal(view.findAll({ type: 'Tab' }).length, 3, 'the same document finds its tab again')
+    assert.equal(view.valueOf({ type: 'Tabs' }), docTab)
+
+    await view.press({ text: 'Delete' })
+    await view.press({ text: 'Delete document' })
+    assert.ok(view.find({ type: 'EmptyState', label: 'Document deleted' }))
+    await view.press({ label: `Close orders · ${"ObjectId('6542f1a2b3c4d5e6f7a8b900')".slice(0, 24)}` })
+    assert.deepEqual(view.findAll({ type: 'Tab' }).map((t) => t.props.value), ['tree', collTab])
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('in a read-only view, Enter on a row opens the document, with nothing to edit', async () => {
+    const { host } = setup({}, 'view')
+    const view = await openOrders(host, 'view')
+    await view.activateRow(table, JSON.stringify(oid(0)))
+    assert.ok(view.find({ type: 'Tree', label: 'Fields' }))
+    assert.ok(view.find({ text: 'Read only' }))
+    assert.equal(view.find({ text: 'Edit document' }), null)
+    assert.equal(view.find({ text: 'Delete' }), null)
+    await view.press({ text: 'Back to results' })
+    assert.ok(view.find(table))
   })
 
   test('a failed query says so in the tab, and closing the tab goes back', async () => {
