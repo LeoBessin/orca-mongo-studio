@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build)",
+      "Bash(npm run build:*)",
+      "Bash(npm run typecheck)",
+      "Bash(npm test)",
+      "Bash(npm test:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run check)",
+      "Bash(node dev/with-source-main.mjs plugin test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(orca plugin list:*)",
+      "Bash(orca plugin logs:*)",
+      "Bash(orca plugin inspect:*)",
+      "Bash(orca plugin validate:*)",
+      "Bash(orca plugin check:*)",
+      "Bash(orca plugin dev reload:*)",
+      "Bash(orca plugin dev request:*)",
+      "Bash(orca plugin open:*)",
+      "Bash(orca plugin shot:*)",
+      "Bash(docker compose -f dev/docker-compose.yml ps:*)"
+    ],
+    "deny": [
+      "Bash(orca plugin uninstall local.mongo-studio:*)"
+    ]
+  }
+}
