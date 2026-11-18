@@ -2290,6 +2290,18 @@ var PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500];
 var collTabs = atom2({});
 var tabOrder = atom2([]);
 var defaultPageSize = atom2("mongo-studio.pageSize", 50, { persist: "plugin" });
+var lastResultView = atom2("mongo-studio.resultView", "table", { persist: "plugin" });
+var lastDocView = atom2("mongo-studio.docView", "tree", { persist: "plugin" });
+var RESULT_VIEWS = ["table", "tree", "json"];
+var DOC_VIEWS = ["tree", "json", "shell"];
+function startResultView() {
+  const v = read2(lastResultView);
+  return RESULT_VIEWS.includes(v) ? v : "table";
+}
+function startDocView() {
+  const v = read2(lastDocView);
+  return DOC_VIEWS.includes(v) ? v : "tree";
+}
 var emptyText = { filter: "", projection: "", sort: "", collation: "", skip: "", limit: "" };
 function tab(id) {
   return read2(collTabs)[id];
@@ -2362,7 +2374,7 @@ function newTab(id, ns, kind, title) {
     pageSize: read2(defaultPageSize),
     loading: false,
     runToken: 0,
-    resultView: "table",
+    resultView: startResultView(),
     relaxed: true,
     selectedRows: [],
     treeExpanded: [],
@@ -2395,7 +2407,7 @@ function canOpenDocuments(t) {
   return !t.shell && !t.agg;
 }
 function newFocus(docId) {
-  return { id: docId, loading: true, view: "tree", relaxed: true, expanded: [treeKey(0, [])] };
+  return { id: docId, loading: true, view: startDocView(), relaxed: true, expanded: [treeKey(0, [])] };
 }
 async function loadFocus(id) {
   const t = tab(id);
@@ -2552,6 +2564,14 @@ function nextPage(id) {
 function previousPage(id) {
   const t = tab(id);
   return t?.page ? goToPage(id, t.page.offset - t.pageSize) : Promise.resolve();
+}
+function setResultView(id, v) {
+  set2(lastResultView, v);
+  patch(id, { resultView: v });
+}
+function setDocView(id, v) {
+  set2(lastDocView, v);
+  setFocus(id, { view: v });
 }
 async function setPageSize(id, size) {
   set2(defaultPageSize, size);
@@ -7851,7 +7871,7 @@ function Results2({ t }) {
   const p = t.page;
   return /* @__PURE__ */ jsxs14(Box13, { gap: "sm", children: [
     /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-      /* @__PURE__ */ jsx15(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx15(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => change(t.id, () => ({ resultView: v.value })), children: v.label }, v.value)) }),
+      /* @__PURE__ */ jsx15(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx15(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => setResultView(t.id, v.value), children: v.label }, v.value)) }),
       /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `${p.ms.toLocaleString("en-US")} ms` })
     ] }),
     /* @__PURE__ */ jsx15(Pager, { t }),
@@ -9085,7 +9105,7 @@ async function selectResult(index) {
     ...newTab(SHELL_TAB, ns, "coll", "Shell"),
     readOnly: true,
     pageSize: previous?.pageSize ?? read19(defaultPageSize),
-    resultView: previous?.resultView ?? "table",
+    resultView: previous?.resultView ?? startResultView(),
     relaxed: previous?.relaxed ?? true,
     shell: { runId: run.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,
@@ -9485,7 +9505,7 @@ function DocumentView({ t }) {
     ] }),
     f.deleted ? /* @__PURE__ */ jsx18(EmptyState3, { icon: "delete", title: "Document deleted", description: `${toShellInline(f.id)} is no longer in ${nsLabel(t.ns)}.` }) : f.error ? /* @__PURE__ */ jsx18(Callout16, { tone: "danger", icon: "error", title: "Could not read the document", children: f.error }) : !doc ? /* @__PURE__ */ jsx18(Skeleton12, { lines: 8, label: "Reading the document" }) : /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
       /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-        /* @__PURE__ */ jsx18(Toolbar14, { label: "Show the document as", gap: "xs", children: VIEWS2.map((v) => /* @__PURE__ */ jsx18(Button16, { size: "sm", variant: f.view === v.value ? "solid" : "ghost", tone: f.view === v.value ? "accent" : "neutral", onPress: () => setFocus(t.id, { view: v.value }), children: v.label }, v.value)) }),
+        /* @__PURE__ */ jsx18(Toolbar14, { label: "Show the document as", gap: "xs", children: VIEWS2.map((v) => /* @__PURE__ */ jsx18(Button16, { size: "sm", variant: f.view === v.value ? "solid" : "ghost", tone: f.view === v.value ? "accent" : "neutral", onPress: () => setDocView(t.id, v.value), children: v.label }, v.value)) }),
         t.readOnly ? /* @__PURE__ */ jsx18(Badge6, { tone: "warning", children: "Read only" }) : null
       ] }),
       /* @__PURE__ */ jsx18(DocBody, { t, f, doc }),

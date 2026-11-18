@@ -158,6 +158,24 @@ export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
 export const collTabs = atom<Record<string, CollTab>>({})
 export const tabOrder = atom<string[]>([])
 export const defaultPageSize = atom<number>('mongo-studio.pageSize', 50, { persist: 'plugin' })
+/** The results view and document view chosen last. New tabs and newly opened documents start
+ *  in them; tabs brought back from the saved layout keep their own. */
+export const lastResultView = atom<ResultView>('mongo-studio.resultView', 'table', { persist: 'plugin' })
+export const lastDocView = atom<DocView>('mongo-studio.docView', 'tree', { persist: 'plugin' })
+
+const RESULT_VIEWS: readonly ResultView[] = ['table', 'tree', 'json']
+const DOC_VIEWS: readonly DocView[] = ['tree', 'json', 'shell']
+
+/** The remembered views, falling back to the defaults if storage holds something unknown. */
+export function startResultView(): ResultView {
+  const v = read(lastResultView)
+  return RESULT_VIEWS.includes(v) ? v : 'table'
+}
+
+export function startDocView(): DocView {
+  const v = read(lastDocView)
+  return DOC_VIEWS.includes(v) ? v : 'tree'
+}
 
 const emptyText: QueryText = { filter: '', projection: '', sort: '', collation: '', skip: '', limit: '' }
 
@@ -246,7 +264,7 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     pageSize: read(defaultPageSize),
     loading: false,
     runToken: 0,
-    resultView: 'table',
+    resultView: startResultView(),
     relaxed: true,
     selectedRows: [],
     treeExpanded: [],
@@ -288,7 +306,7 @@ export function canOpenDocuments(t: CollTab): boolean {
 }
 
 export function newFocus(docId: JsonValue): DocFocus {
-  return { id: docId, loading: true, view: 'tree', relaxed: true, expanded: [treeKey(0, [])] }
+  return { id: docId, loading: true, view: startDocView(), relaxed: true, expanded: [treeKey(0, [])] }
 }
 
 /** Reads the open document again, whole, from the server. */
@@ -473,6 +491,18 @@ export function nextPage(id: string): Promise<void> {
 export function previousPage(id: string): Promise<void> {
   const t = tab(id)
   return t?.page ? goToPage(id, t.page.offset - t.pageSize) : Promise.resolve()
+}
+
+/** Shows a tab's results as `v`, and remembers it for the next tab opened. */
+export function setResultView(id: string, v: ResultView): void {
+  set(lastResultView, v)
+  patch(id, { resultView: v })
+}
+
+/** Shows the open document as `v`, and remembers it for the next document opened. */
+export function setDocView(id: string, v: DocView): void {
+  set(lastDocView, v)
+  setFocus(id, { view: v })
 }
 
 export async function setPageSize(id: string, size: number): Promise<void> {

@@ -15,6 +15,7 @@ import {
   nsLabel,
   openDocumentTab,
   parseTreeKey,
+  setDocView,
   setFocus,
   treeKey,
   type CollTab,
@@ -127,7 +128,7 @@ export function DocumentView({ t }: { t: CollTab }): OrcaNode {
           <Row gap="xs" align="center" justify="between" wrap>
             <Toolbar label="Show the document as" gap="xs">
               {VIEWS.map((v) => (
-                <Button key={v.value} size="sm" variant={f.view === v.value ? 'solid' : 'ghost'} tone={f.view === v.value ? 'accent' : 'neutral'} onPress={() => setFocus(t.id, { view: v.value })}>
+                <Button key={v.value} size="sm" variant={f.view === v.value ? 'solid' : 'ghost'} tone={f.view === v.value ? 'accent' : 'neutral'} onPress={() => setDocView(t.id, v.value)}>
                   {v.label}
                 </Button>
               ))}

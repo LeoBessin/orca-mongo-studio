@@ -44,6 +44,7 @@ import {
   say,
   selectedDocs,
   setPageSize,
+  setResultView,
   sortBy,
   treeKey,
   type CollTab,
@@ -364,7 +365,7 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
       <Row gap="xs" align="center" justify="between" wrap>
         <Toolbar label="Show results as" gap="xs">
           {VIEWS.map((v) => (
-            <Button key={v.value} size="sm" variant={t.resultView === v.value ? 'solid' : 'ghost'} tone={t.resultView === v.value ? 'accent' : 'neutral'} onPress={() => change(t.id, () => ({ resultView: v.value }))}>
+            <Button key={v.value} size="sm" variant={t.resultView === v.value ? 'solid' : 'ghost'} tone={t.resultView === v.value ? 'accent' : 'neutral'} onPress={() => setResultView(t.id, v.value)}>
               {v.label}
             </Button>
           ))}
