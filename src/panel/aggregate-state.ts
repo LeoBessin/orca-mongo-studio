@@ -21,7 +21,7 @@ import {
   writeTarget,
   type StageDraft
 } from '../shared/pipeline'
-import { collTabs, change, newTab, nsLabel, openNamespace, recount, say, tab, tabIdFor, tabOrder, type AggState, type CollTab } from './collection-state'
+import { collTabs, change, newTab, nsLabel, openNamespace, recount, say, startResultView, tab, tabIdFor, tabOrder, type AggState, type CollTab } from './collection-state'
 import { openExport } from './export-state'
 import { errorText, nodeIndex, refreshNode, view } from './state'
 
@@ -64,7 +64,7 @@ export async function openAggregation(ns: Namespace, kind: NodeKind, stages?: St
     }
     return
   }
-  const t: CollTab = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), readOnly: true, agg: newAgg(stages ?? [newStage('$match')]) }
+  const t: CollTab = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg: newAgg(stages ?? [newStage('$match')]) }
   if (from) t.notice = { tone: 'neutral', text: `Started from ${from}.` }
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => [...prev, id])

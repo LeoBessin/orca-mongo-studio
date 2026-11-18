@@ -1,6 +1,6 @@
 // Collection tabs over a stand-in worker: querying, paging, the views, the editors, the Query
 // Builder and history. What the person sees, and what reaches the worker.
-import { assert, describe, mockHost, mount, test, type MockRequests } from 'orca/testing'
+import { assert, describe, mockHost, mount, test, type MockRequests, type MountOptions } from 'orca/testing'
 import type { ConnectionsState, QueryLibrary, QueryPage, QuerySpec, QueryText } from './protocol'
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import * as panel from './panel'
@@ -24,11 +24,12 @@ const orders: JsonObject[] = Array.from({ length: 3 }, (_, i) => ({
 
 type Calls = { runs: { spec: QuerySpec; pageSize: number; text?: QueryText }[]; pages: { offset: number }[]; [k: string]: unknown[] }
 
-function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll') {
+function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage: Record<string, JsonValue> = {}) {
   const calls: Calls = { runs: [], pages: [], updates: [], replaces: [], inserts: [], deletes: [] }
   let library: QueryLibrary = { history: [], saved: [] }
   const page = (offset: number, docs: JsonObject[], hasMore: boolean): QueryPage => ({ queryId: 'q1', offset, docs, truncated: [], hasMore, stoppedForSize: false, ms: 3 })
   const host = mockHost({
+    storage,
     requests: {
       'connections.state': state,
       'tree.children': ({ key }) =>
@@ -72,8 +73,8 @@ function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll') {
   return { host, calls }
 }
 
-async function openOrders(host: ReturnType<typeof setup>['host'], kind: 'coll' | 'view' = 'coll') {
-  const view = await mount(panel, { host })
+async function openOrders(host: ReturnType<typeof setup>['host'], kind: 'coll' | 'view' = 'coll', persisted?: MountOptions['persisted']) {
+  const view = await mount(panel, { host, persisted })
   const tree = { type: 'Tree' }
   await view.expand(tree, 'conn:c1')
   await view.expand(tree, 'conn:c1/db:shop')
@@ -83,6 +84,8 @@ async function openOrders(host: ReturnType<typeof setup>['host'], kind: 'coll' |
 }
 
 const table = { type: 'Table', label: 'Documents' }
+const RESULT_VIEW = 'mongo-studio.resultView'
+const DOC_VIEW = 'mongo-studio.docView'
 
 describe('collection tabs', () => {
   test('opening a collection runs it and shows a table with the count', async () => {
@@ -406,6 +409,45 @@ describe('collection tabs', () => {
     assert.deepEqual(view.errors, [])
   })
 
+  test('Open in a tab keeps the view the document is shown in, not the one chosen last', async () => {
+    const { host } = setup({}, 'coll', { [DOC_VIEW]: 'json' })
+    const view = await openOrders(host)
+    const collTab = tabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' })
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ label: 'Open in a tab' })
+    await view.select({ type: 'Tabs' }, collTab)
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Open' })
+    assert.match(view.find({ type: 'CodeView' })!.props.code as string, /"status": "pending"/, 'it opens in the remembered JSON')
+    await view.select({ type: 'Tabs' }, docTabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' }, oid(0)))
+    await view.press({ text: 'Shell' })
+    assert.equal(host.data().storage[DOC_VIEW], 'shell')
+    await view.select({ type: 'Tabs' }, collTab)
+    await view.press({ label: 'Open in a tab' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), docTabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' }, oid(1)))
+    assert.match(view.find({ type: 'CodeView' })!.props.code as string, /"status": "pending"/, 'still JSON, as it was on screen')
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('a remembered view that is not one any more falls back to Table and Tree', async () => {
+    const { host } = setup({}, 'coll', { [RESULT_VIEW]: 'grid', [DOC_VIEW]: 42 })
+    const view = await openOrders(host)
+    assert.ok(view.find(table))
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Open' })
+    assert.ok(view.find({ type: 'Tree', label: 'Fields' }))
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('Show in Tree in a read-only view is remembered like pressing Tree', async () => {
+    const { host } = setup({}, 'view')
+    const view = await openOrders(host, 'view')
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Show in Tree' })
+    assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
+    assert.equal(host.data().storage[RESULT_VIEW], 'tree')
+  })
+
   test('in a read-only view, Enter on a row opens the document, with nothing to edit', async () => {
     const { host } = setup({}, 'view')
     const view = await openOrders(host, 'view')
@@ -465,6 +507,66 @@ describe('switching sidebar tabs', () => {
     await after.select({ type: 'Tabs' }, 'tree')
     assert.deepEqual(after.expandedOf({ type: 'Tree' }).filter((k) => k.startsWith('conn:')), ['conn:c1', 'conn:c1/db:shop'])
     assert.deepEqual(after.errors, [])
+  })
+
+  test('new tabs and documents open in the views chosen last; restored tabs keep their own', async () => {
+    const first = setup()
+    const before = await openOrders(first.host)
+    const layout = structuredClone(await saved(before))
+    await before.selectRows(table, [JSON.stringify(oid(1))])
+    await before.press({ text: 'Open' })
+    await before.press({ text: 'Shell' })
+    await before.press({ text: 'Back to results' })
+    await before.press({ text: 'JSON' })
+    const prefs = structuredClone(first.host.data().storage) as Record<string, JsonValue>
+    assert.equal(prefs[RESULT_VIEW], 'json')
+    assert.equal(prefs[DOC_VIEW], 'shell')
+    await before.unmount()
+
+    const second = setup()
+    const fresh = await openOrders(second.host)
+    assert.ok(fresh.find(table), 'without a remembered view, a tab opens as Table')
+    await fresh.unmount()
+
+    const third = setup({}, 'coll', prefs)
+    const next = await openOrders(third.host)
+    assert.equal(next.find(table), null, 'the new tab opens as JSON')
+    assert.match(next.find({ type: 'CodeView' })!.props.code as string, /"status": "shipped"/)
+    await next.press({ text: 'Table' })
+    await next.selectRows(table, [JSON.stringify(oid(1))])
+    await next.press({ text: 'Open' })
+    assert.match(next.find({ type: 'CodeView' })!.props.code as string, /qty: 2,/, 'the document opens as Shell')
+    assert.deepEqual(next.errors, [])
+    await next.unmount()
+
+    const fourth = setup({}, 'coll', prefs)
+    const restored = await mount(panel, { host: fourth.host, persisted: { workspace: layout } })
+    await restored.settled()
+    assert.equal(restored.valueOf({ type: 'Tabs' }), ordersTab)
+    assert.ok(restored.find(table), 'a restored tab keeps the Table it was saved with')
+    assert.deepEqual(restored.errors, [])
+    await restored.unmount()
+  })
+
+  test('a restored document tab keeps its own view', async () => {
+    const first = setup()
+    const before = await openOrders(first.host)
+    await before.selectRows(table, [JSON.stringify(oid(0))])
+    await before.press({ label: 'Open in a tab' })
+    await before.press({ text: 'JSON' })
+    const layout = structuredClone(await saved(before))
+    await before.press({ text: 'Shell' })
+    const prefs = structuredClone(first.host.data().storage) as Record<string, JsonValue>
+    assert.equal(prefs[DOC_VIEW], 'shell')
+    await before.unmount()
+
+    const second = setup({}, 'coll', prefs)
+    const after = await mount(panel, { host: second.host, persisted: { workspace: layout } })
+    await after.settled()
+    assert.equal(after.valueOf({ type: 'Tabs' }), docTabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' }, oid(0)))
+    assert.match(after.find({ type: 'CodeView' })!.props.code as string, /"status": "shipped"/, 'JSON, as it was saved')
+    assert.deepEqual(after.errors, [])
+    await after.unmount()
   })
 
   test('a connection that is no longer open keeps its tabs but does not connect', async () => {

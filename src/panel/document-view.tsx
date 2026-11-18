@@ -9,12 +9,14 @@ import {
   cloneDocument,
   closeDocument,
   closeTab,
+  DOC_VIEWS,
   editDocument,
   editField,
   loadFocus,
   nsLabel,
   openDocumentTab,
   parseTreeKey,
+  setDocView,
   setFocus,
   treeKey,
   type CollTab,
@@ -24,11 +26,7 @@ import {
 } from './collection-state'
 import { guard } from './guard'
 
-const VIEWS: { value: DocView; label: string }[] = [
-  { value: 'tree', label: 'Tree' },
-  { value: 'json', label: 'JSON' },
-  { value: 'shell', label: 'Shell' }
-]
+const VIEWS = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value: value as DocView, label }))
 
 function entries(v: JsonValue): [string | number, JsonValue][] {
   return Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v as JsonObject)
@@ -127,7 +125,7 @@ export function DocumentView({ t }: { t: CollTab }): OrcaNode {
           <Row gap="xs" align="center" justify="between" wrap>
             <Toolbar label="Show the document as" gap="xs">
               {VIEWS.map((v) => (
-                <Button key={v.value} size="sm" variant={f.view === v.value ? 'solid' : 'ghost'} tone={f.view === v.value ? 'accent' : 'neutral'} onPress={() => setFocus(t.id, { view: v.value })}>
+                <Button key={v.value} size="sm" variant={f.view === v.value ? 'solid' : 'ghost'} tone={f.view === v.value ? 'accent' : 'neutral'} onPress={() => setDocView(t.id, v.value)}>
                   {v.label}
                 </Button>
               ))}

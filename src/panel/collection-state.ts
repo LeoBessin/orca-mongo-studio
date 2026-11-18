@@ -158,6 +158,27 @@ export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
 export const collTabs = atom<Record<string, CollTab>>({})
 export const tabOrder = atom<string[]>([])
 export const defaultPageSize = atom<number>('mongo-studio.pageSize', 50, { persist: 'plugin' })
+/** The results view and document view chosen last. Newly opened tabs and documents start in
+ *  them; tabs brought back from the saved layout keep their own. They live in the plugin's
+ *  storage rather than the `plugin` scope so that panels open in other windows follow along. */
+export const lastResultView = atom<ResultView>('mongo-studio.resultView', 'table', { persist: 'storage' })
+export const lastDocView = atom<DocView>('mongo-studio.docView', 'tree', { persist: 'storage' })
+
+/** Every view and its toolbar label. A `Record` so that a new view can't be left out. */
+export const RESULT_VIEWS: Record<ResultView, string> = { table: 'Table', tree: 'Tree', json: 'JSON' }
+export const DOC_VIEWS: Record<DocView, string> = { tree: 'Tree', json: 'JSON', shell: 'Shell' }
+
+/** The remembered views, falling back to the defaults if storage holds something unknown:
+ *  `storage` values are kept as written, with no `migrate` step. */
+export function startResultView(): ResultView {
+  const v = read(lastResultView)
+  return typeof v === 'string' && Object.hasOwn(RESULT_VIEWS, v) ? v : 'table'
+}
+
+export function startDocView(): DocView {
+  const v = read(lastDocView)
+  return typeof v === 'string' && Object.hasOwn(DOC_VIEWS, v) ? v : 'tree'
+}
 
 const emptyText: QueryText = { filter: '', projection: '', sort: '', collation: '', skip: '', limit: '' }
 
@@ -226,7 +247,7 @@ export async function openNamespace(ns: Namespace, kind: NodeKind, text?: QueryT
     return
   }
   const id = tabIdFor(ns)
-  const t: CollTab = newTab(id, ns, kind, ns.collection)
+  const t: CollTab = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() }
   if (text) t.text = text
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => [...prev, id])
@@ -287,8 +308,8 @@ export function canOpenDocuments(t: CollTab): boolean {
   return !t.shell && !t.agg
 }
 
-export function newFocus(docId: JsonValue): DocFocus {
-  return { id: docId, loading: true, view: 'tree', relaxed: true, expanded: [treeKey(0, [])] }
+export function newFocus(docId: JsonValue, view: DocView = 'tree'): DocFocus {
+  return { id: docId, loading: true, view, relaxed: true, expanded: [treeKey(0, [])] }
 }
 
 /** Reads the open document again, whole, from the server. */
@@ -309,7 +330,7 @@ export async function loadFocus(id: string): Promise<void> {
 
 /** Opens a document over the tab's results, like a dialog: Back returns to them as they were. */
 export async function openDocument(id: string, docId: JsonValue): Promise<void> {
-  patch(id, { focus: newFocus(docId), editor: undefined, confirmDelete: undefined })
+  patch(id, { focus: newFocus(docId, startDocView()), editor: undefined, confirmDelete: undefined })
   await loadFocus(id)
 }
 
@@ -328,7 +349,7 @@ export async function openDocumentTab(fromId: string, docId: JsonValue): Promise
     await loadFocus(id)
     return
   }
-  const t: CollTab = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId) }
+  const t: CollTab = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId, from.focus?.view ?? startDocView()) }
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => {
     const at = prev.indexOf(fromId)
@@ -473,6 +494,22 @@ export function nextPage(id: string): Promise<void> {
 export function previousPage(id: string): Promise<void> {
   const t = tab(id)
   return t?.page ? goToPage(id, t.page.offset - t.pageSize) : Promise.resolve()
+}
+
+/** Shows a tab's results as `v`, with `extra` changes (such as the row to select). The choice
+ *  is remembered for the next tab only from a collection's own tab: Shell and pipeline results
+ *  are read-only, and a view picked to read them would leave new collection tabs without the
+ *  Table's row actions. */
+export function setResultView(id: string, v: ResultView, extra: Partial<CollTab> = {}): void {
+  const t = tab(id)
+  if (t && canOpenDocuments(t) && read(lastResultView) !== v) set(lastResultView, v)
+  patch(id, { ...extra, resultView: v })
+}
+
+/** Shows the open document as `v`, and remembers it for the next document opened. */
+export function setDocView(id: string, v: DocView): void {
+  if (read(lastDocView) !== v) set(lastDocView, v)
+  setFocus(id, { view: v })
 }
 
 export async function setPageSize(id: string, size: number): Promise<void> {

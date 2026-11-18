@@ -6,7 +6,7 @@ import type { QueryText, ShellResultInfo, ShellRunSummary } from '../protocol'
 import type { CodeLanguage } from '../shared/codegen'
 import { toShellInline } from '../shared/ejson-view'
 import type { Operation } from '../shared/operation'
-import { collTabs, defaultPageSize, goToPage, newTab, openNamespace, tab, type CollTab } from './collection-state'
+import { collTabs, defaultPageSize, goToPage, newTab, openNamespace, startResultView, tab, type CollTab } from './collection-state'
 import { stagesFromPipeline } from '../shared/pipeline'
 import { openAggregation } from './aggregate-state'
 import { errorText, view } from './state'
@@ -44,7 +44,7 @@ export async function selectResult(index: number): Promise<void> {
     ...newTab(SHELL_TAB, ns, 'coll', 'Shell'),
     readOnly: true,
     pageSize: previous?.pageSize ?? read(defaultPageSize),
-    resultView: previous?.resultView ?? 'table',
+    resultView: previous?.resultView ?? startResultView(),
     relaxed: previous?.relaxed ?? true,
     shell: { runId: run.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,

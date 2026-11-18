@@ -2,7 +2,7 @@
 // query, and show as code.
 import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import type { ConnectionsState, QueryPage, QuerySpec, ShellRunSummary } from './protocol'
-import type { JsonObject } from './shared/ejson-view'
+import type { JsonObject, JsonValue } from './shared/ejson-view'
 import * as panel from './panel'
 import { tabIdFor } from './panel/collection-state'
 
@@ -26,10 +26,11 @@ const run: ShellRunSummary = {
 
 const docs = (n: number, from = 0): JsonObject[] => Array.from({ length: n }, (_, i) => ({ _id: { $numberInt: String(from + i) }, name: `item ${from + i}` }))
 
-function setup(latest: ShellRunSummary | null = null) {
+function setup(latest: ShellRunSummary | null = null, storage: Record<string, JsonValue> = {}) {
   const pages: { runId: string; index: number; offset: number }[] = []
   const runs: QuerySpec[] = []
   const host = mockHost({
+    storage,
     requests: {
       'connections.state': state,
       'shell.latest': { run: latest },
@@ -65,6 +66,20 @@ describe('the Shell tab', () => {
     assert.equal(view.find({ text: 'Open as query' }), null, 'documents a script built have no query')
     assert.deepEqual(view.errors, [])
     assert.deepEqual(view.warnings, [])
+  })
+
+  test('opens in the view chosen last in a collection, and a view picked here is not remembered', async () => {
+    const { host } = setup(null, { 'mongo-studio.resultView': 'json' })
+    const view = await mount(panel, { host })
+    await view.post('shell.results', run)
+    const table = { type: 'Table', label: 'Documents' }
+    assert.equal(view.find(table), null, 'the first result shows as JSON')
+    await view.press({ text: 'Table' })
+    await view.selectRows(table, ['{"$numberInt":"0"}'])
+    await view.press({ text: 'Show in Tree' })
+    assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
+    assert.equal(host.data().storage['mongo-studio.resultView'], 'json')
+    assert.deepEqual(view.errors, [])
   })
 
   test('a find opens as a query in its collection tab, and shows as code', async () => {
