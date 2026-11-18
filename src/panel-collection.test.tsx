@@ -99,6 +99,7 @@ describe('collection tabs', () => {
     const rows = view.find(table)!.props.rows as { cells: Record<string, string> }[]
     assert.deepEqual(rows[0]!.cells, { _id: 'ObjectId(6542f1a2b3c4d5e6f7a8b900)', status: 'shipped', total: '10.5', qty: '1', payment: '{2 fields}', createdAt: '2026-11-16T12:34:56.789Z' })
     assert.ok(view.find({ text: '1–3 of 4' }))
+    assert.ok(view.find({ text: 'Local dev › shop' }), 'the tab says which connection and database it works on')
     assert.deepEqual(view.errors, [])
     assert.deepEqual(view.warnings, [])
   })

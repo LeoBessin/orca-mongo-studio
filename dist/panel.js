@@ -10842,13 +10842,33 @@ function changeView(next) {
   if (v === "transfer") void refreshExport();
 }
 var TAB_ICONS = { view: "filter", timeseries: "activity" };
-function withReadOnly(connectionId, content) {
-  const c = read27(connections)?.connections.find((x) => x.id === connectionId);
-  if (!c?.readOnly) return content;
+function adminPlaces(a) {
+  switch (a.kind) {
+    case "manage":
+    case "schema":
+      return [a.ns];
+    case "compare":
+      return [a.a, a.b];
+    case "export":
+      return [a.from.kind === "database" ? a.from : a.from.ns];
+    case "server":
+      return [{ connectionId: a.connectionId }];
+    default:
+      return [{ connectionId: a.connectionId, db: a.db }];
+  }
+}
+function placeText(p) {
+  return p.db ? `${connectionName(p.connectionId)} › ${p.db}` : connectionName(p.connectionId);
+}
+function withPlace(places, content) {
+  const all = read27(connections)?.connections ?? [];
+  const readOnly = places.some((p) => all.find((c) => c.id === p.connectionId)?.readOnly);
+  const sides = places.map(placeText);
+  const text = sides.length === 2 && sides[0] !== sides[1] ? `${sides[0]} ⇄ ${sides[1]}` : sides[0];
   return /* @__PURE__ */ jsxs23(Box22, { gap: "sm", children: [
     /* @__PURE__ */ jsxs23(Row23, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx24(Badge8, { tone: "warning", children: "Read only" }),
-      /* @__PURE__ */ jsx24(Text23, { size: "xs", muted: true, truncate: true, children: `Changes through ${c.name} are refused.` })
+      readOnly ? /* @__PURE__ */ jsx24(Badge8, { tone: "warning", children: "Read only" }) : null,
+      /* @__PURE__ */ jsx24(Text23, { size: "xs", muted: true, truncate: true, children: readOnly ? `${text} · changes are refused` : text })
     ] }),
     content
   ] });
@@ -10869,10 +10889,10 @@ function Panel() {
     read27(tabOrder).map((id) => {
       const t = read27(collTabs)[id];
       if (t) {
-        return /* @__PURE__ */ jsx24(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: withReadOnly(t.ns.connectionId, t.agg ? /* @__PURE__ */ jsx24(AggregationTab, { id }) : /* @__PURE__ */ jsx24(CollectionTab, { id })) }, id);
+        return /* @__PURE__ */ jsx24(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: withPlace([t.ns], t.agg ? /* @__PURE__ */ jsx24(AggregationTab, { id }) : /* @__PURE__ */ jsx24(CollectionTab, { id })) }, id);
       }
       const a = read27(adminTabs)[id];
-      return a ? /* @__PURE__ */ jsx24(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: withReadOnly(a.connectionId, /* @__PURE__ */ jsx24(AdminTabView, { id })) }, id) : null;
+      return a ? /* @__PURE__ */ jsx24(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: withPlace(adminPlaces(a), /* @__PURE__ */ jsx24(AdminTabView, { id })) }, id) : null;
     })
   ] });
 }

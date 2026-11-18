@@ -4,7 +4,7 @@
 // own components, so every Orca theme applies.
 import { Badge, Box, plugin, read, Row, set, Tab, Tabs, Text, type IconName, type OrcaNode, type PanelContext } from 'orca'
 import { collTabs, tabOrder } from './panel/collection-state'
-import { adminTabs } from './panel/admin-state'
+import { adminTabs, connectionName, type AdminTab } from './panel/admin-state'
 import { ADMIN_ICONS, AdminTabView } from './panel/admin-view'
 import { AggregationTab } from './panel/aggregate-view'
 import { CollectionTab } from './panel/collection-view'
@@ -70,14 +70,42 @@ function changeView(next: string): void {
 const TAB_ICONS: Record<string, IconName> = { view: 'filter', timeseries: 'activity' }
 
 /** A line over every tab of a read-only connection. */
-function withReadOnly(connectionId: string, content: OrcaNode): OrcaNode {
-  const c = read(connections)?.connections.find((x) => x.id === connectionId)
-  if (!c?.readOnly) return content
+/** Where a tab works: the connection and database its reads and writes go to. */
+type Place = { connectionId: string; db?: string }
+
+/** The places an administration tab works on: a Compare tab has two sides, a Server tab no database. */
+function adminPlaces(a: AdminTab): Place[] {
+  switch (a.kind) {
+    case 'manage':
+    case 'schema':
+      return [a.ns]
+    case 'compare':
+      return [a.a, a.b]
+    case 'export':
+      return [a.from.kind === 'database' ? a.from : a.from.ns]
+    case 'server':
+      return [{ connectionId: a.connectionId }]
+    default:
+      return [{ connectionId: a.connectionId, db: a.db }]
+  }
+}
+
+function placeText(p: Place): string {
+  return p.db ? `${connectionName(p.connectionId)} › ${p.db}` : connectionName(p.connectionId)
+}
+
+/** Puts the tab's connection and database above its content, so it is plain which server a query
+ *  or a write goes to, with a Read only badge on connections Mongo Studio keeps from writing. */
+function withPlace(places: Place[], content: OrcaNode): OrcaNode {
+  const all = read(connections)?.connections ?? []
+  const readOnly = places.some((p) => all.find((c) => c.id === p.connectionId)?.readOnly)
+  const sides = places.map(placeText)
+  const text = sides.length === 2 && sides[0] !== sides[1] ? `${sides[0]} ⇄ ${sides[1]}` : sides[0]!
   return (
     <Box gap="sm">
       <Row gap="xs" align="center">
-        <Badge tone="warning">Read only</Badge>
-        <Text size="xs" muted truncate>{`Changes through ${c.name} are refused.`}</Text>
+        {readOnly ? <Badge tone="warning">Read only</Badge> : null}
+        <Text size="xs" muted truncate>{readOnly ? `${text} · changes are refused` : text}</Text>
       </Row>
       {content}
     </Box>
@@ -122,14 +150,14 @@ export default function Panel(): OrcaNode {
         if (t) {
           return (
             <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
-              {withReadOnly(t.ns.connectionId, t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />)}
+              {withPlace([t.ns], t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />)}
             </Tab>
           )
         }
         const a = read(adminTabs)[id]
         return a ? (
           <Tab key={id} value={id} label={a.title} icon={ADMIN_ICONS[a.kind]}>
-            {withReadOnly(a.connectionId, <AdminTabView id={id} />)}
+            {withPlace(adminPlaces(a), <AdminTabView id={id} />)}
           </Tab>
         ) : null
       })}

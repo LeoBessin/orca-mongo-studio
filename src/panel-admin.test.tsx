@@ -639,6 +639,7 @@ describe('a read-only connection', () => {
     await view.press({ label: 'Server status and operations' })
     await view.selectRows({ type: 'Table', label: 'Current operations' }, ['4242'])
     assert.ok(view.find({ type: 'KeyValue', label: 'Operation 4242' }))
+    assert.ok(view.find({ text: 'Local dev · changes are refused' }), 'a server tab names its connection, without a database')
     assert.equal(view.find({ text: 'Stop operation' }), null)
     assert.deepEqual(view.errors, [])
   })

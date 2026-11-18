@@ -206,7 +206,7 @@ describe('read-only connections in the panel', () => {
     const view = await at(host, 'conn:c2/db:shop/coll:orders', 'c2')
     await view.press({ text: 'Open' })
     assert.ok(view.find({ type: 'Badge', text: 'Read only' }))
-    assert.ok(view.find({ text: 'Changes through Prod are refused.' }))
+    assert.ok(view.find({ text: 'Prod › shop · changes are refused' }))
     assert.equal(view.find({ type: 'Button', text: 'Insert document' }), null, 'no editing offered')
     assert.equal(view.find({ label: 'Import into this collection' }), null)
   })

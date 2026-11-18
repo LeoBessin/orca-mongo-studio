@@ -304,6 +304,7 @@ describe('compare and sync', () => {
     await view.type({ type: 'Input', label: 'Collection' }, 'orders')
     await view.type({ type: 'Input', label: 'Leave out fields' }, 'updatedAt, meta.v')
     await view.press({ type: 'Button', text: 'Compare' })
+    assert.ok(view.find({ text: 'Local dev › shop ⇄ Staging › shop' }), 'a compare names both sides')
     assert.deepEqual(calls.compareStart, [{ a: ns, b: { connectionId: 'c2', db: 'shop', collection: 'orders' }, rules: { ignoreFields: ['updatedAt', 'meta.v'], ignoreOrder: false } }])
     assert.deepEqual(view.rowsOf({ type: 'Table', label: 'Documents' }), ['{"$numberInt":"4"}', '{"$numberInt":"9"}'])
     await view.selectRows({ type: 'Table', label: 'Documents' }, ['{"$numberInt":"4"}'])
