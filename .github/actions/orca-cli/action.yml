@@ -1,0 +1,53 @@
+# Puts the Orca CLI on the runner and exports ORCA_CLI, which dev/orca.mjs and
+# dev/with-source-main.mjs use instead of the desktop app's path.
+#
+# Orca has no standalone CLI package, and the headless orca-server tarball leaves out the plugin
+# test runner's resources, so this takes the CLI from the desktop release's .deb. It extracts only
+# what `orca plugin types|test|check|validate` read (the CLI, its node_modules and the plugin
+# runtime files) without installing the app or Electron: those commands run offline under plain
+# Node. Bump the version and its SHA-256 together:
+#   gh api repos/stablyai/orca/releases/tags/vX.Y.Z -q '.assets[] | select(.name|endswith("_amd64.deb")) | .digest'
+name: Orca CLI
+description: Download Orca's CLI from its release .deb and export ORCA_CLI
+inputs:
+  version:
+    description: Orca release, without the leading v
+    required: true
+  sha256:
+    description: SHA-256 of orca-ide_<version>_amd64.deb
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache the Orca CLI
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ~/orca-cli
+        key: orca-cli-${{ inputs.version }}-${{ inputs.sha256 }}
+
+    - name: Download and extract the Orca CLI
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        deb="$RUNNER_TEMP/orca-ide.deb"
+        curl -fsSL --retry 3 -o "$deb" \
+          "https://github.com/stablyai/orca/releases/download/v$VERSION/orca-ide_${VERSION}_amd64.deb"
+        echo "$SHA256  $deb" | sha256sum -c -
+        mkdir -p ~/orca-cli
+        dpkg-deb --fsys-tarfile "$deb" | tar -x -C ~/orca-cli \
+          ./opt/Orca/resources/app.asar.unpacked \
+          ./opt/Orca/resources/node_modules \
+          ./opt/Orca/resources/plugins
+        rm "$deb"
+
+    - name: Export ORCA_CLI
+      shell: bash
+      run: |
+        cli="$HOME/orca-cli/opt/Orca/resources/app.asar.unpacked/out/cli/index.js"
+        test -f "$cli"
+        echo "ORCA_CLI=$cli" >> "$GITHUB_ENV"
