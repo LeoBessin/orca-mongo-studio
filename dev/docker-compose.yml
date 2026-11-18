@@ -62,7 +62,7 @@ services:
     container_name: mongo-studio-sshd
     ports: ["127.0.0.1:2222:22"]
     volumes:
-      - ./test-env/out/authorized_keys:/etc/ssh/keys/authorized_keys:ro
+      - ./test-env/out/authorized_keys:/keys/authorized_keys:ro
 
   # Enterprise auth (profile "enterprise"): Kerberos (GSSAPI) and LDAP (PLAIN).
   #   docker compose -f dev/docker-compose.yml --profile enterprise up -d --wait --build
