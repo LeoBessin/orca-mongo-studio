@@ -3,6 +3,7 @@
 // be encrypted on this machine, they stay in this process's memory only and are never written.
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { FavouriteNode } from '../protocol'
+import { normalizeGroup } from '../shared/groups'
 import { isObject, toJson } from './json'
 import {
   cloneDef,
@@ -181,6 +182,7 @@ function withDefaults(raw: ConnectionDef): ConnectionDef {
   return {
     ...base,
     ...raw,
+    group: normalizeGroup(raw.group),
     auth: { ...base.auth, ...raw.auth },
     tls: { ...base.tls, ...raw.tls },
     ssh: { ...base.ssh, ...raw.ssh },

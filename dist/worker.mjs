@@ -75387,6 +75387,19 @@ function cloneDef(def) {
   return JSON.parse(JSON.stringify(def));
 }
 
+// src/shared/groups.ts
+function normalizeGroup(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function existingGroups(connections) {
+  return [...new Set(connections.map((c6) => normalizeGroup(c6.group)).filter(Boolean))].sort((a6, b6) => a6.localeCompare(b6));
+}
+function canonicalGroup(group4, groups) {
+  if (!group4 || groups.includes(group4)) return group4;
+  const lower = group4.toLowerCase();
+  return groups.find((g6) => g6.toLowerCase() === lower) ?? group4;
+}
+
 // src/shared/ejson-view.ts
 function isObject(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -76178,6 +76191,7 @@ function mergeDefaults(base, value) {
 }
 function fromStudio(raw, base, newId) {
   const def = mergeDefaults(base(newId()), raw);
+  def.group = normalizeGroup(def.group);
   const warnings = [];
   if (def.tls.ca.kind === "inline") {
     def.tls.ca = { kind: "none" };
@@ -80746,6 +80760,7 @@ function withDefaults(raw) {
   return {
     ...base,
     ...raw,
+    group: normalizeGroup(raw.group),
     auth: { ...base.auth, ...raw.auth },
     tls: { ...base.tls, ...raw.tls },
     ssh: { ...base.ssh, ...raw.ssh },
@@ -82922,7 +82937,8 @@ function activate(orca) {
     }
     next.updatedAt = now;
     next.name = next.name.trim();
-    next.group = next.group.trim();
+    const others = (await store.list()).filter((d6) => d6.id !== next.id);
+    next.group = canonicalGroup(normalizeGroup(next.group), existingGroups(others));
     const errors = validateConnection(next, await store.secretFlags(existing ? next.id : void 0, secrets));
     if (errors.length) return { ok: false, errors };
     await store.applySecrets(next.id, secrets);
@@ -82955,7 +82971,7 @@ function activate(orca) {
   });
   orca.panels.handle("connections.renameGroup", async ({ from, to }) => {
     const defs = (await store.list()).filter((d6) => d6.group === from);
-    for (const d6 of defs) d6.group = to.trim();
+    for (const d6 of defs) d6.group = normalizeGroup(to);
     await store.putMany(defs);
     await broadcast();
     return null;
@@ -82965,7 +82981,9 @@ function activate(orca) {
     const result = importConnections(text, () => randomUUID4(), now, (id) => emptyConnection(id, now));
     const report = { imported: [], errors: result.errors };
     const saved = await store.list();
+    const groups = existingGroups(saved);
     for (const item4 of result.items) {
+      item4.def.group = canonicalGroup(item4.def.group, groups);
       await store.applySecrets(item4.def.id, item4.secrets);
       report.imported.push({ id: item4.def.id, name: item4.def.name, warnings: item4.warnings });
     }

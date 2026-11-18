@@ -11,6 +11,11 @@ const oneConn: ConnectionsState = {
   secretsProtection: 'os-keyring'
 }
 
+const grouped = (id: string, group: string) => ({ ...oneConn.connections[0]!, id, name: id, group })
+/** The group suggestions under the connection form's Group field. */
+const offered = (view: { findAll: (q: { type: string }) => { props: Record<string, unknown>; text: string }[] }) =>
+  view.findAll({ type: 'Button' }).filter((b) => b.props.icon === 'folder').map((b) => b.text)
+
 describe('connection form', () => {
   test('new connection: shows field errors from the worker, then saves', async () => {
     const saves: { def: ConnectionDef; secrets: SecretDraft }[] = []
@@ -55,7 +60,6 @@ describe('connection form', () => {
 
   test('the Group field suggests existing groups, filtered as you type', async () => {
     let saved: ConnectionDef | undefined
-    const grouped = (id: string, group: string) => ({ ...oneConn.connections[0]!, id, name: id, group })
     const host = mockHost({
       requests: {
         'connections.state': { ...oneConn, connections: [grouped('a', 'Clients'), grouped('b', 'Staging'), grouped('c', 'Clients'), grouped('d', '')] },
@@ -68,22 +72,61 @@ describe('connection form', () => {
     })
     const view = await mount(panel, { host })
     await view.post('ui.navigate', { view: 'new' })
-    const offered = () => view.findAll({ type: 'Button' }).filter((b) => b.props.icon === 'folder').map((b) => b.text)
-    assert.deepEqual(offered(), ['Clients', 'Staging'])
+    assert.ok(view.find({ text: 'Existing groups:' }))
+    assert.deepEqual(offered(view), ['Clients', 'Staging'])
 
     await view.type({ label: 'Group' }, 'client')
-    assert.deepEqual(offered(), ['Clients'])
+    assert.ok(view.find({ text: 'Matching groups:' }))
+    assert.deepEqual(offered(view), ['Clients'])
     await view.press({ type: 'Button', text: 'Clients' })
     assert.equal(view.valueOf({ label: 'Group' }), 'Clients')
-    assert.deepEqual(offered(), [], 'the chosen group is not offered again')
+    // With an existing group chosen, the others stay one press away.
+    assert.ok(view.find({ text: 'Other groups:' }))
+    assert.deepEqual(offered(view), ['Staging'])
 
     // A new name still makes a new group.
     await view.type({ label: 'Group' }, 'Archive', { replace: true })
-    assert.deepEqual(offered(), [])
+    assert.deepEqual(offered(view), [])
     await view.type({ label: 'Name' }, 'Old')
     await view.press({ text: 'Save' })
     assert.equal(saved!.group, 'Archive')
     assert.deepEqual(view.errors, [])
+  })
+
+  test('the Group field says how many groups it left out', async () => {
+    const many = Array.from({ length: 11 }, (_, i) => grouped(`c${i}`, `G${String(i).padStart(2, '0')}`))
+    const view = await mount(panel, { host: mockHost({ requests: { 'connections.state': { ...oneConn, connections: many } } }) })
+    await view.post('ui.navigate', { view: 'new' })
+    assert.equal(offered(view).length, 8)
+    assert.ok(view.find({ text: 'and 3 more; type to narrow them down' }))
+  })
+
+  test('editing a connection leaves out a group only it is in', async () => {
+    const def = { ...emptyConnection('a', 0), name: 'a', group: 'Clinets' }
+    const host = mockHost({
+      requests: {
+        'connections.state': { ...oneConn, connections: [grouped('a', 'Clinets'), grouped('b', 'Clients'), grouped('c', 'Clients')] },
+        'connections.get': { def, secrets: {} },
+        'tree.details': { title: 'a', subtitle: 'Connection', items: [] },
+        'tree.children': { nodes: [] }
+      }
+    })
+    const view = await mount(panel, { host })
+    await view.selectItem({ type: 'Tree' }, 'conn:a')
+    await view.press({ label: 'Edit connection' })
+    await view.type({ label: 'Group' }, 'Cli', { replace: true })
+    assert.deepEqual(offered(view), ['Clients'])
+  })
+
+  test('picking a group in Connection string mode keeps a half-typed string', async () => {
+    const view = await mount(panel, { host: mockHost({ requests: { 'connections.state': { ...oneConn, connections: [grouped('a', 'Clients')] } } }) })
+    await view.post('ui.navigate', { view: 'new' })
+    await view.select({ label: 'Edit as' }, 'uri')
+    await view.type({ label: 'Connection string' }, 'mongodb://db1:27017/?replicaSet=', { replace: true })
+    const typed = view.valueOf({ label: 'Connection string' })
+    await view.press({ type: 'Button', text: 'Clients' })
+    assert.equal(view.valueOf({ label: 'Group' }), 'Clients')
+    assert.equal(view.valueOf({ label: 'Connection string' }), typed)
   })
 
   test('connection string mode fills the form and moves the password to secrets', async () => {

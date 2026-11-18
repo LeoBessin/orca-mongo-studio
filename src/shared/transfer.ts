@@ -3,6 +3,7 @@
 // exports, and plain connection strings (one per line). Mongo Studio's format also carries the
 // saved tasks that use only the exported connections, naming connections by name (as shell scripts
 // do), so they find their connections on another machine.
+import { normalizeGroup } from './groups'
 import { cloneDef, connectionSubtitle, type ConnectionDef, type SecretDraft } from './model'
 import { mapTaskConnections, taskConnections, type Task, type TaskRequest } from './tasks'
 import { ConnectionStringError, parseConnectionString } from './uri'
@@ -119,6 +120,8 @@ function mergeDefaults<T>(base: T, value: unknown): T {
 
 function fromStudio(raw: unknown, base: (id: string) => ConnectionDef, newId: IdFactory): ImportedConnection {
   const def = mergeDefaults(base(newId()), raw)
+  // mergeDefaults keeps whatever the file holds, so a hand-written `"group": null` would arrive as is.
+  def.group = normalizeGroup(def.group)
   const warnings: string[] = []
   // Inline PEMs were secrets and did not travel: ask for them again.
   if (def.tls.ca.kind === 'inline') {
