@@ -265,6 +265,7 @@ describe('copy and paste', () => {
     assert.equal(view.valueOf({ type: 'RadioGroup', label: 'Format' }), 'collection')
     assert.equal(view.valueOf({ type: 'Select', label: 'Connection' }), 'c2')
     assert.equal(view.valueOf({ type: 'Input', label: 'Collection' }), 'orders')
+    assert.ok(view.find({ text: 'From: Local dev › shop.orders · Into: Staging › shop.orders' }), 'a copy names where it writes')
     await view.select({ type: 'RadioGroup', label: 'When the documents are there already' }, 'replace')
     await view.press({ type: 'Button', text: 'Copy' })
     assert.ok(view.find({ text: /This drops shop\.orders on Staging \(1,234 documents\)/ }))
@@ -309,6 +310,11 @@ describe('compare and sync', () => {
     await view.selectRows({ type: 'Table', label: 'Documents' }, ['{"$numberInt":"4"}'])
     assert.deepEqual((calls.diff![0] as { id: unknown }).id, int(4))
     assert.deepEqual(view.rowsOf({ type: 'Table', label: 'Differences' }), ['d0'])
+    const sides = { text: 'A: Local dev › shop.orders · B: Staging › shop.orders' }
+    assert.ok(view.find(sides), 'a compare names both sides')
+    await view.select({ type: 'Select', label: 'Compare with, on' }, 'c1')
+    assert.ok(view.find(sides), 'until it compares again, the line names the pair Sync writes to')
+    await view.select({ type: 'Select', label: 'Compare with, on' }, 'c2')
     await view.press({ text: 'Only in A (3)' })
     assert.equal(view.rowsOf({ type: 'Table', label: 'Documents' }).length, 3)
     await view.toggle({ type: 'Collapsible', label: 'Sync' })
@@ -321,6 +327,19 @@ describe('compare and sync', () => {
     assert.deepEqual(calls.sync, [{ from: ns, to: { connectionId: 'c2', db: 'shop', collection: 'orders' }, rules: { ignoreFields: ['updatedAt', 'meta.v'], ignoreOrder: false }, insert: true, replace: true, remove: true }])
     assert.ok(view.find({ text: /Synced shop\.orders: 3 inserted, 2 replaced, 0 deleted/ }))
     assert.deepEqual(view.warnings, [])
+  })
+
+  test('deleting side B\'s connection closes the comparison', async () => {
+    const { host } = setup({ 'connections.delete': null })
+    const view = await at(host, 'conn:c1/db:shop/coll:orders')
+    await view.press({ label: 'Compare with another collection' })
+    await view.select({ type: 'Select', label: 'Compare with, on' }, 'c2')
+    assert.ok(view.find({ type: 'Tab', label: 'Compare: orders' }))
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.selectItem(tree, 'conn:c2')
+    await view.press({ label: 'Delete connection' })
+    await view.press({ text: 'Delete connection' })
+    assert.equal(view.find({ type: 'Tab', label: 'Compare: orders' }), null)
   })
 
   test('the same collection is refused', async () => {

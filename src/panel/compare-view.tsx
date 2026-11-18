@@ -21,13 +21,14 @@ import {
   type OrcaNode
 } from 'orca'
 import { idKey, toShell, valueText } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
-import { bNs, cancelCompare, compareProblems, idsShown, runCompare, runSync, selectPair, setCompare, syncPlan, type CompareShow, type CompareTab } from './compare-state'
+import { bNs, cancelCompare, comparePlaces, compareProblems, idsShown, runCompare, runSync, selectPair, setCompare, syncPlan, type CompareShow, type CompareTab } from './compare-state'
 import { jobRunning } from './data-state'
 import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { connections } from './state'
+import { PlaceLine } from './place-view'
 
 function Other({ t }: { t: CompareTab }): OrcaNode {
   const conns = read(connections)?.connections ?? []
@@ -178,7 +179,7 @@ export function CompareTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{`Compare ${t.a.db}.${t.a.collection}`}</Text>
-          <Text size="xs" muted truncate>{`A: ${connectionName(t.a.connectionId)} · B: ${connectionName(b.connectionId)}${b.collection ? ` · ${b.db}.${b.collection}` : ''}`}</Text>
+          <PlaceLine places={comparePlaces(t)} />
         </Box>
         <IconButton icon="close" label="Close the comparison" variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

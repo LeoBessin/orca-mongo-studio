@@ -99,6 +99,8 @@ describe('collection tabs', () => {
     const rows = view.find(table)!.props.rows as { cells: Record<string, string> }[]
     assert.deepEqual(rows[0]!.cells, { _id: 'ObjectId(6542f1a2b3c4d5e6f7a8b900)', status: 'shipped', total: '10.5', qty: '1', payment: '{2 fields}', createdAt: '2026-11-16T12:34:56.789Z' })
     assert.ok(view.find({ text: '1–3 of 4' }))
+    assert.ok(view.find({ type: 'Text', text: 'shop.orders' }))
+    assert.ok(view.find({ type: 'Text', text: 'Local dev' }), 'under its namespace, the tab names its connection')
     assert.deepEqual(view.errors, [])
     assert.deepEqual(view.warnings, [])
   })
@@ -329,7 +331,7 @@ describe('collection tabs', () => {
     assert.equal(view.find({ label: 'Filter' }), null, 'it covers the query bar and the results')
     assert.equal(view.find(table), null)
     assert.ok(view.find({ text: "ObjectId('6542f1a2b3c4d5e6f7a8b901')" }))
-    assert.ok(view.find({ text: 'shop.orders · 6 fields' }))
+    assert.ok(view.find({ text: 'Local dev › shop.orders · 6 fields' }))
     const fields = { type: 'Tree', label: 'Fields' }
     const labels = (): string[] => (view.find(fields)!.props.items as { label: string }[]).map((i) => i.label)
     assert.deepEqual(labels().slice(0, 3), ['_id: ObjectId(6542f1a2b3c4d5e6f7a8b901)', 'status: pending', 'total: 20.5'])

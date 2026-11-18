@@ -28,10 +28,11 @@ import {
 } from 'orca'
 import { BSON_TYPE_LABELS } from '../shared/ejson-view'
 import { bar, ELEMENT, percent, presenceText, rangeText, typeSummary, type Bucket, type SchemaField, type SchemaReport } from '../shared/schema'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, numberText, type SchemaTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, numberText, type SchemaTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { openManage } from './manage-state'
 import { analyze, exportText, fieldKey, SAMPLE_SIZES, setExport, toggleField } from './schema-state'
+import { PlaceLine } from './place-view'
 
 function treeItems(report: SchemaReport, parent: string, expanded: Set<string>): TreeItem[] {
   return report.fields
@@ -143,7 +144,7 @@ export function SchemaTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{`Schema of ${t.ns.db}.${t.ns.collection}`}</Text>
-          <Text size="xs" muted truncate>{connectionName(t.connectionId)}</Text>
+          <PlaceLine places={[{ connectionId: t.connectionId }]} />
         </Box>
         <IconButton icon="close" label={`Close the schema of ${t.ns.collection}`} variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

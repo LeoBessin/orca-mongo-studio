@@ -2,7 +2,7 @@
 // open collection are tabs, and so is each administration view (collection, database, users,
 // server, schema). Everything is drawn with Orca's
 // own components, so every Orca theme applies.
-import { Badge, Box, plugin, read, Row, set, Tab, Tabs, Text, type IconName, type OrcaNode, type PanelContext } from 'orca'
+import { Box, plugin, read, set, Tab, Tabs, type IconName, type OrcaNode, type PanelContext } from 'orca'
 import { collTabs, tabOrder } from './panel/collection-state'
 import { adminTabs } from './panel/admin-state'
 import { ADMIN_ICONS, AdminTabView } from './panel/admin-view'
@@ -69,21 +69,6 @@ function changeView(next: string): void {
 
 const TAB_ICONS: Record<string, IconName> = { view: 'filter', timeseries: 'activity' }
 
-/** A line over every tab of a read-only connection. */
-function withReadOnly(connectionId: string, content: OrcaNode): OrcaNode {
-  const c = read(connections)?.connections.find((x) => x.id === connectionId)
-  if (!c?.readOnly) return content
-  return (
-    <Box gap="sm">
-      <Row gap="xs" align="center">
-        <Badge tone="warning">Read only</Badge>
-        <Text size="xs" muted truncate>{`Changes through ${c.name} are refused.`}</Text>
-      </Row>
-      {content}
-    </Box>
-  )
-}
-
 export default function Panel(): OrcaNode {
   const current = read(view)
   const def = read(formDef)
@@ -122,14 +107,14 @@ export default function Panel(): OrcaNode {
         if (t) {
           return (
             <Tab key={id} value={id} label={t.title} icon={t.agg ? 'layers' : TAB_ICONS[t.kind] ?? 'file-text'}>
-              {withReadOnly(t.ns.connectionId, t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />)}
+              {t.agg ? <AggregationTab id={id} /> : <CollectionTab id={id} />}
             </Tab>
           )
         }
         const a = read(adminTabs)[id]
         return a ? (
           <Tab key={id} value={id} label={a.title} icon={ADMIN_ICONS[a.kind]}>
-            {withReadOnly(a.connectionId, <AdminTabView id={id} />)}
+            <AdminTabView id={id} />
           </Tab>
         ) : null
       })}

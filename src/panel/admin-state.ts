@@ -259,8 +259,12 @@ export function closeAdmin(id: string): void {
 }
 
 /** Closes every tab of a connection: admin tabs here, collection tabs in collection-state. */
+/** Closes a deleted connection's tabs, and the comparisons that use it as side B. */
 export function closeAdminTabsFor(connectionId: string): void {
-  for (const id of Object.keys(read(adminTabs))) if (adminTab(id)?.connectionId === connectionId) closeAdmin(id)
+  for (const id of Object.keys(read(adminTabs))) {
+    const t = adminTab(id)
+    if (t?.connectionId === connectionId || (t?.kind === 'compare' && (t.b.connectionId === connectionId || t.ran?.b.connectionId === connectionId))) closeAdmin(id)
+  }
 }
 
 function sameNs(a: Namespace, b: Namespace): boolean {

@@ -9,6 +9,7 @@ import type { NodeKind } from '../shared/nodes'
 import { parseShellDocument, ShellParseError } from '../shared/shell-parse'
 import { adminTabId, changeAdmin, connectionName, numberText, refreshTree, sayAdmin, showOrAdd, tabOf } from './admin-state'
 import { cancelJob, dropDownload, followJob, saveDownload, type Clip, type JobBox } from './data-state'
+import type { Place } from './place-view'
 import { errorText } from './state'
 
 export type ExportFrom =
@@ -264,9 +265,19 @@ export function paste(clip: Clip, at: PasteTarget): void {
   }))
 }
 
-export function sourceLabel(t: ExportTab): string {
+/** Where the tab works: the source it reads, and for a copy the collection or database it writes. */
+export function exportPlaces(t: ExportTab): Place[] {
   const f = t.from
-  if (f.kind === 'database') return `${connectionName(f.connectionId)} · database ${f.db}`
-  return `${connectionName(f.ns.connectionId)} · ${f.ns.db}.${f.ns.collection}${f.kind === 'pipeline' ? ` · pipeline of ${f.pipeline.length} stage${f.pipeline.length === 1 ? '' : 's'}` : ''}`
+  const from: Place = f.kind === 'database' ? { connectionId: f.connectionId, db: f.db } : { ...f.ns }
+  if (t.format !== 'collection') return [from]
+  const into: Place = { ...targetNs(t), writes: true }
+  if (f.kind === 'database') delete into.collection
+  return [{ ...from, label: 'From' }, { ...into, label: 'Into' }]
+}
+
+/** What a pipeline export runs, beside its places. */
+export function sourceDetail(t: ExportTab): string | undefined {
+  const f = t.from
+  return f.kind === 'pipeline' ? `pipeline of ${f.pipeline.length} stage${f.pipeline.length === 1 ? '' : 's'}` : undefined
 }
 

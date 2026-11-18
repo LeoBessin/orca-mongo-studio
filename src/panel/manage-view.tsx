@@ -57,6 +57,7 @@ import {
 } from './manage-state'
 import { openSchema } from './schema-state'
 import { NoticeBar } from './admin-notice'
+import { PlaceLine } from './place-view'
 
 const LEVELS = [
   { value: 'strict', label: 'Strict: every insert and update' },
@@ -364,7 +365,7 @@ export function ManageTabView({ id }: { id: string }): OrcaNode {
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{`${t.ns.db}.${t.ns.collection}`}</Text>
           <Row gap="xs">
-            <Text size="xs" muted truncate>{connectionName(t.connectionId)}</Text>
+            <PlaceLine places={[{ connectionId: t.connectionId, writes: true }]} />
             {info ? <Badge tone="neutral">{info.kind === 'timeseries' ? 'time series' : info.kind}</Badge> : null}
             {info?.capped ? <Badge tone="neutral">capped</Badge> : null}
           </Row>
