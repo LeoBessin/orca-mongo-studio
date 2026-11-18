@@ -69,7 +69,7 @@ particular view, have the worker push it to an **open** panel. For the Shell tab
 4. `orca plugin shot local.mongo-studio --width 420 --out .orca/shots/shell.png --json`
 
 Shots go under `.orca/` (gitignored). Media for the listing lives in `media/` (cover 1600×1000,
-screenshots 1280×800, WebP).
+screenshots 1280×800, WebP); how they are made is in `CONTRIBUTING.md` (Directory media).
 
 ## Panel checks without Orca's window
 

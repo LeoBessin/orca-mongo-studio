@@ -1,7 +1,7 @@
 # Mongo Studio
 
 A MongoDB client plugin for Orca (`orca-plugin.json`, id `mongo-studio`). The README covers
-features and the human workflow; this file is what an agent needs on top of it.
+features, `CONTRIBUTING.md` the human workflow; this file is what an agent needs on top of it.
 
 ## Layout
 

@@ -3,7 +3,7 @@
   "id": "mongo-studio",
   "name": "Mongo Studio",
   "version": "1.0.3",
-  "description": "Browse, query and edit MongoDB databases without leaving Orca: aggregation pipelines, a mongo shell, import and export, indexes, users and server status. Not affiliated with or endorsed by MongoDB, Inc.",
+  "description": "A full MongoDB client inside Orca: browse collections and edit documents, query with a query bar or the Query Builder, build aggregation pipelines stage by stage, and script in a Mongo Shell. Not affiliated with or endorsed by MongoDB, Inc.",
   "icon": "media/icon.webp",
   "engines": {
     "orca": ">=1.4.248"
@@ -89,16 +89,32 @@
   "repository": "https://github.com/LeoBessin/orca-mongo-studio",
   "cover": {
     "path": "media/cover.webp",
-    "alt": "Mongo Studio: a shell script in the Mongo Shell editor beside the panel showing its find results as a table"
+    "alt": "Mongo Studio, a full MongoDB client inside Orca: the panel's connection tree in Orca's light theme and a collection table in its dark theme"
   },
   "screenshots": [
     {
-      "path": "media/shell-editor.webp",
-      "alt": "The Mongo Shell editor with a script that counts, finds and aggregates orders, with Run and Run script buttons"
+      "path": "media/browse.webp",
+      "alt": "The connection tree with the orders collection selected and its size and indexes, beside the orders tab with shipped orders as a table"
     },
     {
-      "path": "media/shell-results.webp",
-      "alt": "The panel Shell tab: find results as a sortable table, and an aggregation grouped by payment method"
+      "path": "media/query.webp",
+      "alt": "The query bar with filter, projection, sort, collation and limit, beside the Query Builder editing the same filter as nested AND and OR conditions"
+    },
+    {
+      "path": "media/aggregate.webp",
+      "alt": "The aggregation editor with $match, $group and $sort stages: the $group stage with its output preview, and the pipeline run with its results"
+    },
+    {
+      "path": "media/document.webp",
+      "alt": "A document open in the Tree view with every field's BSON type, and a document holding every BSON type, from Decimal128 to Timestamp and MinKey"
+    },
+    {
+      "path": "media/connection.webp",
+      "alt": "The connection form with server, authentication, TLS, SSH and advanced sections, beside the connection string view with Test connection results, step by step"
+    },
+    {
+      "path": "media/shell.webp",
+      "alt": "The Mongo Shell editor with a script that counts, finds and aggregates orders, beside the panel showing the find results as a table"
     }
   ]
 }
