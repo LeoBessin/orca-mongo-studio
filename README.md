@@ -1,10 +1,26 @@
 # Mongo Studio
 
-A full MongoDB client inside [Orca](https://orca.dev): browse, query, aggregate, script and
-administer your databases without leaving your editor. It is built from Orca's own components, so
-it follows every Orca theme, light or dark.
+A full MongoDB client inside [Orca](https://orca.dev). Browse your databases, query and edit
+documents, build aggregation pipelines stage by stage, run mongo shell scripts and administer
+servers, all from Orca's sidebar. It is built from Orca's own components, so it looks at home
+in every Orca theme, light or dark.
 
 ![Mongo Studio](media/cover.webp)
+
+## At a glance
+
+- **Connect** to standalone servers, replica sets, sharded clusters and Atlas, through TLS or SSH,
+  signing in with SCRAM, X.509, LDAP, Kerberos, AWS IAM or OIDC. **Test connection** says which
+  step failed and why.
+- **Browse** databases and collections in a tree, and open each collection in its own tab.
+- **Query** in mongo shell syntax or with the **Query Builder**; see results as a Table, a Tree
+  or JSON, and edit documents in place.
+- **Aggregate** stage by stage, with a preview of every stage's input and output, and read
+  **explain plans**.
+- **Script** in the **Mongo Shell** editor, and turn any query into driver code or a `SELECT`
+  into MongoDB.
+- **Administer** indexes, validation, users and roles, and watch server status.
+- **Move data:** import, export, copy between connections, compare and sync, GridFS.
 
 ## Install
 
@@ -24,19 +40,6 @@ for two permissions:
 Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 
 ## Features
-
-### Connections
-
-- Standalone servers, replica sets, sharded clusters and `mongodb+srv` (Atlas).
-- Sign-in methods: SCRAM, X.509, LDAP, Kerberos, AWS IAM and OIDC (browser sign-in, Azure, GCP or
-  Kubernetes).
-- TLS with certificates from a file or pasted PEM.
-- SSH tunnels by password or key. The host key is pinned on first use.
-- Edit a connection as a form or as a connection string; both stay in sync.
-- **Test connection** checks DNS, SSH, TCP, TLS, the handshake, sign-in and permissions in turn.
-  A failed step says what to try next.
-- Groups, favourites and read-only connections.
-- Import connection strings or MongoDB Compass exports. Exports never contain secrets.
 
 ### Browse and query
 
@@ -60,6 +63,39 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   delete documents, one at a time or in bulk.
 - Per-collection query history and saved queries.
 
+![The connection tree beside a collection tab with results as a table](media/browse.webp)
+
+![The query bar and the Query Builder](media/query.webp)
+
+![A document open in the Tree view, with BSON types](media/document.webp)
+
+### Aggregation and performance
+
+- A stage-by-stage **aggregation editor**. It previews each stage's input and output, and stages
+  can be turned off, reordered or duplicated.
+- Edit a pipeline as text, save it, or create a view from it. `$out` and `$merge` ask before they
+  write.
+- **Explain plans** for queries and pipelines: index use, documents examined against returned,
+  in-memory sorts and the plan as a tree. Works with the classic and slot-based engines and with
+  sharded clusters.
+
+![The aggregation editor with a stage preview, and the pipeline's results](media/aggregate.webp)
+
+### Connections
+
+- Standalone servers, replica sets, sharded clusters and `mongodb+srv` (Atlas).
+- Sign-in methods: SCRAM, X.509, LDAP, Kerberos, AWS IAM and OIDC (browser sign-in, Azure, GCP or
+  Kubernetes).
+- TLS with certificates from a file or pasted PEM.
+- SSH tunnels by password or key. The host key is pinned on first use.
+- Edit a connection as a form or as a connection string; both stay in sync.
+- **Test connection** checks DNS, SSH, TCP, TLS, the handshake, sign-in and permissions in turn.
+  A failed step says what to try next.
+- Groups, favourites and read-only connections.
+- Import connection strings or MongoDB Compass exports. Exports never contain secrets.
+
+![The connection form, and Test connection results step by step](media/connection.webp)
+
 ### Mongo Shell
 
 - `.mongodb.js` files open in a shell editor with syntax highlighting and autocomplete for
@@ -72,19 +108,7 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 - **SQL** translates a `SELECT` (with `WHERE`, `GROUP BY`, `JOIN`, `ORDER BY` and more) into
   MongoDB queries.
 
-![The Mongo Shell editor](media/shell-editor.webp)
-
-### Aggregation and performance
-
-- A stage-by-stage **aggregation editor**. It previews each stage's input and output, and stages
-  can be turned off, reordered or duplicated.
-- Edit a pipeline as text, save it, or create a view from it. `$out` and `$merge` ask before they
-  write.
-- **Explain plans** for queries and pipelines: index use, documents examined against returned,
-  in-memory sorts and the plan as a tree. Works with the classic and slot-based engines and with
-  sharded clusters.
-
-![Shell results in the panel](media/shell-results.webp)
+![The Mongo Shell editor beside its results in the panel](media/shell.webp)
 
 ### Administration
 
@@ -136,7 +160,7 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 ## Limitations
 
 - **Kerberos** needs the native `kerberos` module, which installed plugins can't include. To use
-  Kerberos, run Mongo Studio from a clone of this repository (see Development) after `kinit`.
+  Kerberos, run Mongo Studio from a clone of this repository (see [CONTRIBUTING.md](CONTRIBUTING.md)) after `kinit`.
 - Through an **SSH tunnel**, Mongo Studio connects to the first host of a replica set only.
 - The shell covers the common mongosh API. It doesn't include `rs.*`, `sh.*`, `load()`, change
   streams, sessions or transactions.
@@ -146,93 +170,9 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   save dialog are limited to 64 MiB; larger files go to a path.
 - Saved tasks run when you start them. Nothing runs on a schedule.
 
-## Development
+## Contributing
 
-You need Node.js, Docker for the test databases, and the Orca desktop app.
-
-```sh
-npm install
-npm run build             # bundle the worker, shell thread and panel into dist/
-orca plugin dev load .    # load this folder into Orca (it prints an --approve fingerprint)
-npm run build:watch       # rebuild on change
-```
-
-| Command | What it does |
-|---|---|
-| `npm run types` | Writes Orca's plugin typings into `.orca/types` (git-ignored); `typecheck` and `build` run it when needed |
-| `npm run typecheck` | Type-checks the panel and the worker |
-| `npm test` | Unit, protocol and panel tests (no database) |
-| `npm run test:it` | Integration tests against the Docker databases |
-| `npm run test:enterprise` | Kerberos and LDAP tests against MongoDB Enterprise |
-| `npm run check` | Builds, renders the panel with `orca plugin check`, and validates the manifest |
-
-Orca runs the bundles in `dist/`, even when it loads a development folder, so rebuild after
-changing anything under `src/` and commit `dist/` with your change. The shell editor in
-`src/editor/` loads as source. The panel is bundled because Orca loads at most 32 files at once
-for an installed plugin.
-
-The scripts run Orca's own CLI from the desktop app (`/usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js`);
-set `ORCA_CLI` to use another copy.
-
-CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: typecheck,
-`npm test`, a rebuild that fails if `dist/` differs from what is committed, `npm run check`, and
-then the integration tests against the `test` databases. It takes the Orca CLI from the
-pinned Orca release's `.deb` (`.github/actions/orca-cli`). The Kerberos and LDAP tests stay
-local.
-
-<details>
-<summary>Test databases</summary>
-
-```sh
-# Replica set with demo data (shop, blog, analytics, types_zoo)
-docker compose -f dev/docker-compose.yml up -d --wait
-docker compose -f dev/docker-compose.yml exec mongo mongosh --quiet /seed/seed.mongodb.js
-# mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
-
-# SCRAM (27019), TLS + X.509 (27018) and an SSH bastion (2222)
-dev/test-env/make-certs.sh
-docker compose -f dev/docker-compose.yml --profile test up -d --wait --build
-dev/test-env/setup.sh
-
-# Kerberos and LDAP: MongoDB Enterprise (27020), an MIT KDC and OpenLDAP
-docker compose -f dev/docker-compose.yml --profile enterprise up -d --wait --build
-dev/test-env/setup-enterprise.sh
-```
-
-</details>
-
-<details>
-<summary>Project layout</summary>
-
-| Path | What |
-|---|---|
-| `src/panel.tsx`, `src/panel/` | The sidebar panel, built from Orca components |
-| `src/worker.ts`, `src/worker/` | The worker: connections, secrets, the driver, SSH tunnels, jobs and the shell |
-| `src/editor/` | The Mongo Shell editor (CodeMirror), with its Output, Code and SQL tabs |
-| `src/shared/` | Code both sides use: connection model, URI parser, shell parser, Extended JSON, codegen, SQL translation |
-| `src/protocol.ts` | The typed contract between the panel and the worker |
-| `dist/` | The bundles Orca runs, built by `dev/build.mjs` |
-| `test/` | Integration tests |
-| `dev/` | Build scripts, Docker databases, seed data and test fixtures |
-| `media/` | The cover and screenshots for the plugin directory |
-
-</details>
-
-<details>
-<summary>Releasing</summary>
-
-The Orca plugin directory lists the newest `vX.Y.Z` tag of this repository.
-
-```sh
-# raise "version" in orca-plugin.json and package.json, then:
-npm run build && npm run check && npm test
-git commit -am "Mongo Studio X.Y.Z"
-git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z
-```
-
-The listing's status is at https://orca.dev/plugins/leobessin/orca-mongo-studio.
-
-</details>
+Building, testing and releasing Mongo Studio are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

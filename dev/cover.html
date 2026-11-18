@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  The plugin directory cover (media/cover.webp, 1600x1000): the icon, the name, what it is, and the
+  panel in Orca's default dark and light themes.
+
+  It reads two panel shots from .orca/shots/cover/ (git-ignored), each taken at --width 640:
+    dark.png   the orders collection tab, results as a Table, with Orca on its default dark theme
+    light.png  the tree with shop open and orders selected, with Orca on its default light theme
+  Render and convert from the repository root:
+    chromium --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+      --allow-file-access-from-files --window-size=1600,1000 \
+      --screenshot=.orca/shots/cover/cover.png "file://$PWD/dev/cover.html"
+    magick .orca/shots/cover/cover.png -quality 90 media/cover.webp
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 1000px; overflow: hidden; }
+  body {
+    font-family: 'Inter', sans-serif;
+    color: #f4f4f6;
+    background:
+      radial-gradient(900px 700px at 8% 0%, rgba(62, 224, 200, 0.20), transparent 70%),
+      radial-gradient(900px 800px at 95% 100%, rgba(122, 92, 240, 0.26), transparent 70%),
+      #0f0f13;
+    position: relative;
+  }
+  .text { position: absolute; left: 96px; top: 0; bottom: 0; width: 640px; display: flex; flex-direction: column; justify-content: center; }
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .brand img { width: 120px; height: 120px; margin-left: -14px; }
+  h1 { white-space: nowrap; font-size: 76px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; }
+  .lede { margin-top: 32px; font-size: 38px; white-space: nowrap; line-height: 1.2; font-weight: 500; letter-spacing: -0.015em; color: #d9d9e0; }
+  .rule { margin: 44px 0 36px; width: 132px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3ee0c8, #7a5cf0); }
+  ul { list-style: none; padding: 0; display: grid; gap: 14px; font-size: 31px; font-weight: 500; color: #c4c4ce; }
+  li::before { content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 20px 4px 2px; background: #3ee0c8; }
+  li:nth-child(even)::before { background: #9c86f5; }
+  .shot { position: absolute; width: 580px; border-radius: 18px; overflow: hidden; box-shadow: 0 40px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.10); }
+  .shot img { display: block; width: 100%; }
+  .light { left: 790px; top: 96px; }
+  .dark { left: 960px; top: 210px; box-shadow: 0 40px 90px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.14); }
+</style>
+</head>
+<body>
+  <div class="text">
+    <div class="brand">
+      <img src="../media/icon.svg" alt="">
+      <h1>Mongo Studio</h1>
+    </div>
+    <p class="lede">A full MongoDB client inside Orca</p>
+    <div class="rule"></div>
+    <ul>
+      <li>Browse and edit documents</li>
+      <li>Query bar and Query Builder</li>
+      <li>Stage-by-stage aggregation</li>
+      <li>Mongo Shell, indexes, users</li>
+    </ul>
+  </div>
+  <div class="shot light"><img src="../.orca/shots/cover/light.png" alt=""></div>
+  <div class="shot dark"><img src="../.orca/shots/cover/dark.png" alt=""></div>
+</body>
+</html>
