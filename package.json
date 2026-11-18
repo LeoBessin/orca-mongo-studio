@@ -3,13 +3,14 @@
   "version": "1.0.3",
   "description": "Mongo Studio: a MongoDB client plugin for Orca",
   "scripts": {
+    "types": "node dev/orca.mjs plugin types .",
     "build": "node dev/build.mjs",
     "build:watch": "node dev/build.mjs --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "typecheck": "npm run types --silent && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
     "test": "node dev/with-source-main.mjs plugin test .",
     "test:it": "MONGO_STUDIO_IT=1 node dev/with-source-main.mjs plugin test .",
-    "check": "npm run build && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin check . && ELECTRON_RUN_AS_NODE=1 node /usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js plugin validate .",
-    "test:enterprise": "MONGO_STUDIO_IT_ENTERPRISE=1 node dev/with-source-main.mjs plugin test ."
+    "test:enterprise": "MONGO_STUDIO_IT_ENTERPRISE=1 node dev/with-source-main.mjs plugin test .",
+    "check": "npm run build && node dev/orca.mjs plugin check . && node dev/orca.mjs plugin validate ."
   },
   "type": "module",
   "dependencies": {

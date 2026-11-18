@@ -22,12 +22,18 @@ pure logic in `src/shared/` (with a `*.test.ts` beside it), and a `*-state.ts`/`
 
 ```sh
 npm run build            # bundles worker, shell thread and panel into dist/
-npm run typecheck        # panel (tsconfig.json) and worker (tsconfig.worker.json)
+npm run typecheck        # panel (tsconfig.json) and worker (tsconfig.worker.json), after `npm run types`
 npm test                 # unit, protocol and panel tests; no database
 npm run test:it          # integration tests in test/; needs the dev replica set AND the "test" profile
 npm run test:enterprise  # Kerberos and LDAP; needs the "enterprise" profile
 npm run check            # build + `orca plugin check` (renders the panel) + `orca plugin validate`
 ```
+
+The scripts run Orca's CLI through `dev/orca.mjs` (`ORCA_CLI` overrides its path). The build and
+typecheck need Orca's typings in `.orca/types` (git-ignored, `npm run types`): without them
+esbuild builds a different `dist/`. CI (`.github/workflows/ci.yml`) runs typecheck, `npm test`,
+the `dist/` freshness check, `npm run check` and `npm run test:it`, with the CLI from the Orca
+release pinned there; bump `ORCA_VERSION`, `ORCA_DEB_SHA256` and `NODE_VERSION` together.
 
 How to start each database set is in the header of `dev/docker-compose.yml`; `/test` says which
 set each level needs.

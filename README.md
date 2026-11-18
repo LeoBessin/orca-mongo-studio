@@ -157,6 +157,7 @@ npm run build:watch       # rebuild on change
 
 | Command | What it does |
 |---|---|
+| `npm run types` | Writes Orca's plugin typings into `.orca/types` (git-ignored); `typecheck` and `build` run it when needed |
 | `npm run typecheck` | Type-checks the panel and the worker |
 | `npm test` | Unit, protocol and panel tests (no database) |
 | `npm run test:it` | Integration tests against the Docker databases |
@@ -167,6 +168,15 @@ Orca runs the bundles in `dist/`, even when it loads a development folder, so re
 changing anything under `src/` and commit `dist/` with your change. The shell editor in
 `src/editor/` loads as source. The panel is bundled because Orca loads at most 32 files at once
 for an installed plugin.
+
+The scripts run Orca's own CLI from the desktop app (`/usr/lib/orca-ide/app.asar.unpacked/out/cli/index.js`);
+set `ORCA_CLI` to use another copy.
+
+CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: typecheck,
+`npm test`, a rebuild that fails if `dist/` differs from what is committed, `npm run check`, and
+then the integration tests against the `test` databases. It takes the Orca CLI from the
+pinned Orca release's `.deb` (`.github/actions/orca-cli`). The Kerberos and LDAP tests stay
+local.
 
 <details>
 <summary>Test databases</summary>

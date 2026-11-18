@@ -1,0 +1,104 @@
+# Typecheck, unit/panel tests, the committed dist/, the panel render check, and the integration
+# tests against the `test` profile of dev/docker-compose.yml. The enterprise tests (Kerberos,
+# LDAP) stay out: they need MongoDB Enterprise and are slow; run `npm run test:enterprise` locally.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Orca release whose CLI runs the tests, and the Node its plugin worker embeds (Electron's).
+  # Bump them together when moving to a newer Orca.
+  ORCA_VERSION: 1.4.262
+  ORCA_DEB_SHA256: f6fec35d3138b64b2151e9f6cfa5b6f17c7252060d104350d42dd945bd033b43
+  NODE_VERSION: 24.22.1
+
+jobs:
+  check:
+    name: Typecheck, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: ./.github/actions/orca-cli
+        with:
+          version: ${{ env.ORCA_VERSION }}
+          sha256: ${{ env.ORCA_DEB_SHA256 }}
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: dist/ is rebuilt and committed
+        run: |
+          npm run build
+          if [ -n "$(git status --porcelain -- dist/)" ]; then
+            git status --short -- dist/
+            git diff --stat -- dist/
+            echo "::error::dist/ is out of date. Run \`npm run build\` and commit dist/ with the change."
+            exit 1
+          fi
+
+      # Renders the panel's check scenarios and the shell editor, and validates the manifest.
+      - run: npm run check
+
+      # `npm test` points the manifest's main at src/worker.ts for the run; a crash could leave it.
+      - name: orca-plugin.json is unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code -- orca-plugin.json
+
+  integration:
+    name: Integration tests
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: ./.github/actions/orca-cli
+        with:
+          version: ${{ env.ORCA_VERSION }}
+          sha256: ${{ env.ORCA_DEB_SHA256 }}
+
+      - run: npm ci
+
+      # The tests reach only the mongo-studio-* containers this job starts on its own runner.
+      - name: Start the test databases
+        run: |
+          dev/test-env/make-certs.sh
+          docker compose -f dev/docker-compose.yml --profile test up -d --wait --build
+          docker compose -f dev/docker-compose.yml exec -T mongo mongosh --quiet /seed/seed.mongodb.js
+          dev/test-env/setup.sh
+
+      - run: npm run test:it
+
+      - name: orca-plugin.json is unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code -- orca-plugin.json
+
+      - name: Database logs
+        if: failure()
+        run: docker compose -f dev/docker-compose.yml --profile test logs --no-color --tail 200

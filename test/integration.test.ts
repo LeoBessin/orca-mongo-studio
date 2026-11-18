@@ -35,6 +35,11 @@ async function check(def: ConnectionDef, secrets: SecretDraft = {}): Promise<Tes
 
 const statuses = (r: TestReport): string => r.steps.map((s) => `${s.id}:${s.status}`).join(' ')
 const step = (r: TestReport, id: string) => r.steps.find((s) => s.id === id)!
+// A failed check names its failed steps and why, so a CI log says more than `false !== true`.
+function assertOk(r: TestReport): void {
+  const failed = r.steps.filter((s) => s.status === 'failed').map((s) => `${s.id}: ${s.detail}${s.hint ? ` (${s.hint})` : ''}`)
+  assert.ok(r.ok, `the check failed: ${statuses(r)}\n${failed.join('\n')}`)
+}
 
 describe('test connection', () => {
   test('dev replica set, no auth', async () => {
@@ -42,7 +47,7 @@ describe('test connection', () => {
     const r = await check(conn('dev', 'localhost', 27017, (d) => { d.options.directConnection = true }))
     assert.equal(statuses(r), 'dns:ok ssh:skipped tcp:ok tls:skipped handshake:ok auth:skipped permissions:ok')
     assert.match(r.server!.topology, /replica set "rs0"/)
-    assert.equal(r.ok, true)
+    assertOk(r)
   })
 
   test('standalone choice on a replica set member warns', async () => {
@@ -99,7 +104,7 @@ describe('test connection', () => {
     assert.equal(step(r, 'auth').status, 'ok')
     // read@shop may list the databases it has privileges on only; the driver asks for exactly that.
     assert.ok(['ok', 'warning'].includes(step(r, 'permissions').status))
-    assert.equal(r.ok, true)
+    assertOk(r)
   })
 
   test('server needs auth but none is set', async () => {
@@ -198,12 +203,12 @@ describe('test connection', () => {
       d.options.directConnection = true
       d.ssh = { ...d.ssh, enabled: true, host: '127.0.0.1', port: 2222, username: 'studio', method: 'privateKey', privateKey: { kind: 'path', path: join(CERTS, 'id_ed25519_pass') } }
     })
-    assert.equal((await check(def, { sshPassphrase: 'ssh-pass-dev' })).ok, true)
+    assertOk(await check(def, { sshPassphrase: 'ssh-pass-dev' }))
     const inline = conn('sshkey', 'mongo', 27017, (d) => {
       d.options.directConnection = true
       d.ssh = { ...d.ssh, enabled: true, host: '127.0.0.1', port: 2222, username: 'studio', method: 'privateKey', privateKey: { kind: 'inline' } }
     })
-    assert.equal((await check(inline, { sshPrivateKey: pem('id_ed25519') })).ok, true)
+    assertOk(await check(inline, { sshPrivateKey: pem('id_ed25519') }))
     def.hosts = [{ host: 'mongo', port: 27999 }]
     const refused = await check(def, { sshPassphrase: 'ssh-pass-dev' })
     assert.equal(step(refused, 'tcp').status, 'failed')
