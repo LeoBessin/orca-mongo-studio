@@ -39,9 +39,11 @@ import {
   type SecretKey,
   type Topology
 } from '../shared/model'
+import { existingGroups, suggestGroups } from '../shared/groups'
 import { buildConnectionString, hostLabel } from '../shared/uri'
 import {
   closeForm,
+  connections,
   edit,
   editUri,
   forgetHostKey,
@@ -419,6 +421,26 @@ function testResult(): OrcaNode {
   )
 }
 
+// Orca has no combobox, so existing groups that match what was typed show as buttons under the
+// field. Picking one avoids a near-duplicate group (`Client` beside `Clients`); typing a new name
+// still creates a group, and an empty field still means none.
+function groupField(group: string): OrcaNode {
+  const suggestions = suggestGroups(existingGroups(read(connections)?.connections ?? []), group)
+  return (
+    <Box gap="xs">
+      {textInput('Group', group, (v) => edit((d) => (d.group = v)), { placeholder: 'Optional, e.g. Clients or Staging' })}
+      {suggestions.length ? (
+        <Row gap="xs" align="center" wrap>
+          <Text muted size="xs">{group.trim() ? 'Matching groups:' : 'Existing groups:'}</Text>
+          {suggestions.map((g) => (
+            <Button key={g} size="xs" variant="outline" icon="folder" tooltip={`Put this connection in ${g}`} onPress={() => edit((d) => (d.group = g))}>{g}</Button>
+          ))}
+        </Row>
+      ) : null}
+    </Box>
+  )
+}
+
 export function ConnectionForm(): OrcaNode {
   const def = read(formDef)
   if (!def) return null
@@ -432,7 +454,7 @@ export function ConnectionForm(): OrcaNode {
       <Heading level={2}>{read(formIsNew) ? 'New connection' : `Edit ${def.name || 'connection'}`}</Heading>
       <Box gap="sm">
         {textInput('Name', def.name, (v) => edit((d) => (d.name = v)), { placeholder: 'Production cluster', field: 'name' })}
-        {textInput('Group', def.group, (v) => edit((d) => (d.group = v)), { placeholder: 'Optional, e.g. Clients or Staging' })}
+        {groupField(def.group)}
         <Box gap="none">
           <Switch label="Read only" checked={def.readOnly} onChange={(v) => edit((d) => (d.readOnly = v))} />
           <Text muted size="xs">Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work.</Text>

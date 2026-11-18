@@ -9794,6 +9794,26 @@ import {
   Text as Text20,
   Textarea as Textarea8
 } from "orca";
+
+// src/shared/groups.ts
+function existingGroups(connections2) {
+  return [...new Set(connections2.map((c) => c.group.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+function suggestGroups(groups, typed, limit = 8) {
+  const exact = typed.trim();
+  const q = exact.toLowerCase();
+  const others = groups.filter((g) => g !== exact);
+  if (!q) return others.slice(0, limit);
+  const matches = others.filter((g) => {
+    const name = g.toLowerCase();
+    return name.includes(q) || q.includes(name);
+  });
+  const starts = matches.filter((g) => g.toLowerCase().startsWith(q));
+  const rest = matches.filter((g) => !g.toLowerCase().startsWith(q));
+  return [...starts, ...rest].slice(0, limit);
+}
+
+// src/panel/connection-form.tsx
 import { jsx as jsx21, jsxs as jsxs20 } from "orca/jsx-runtime";
 var MECHANISM_ORDER = ["none", "DEFAULT", "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-X509", "PLAIN", "MONGODB-AWS", "MONGODB-OIDC", "GSSAPI"];
 var READ_PREFS = ["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"];
@@ -10092,6 +10112,16 @@ function testResult() {
     /* @__PURE__ */ jsx21(List, { label: "Test steps", children: report.steps.map((s) => /* @__PURE__ */ jsx21(ListItem, { icon: STEP_ICON[s.status], title: `${s.title}${s.status === "skipped" ? "" : ` · ${s.ms} ms`}`, description: s.hint ? `${s.detail} ${s.hint}` : s.detail }, s.id)) })
   ] }) });
 }
+function groupField(group) {
+  const suggestions = suggestGroups(existingGroups(read23(connections)?.connections ?? []), group);
+  return /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
+    textInput("Group", group, (v) => edit((d) => d.group = v), { placeholder: "Optional, e.g. Clients or Staging" }),
+    suggestions.length ? /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "center", wrap: true, children: [
+      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: group.trim() ? "Matching groups:" : "Existing groups:" }),
+      suggestions.map((g) => /* @__PURE__ */ jsx21(Button19, { size: "xs", variant: "outline", icon: "folder", tooltip: `Put this connection in ${g}`, onPress: () => edit((d) => d.group = g), children: g }, g))
+    ] }) : null
+  ] });
+}
 function ConnectionForm() {
   const def = read23(formDef);
   if (!def) return null;
@@ -10104,7 +10134,7 @@ function ConnectionForm() {
     /* @__PURE__ */ jsx21(Heading, { level: 2, children: read23(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
     /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
       textInput("Name", def.name, (v) => edit((d) => d.name = v), { placeholder: "Production cluster", field: "name" }),
-      textInput("Group", def.group, (v) => edit((d) => d.group = v), { placeholder: "Optional, e.g. Clients or Staging" }),
+      groupField(def.group),
       /* @__PURE__ */ jsxs20(Box19, { gap: "none", children: [
         /* @__PURE__ */ jsx21(Switch5, { label: "Read only", checked: def.readOnly, onChange: (v) => edit((d) => d.readOnly = v) }),
         /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: "Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work." })

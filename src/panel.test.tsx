@@ -53,6 +53,39 @@ describe('connection form', () => {
     assert.deepEqual(view.refusals, [])
   })
 
+  test('the Group field suggests existing groups, filtered as you type', async () => {
+    let saved: ConnectionDef | undefined
+    const grouped = (id: string, group: string) => ({ ...oneConn.connections[0]!, id, name: id, group })
+    const host = mockHost({
+      requests: {
+        'connections.state': { ...oneConn, connections: [grouped('a', 'Clients'), grouped('b', 'Staging'), grouped('c', 'Clients'), grouped('d', '')] },
+        'connections.save': (input) => {
+          saved = input.def
+          return { ok: true, id: 'x' }
+        },
+        'tree.details': { title: 'x', subtitle: 'Connection', items: [] }
+      }
+    })
+    const view = await mount(panel, { host })
+    await view.post('ui.navigate', { view: 'new' })
+    const offered = () => view.findAll({ type: 'Button' }).filter((b) => b.props.icon === 'folder').map((b) => b.text)
+    assert.deepEqual(offered(), ['Clients', 'Staging'])
+
+    await view.type({ label: 'Group' }, 'client')
+    assert.deepEqual(offered(), ['Clients'])
+    await view.press({ type: 'Button', text: 'Clients' })
+    assert.equal(view.valueOf({ label: 'Group' }), 'Clients')
+    assert.deepEqual(offered(), [], 'the chosen group is not offered again')
+
+    // A new name still makes a new group.
+    await view.type({ label: 'Group' }, 'Archive', { replace: true })
+    assert.deepEqual(offered(), [])
+    await view.type({ label: 'Name' }, 'Old')
+    await view.press({ text: 'Save' })
+    assert.equal(saved!.group, 'Archive')
+    assert.deepEqual(view.errors, [])
+  })
+
   test('connection string mode fills the form and moves the password to secrets', async () => {
     let saved: { def: ConnectionDef; secrets: SecretDraft } | undefined
     const host = mockHost({
