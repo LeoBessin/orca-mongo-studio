@@ -42,6 +42,7 @@ import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
   children,
+  savedGroups,
   collapsedRoots,
   FAV_PREFIX,
   GROUP_PREFIX,
@@ -143,12 +144,15 @@ function treeItems(): TreeItem[] {
       children: state.favourites.map((f) => ({ key: `${FAV_PREFIX}${f.key}`, label: f.label, description: f.path, icon: ICONS[f.kind] }))
     })
   }
-  const groups = [...new Set(state.connections.map((c) => c.group).filter(Boolean))].sort((a, b) => a.localeCompare(b))
-  for (const g of groups) {
-    const members = state.connections.filter((c) => c.group === g)
-    items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g)}`, label: g, icon: 'folder', description: String(members.length), children: members.map(connectionItem) })
+  // The same group list the connection form suggests from, so the two never disagree on a name.
+  const byId = new Map(state.connections.map((c) => [c.id, c]))
+  const grouped = new Set<string>()
+  for (const g of read(savedGroups)) {
+    const members = g.ids.map((id) => byId.get(id)).filter((c): c is ConnectionSummary => Boolean(c))
+    for (const id of g.ids) grouped.add(id)
+    items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: 'folder', description: String(members.length), children: members.map(connectionItem) })
   }
-  items.push(...state.connections.filter((c) => !c.group).map(connectionItem))
+  items.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem))
   return filterItems(items, read(filter).trim())
 }
 
@@ -438,7 +442,6 @@ export function TreeView(): OrcaNode {
 
 /** Favourites and group rows: open unless the person closed them. */
 function rootKeys(): string[] {
-  const state = read(connections)
-  if (!state) return []
-  return ['favourites', ...new Set(state.connections.filter((c) => c.group).map((c) => `${GROUP_PREFIX}${encodeURIComponent(c.group)}`))]
+  if (!read(connections)) return []
+  return ['favourites', ...read(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)]
 }

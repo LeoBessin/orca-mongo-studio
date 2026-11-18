@@ -39,10 +39,12 @@ import {
   type SecretKey,
   type Topology
 } from '../shared/model'
+import { suggestGroups } from '../shared/groups'
 import { buildConnectionString, hostLabel } from '../shared/uri'
 import {
   closeForm,
   edit,
+  editMeta,
   editUri,
   forgetHostKey,
   formDef,
@@ -53,6 +55,7 @@ import {
   formSecrets,
   runTest,
   saveForm,
+  savedGroups,
   saving,
   setSecret,
   testing,
@@ -419,6 +422,31 @@ function testResult(): OrcaNode {
   )
 }
 
+// Orca has no combobox, so existing groups show as buttons under the field: every other group while
+// it is empty or names one already, matches once something new is typed. Picking one avoids a
+// near-duplicate group (`Client` beside `Clients`); typing a new name still creates a group, and an
+// empty field still means none.
+function groupField(def: ConnectionDef): OrcaNode {
+  // A group whose only member is this connection is left out: it is the one being renamed or left.
+  const groups = read(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name)
+  const { names, hidden, filtered } = suggestGroups(groups, def.group)
+  const label = filtered ? 'Matching groups:' : def.group.trim() ? 'Other groups:' : 'Existing groups:'
+  return (
+    <Box gap="xs">
+      {textInput('Group', def.group, (v) => editMeta((d) => (d.group = v)), { placeholder: 'Optional, e.g. Clients or Staging' })}
+      {names.length ? (
+        <Row gap="xs" align="center" wrap>
+          <Text muted size="xs">{label}</Text>
+          {names.map((g) => (
+            <Button key={g} size="xs" variant="outline" icon="folder" tooltip={`Put this connection in ${g}`} onPress={() => editMeta((d) => (d.group = g))}>{g}</Button>
+          ))}
+          {hidden ? <Text muted size="xs">{`and ${hidden} more; type to narrow them down`}</Text> : null}
+        </Row>
+      ) : null}
+    </Box>
+  )
+}
+
 export function ConnectionForm(): OrcaNode {
   const def = read(formDef)
   if (!def) return null
@@ -431,10 +459,10 @@ export function ConnectionForm(): OrcaNode {
     <Box gap="md">
       <Heading level={2}>{read(formIsNew) ? 'New connection' : `Edit ${def.name || 'connection'}`}</Heading>
       <Box gap="sm">
-        {textInput('Name', def.name, (v) => edit((d) => (d.name = v)), { placeholder: 'Production cluster', field: 'name' })}
-        {textInput('Group', def.group, (v) => edit((d) => (d.group = v)), { placeholder: 'Optional, e.g. Clients or Staging' })}
+        {textInput('Name', def.name, (v) => editMeta((d) => (d.name = v)), { placeholder: 'Production cluster', field: 'name' })}
+        {groupField(def)}
         <Box gap="none">
-          <Switch label="Read only" checked={def.readOnly} onChange={(v) => edit((d) => (d.readOnly = v))} />
+          <Switch label="Read only" checked={def.readOnly} onChange={(v) => editMeta((d) => (d.readOnly = v))} />
           <Text muted size="xs">Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work.</Text>
         </Box>
         <RadioGroup

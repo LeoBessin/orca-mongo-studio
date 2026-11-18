@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { CollectionKind, ConnectionsState, ImportReport, SaveResult } from './protocol'
 import { cloneDef, connectionSubtitle, emptyConnection, validateConnection, type ConnectionDef } from './shared/model'
+import { canonicalGroup, existingGroups, normalizeGroup } from './shared/groups'
 import { exportableTasks, exportConnections, importConnections, resolveTasks } from './shared/transfer'
 import {
   checkValidation,
@@ -152,7 +153,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
     next.updatedAt = now
     next.name = next.name.trim()
-    next.group = next.group.trim()
+    const others = (await store.list()).filter((d) => d.id !== next.id)
+    next.group = canonicalGroup(normalizeGroup(next.group), existingGroups(others))
     const errors = validateConnection(next, await store.secretFlags(existing ? next.id : undefined, secrets))
     if (errors.length) return { ok: false, errors }
     await store.applySecrets(next.id, secrets)
@@ -189,7 +191,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('connections.renameGroup', async ({ from, to }) => {
     const defs = (await store.list()).filter((d) => d.group === from)
-    for (const d of defs) d.group = to.trim()
+    for (const d of defs) d.group = normalizeGroup(to)
     await store.putMany(defs)
     await broadcast()
     return null
@@ -200,7 +202,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     const result = importConnections(text, () => randomUUID(), now, (id) => emptyConnection(id, now))
     const report: ImportReport = { imported: [], errors: result.errors }
     const saved = await store.list()
+    const groups = existingGroups(saved)
     for (const item of result.items) {
+      item.def.group = canonicalGroup(item.def.group, groups)
       await store.applySecrets(item.def.id, item.secrets)
       report.imported.push({ id: item.def.id, name: item.def.name, warnings: item.warnings })
     }

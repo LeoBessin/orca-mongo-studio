@@ -1,7 +1,7 @@
 // Panel state and the actions that change it. The worker owns all data; atoms here hold what the
 // panel shows and the edits in progress. Secrets typed into the form live only in `formSecrets`
 // until saved, and the worker never sends them back.
-import { atom, plugin, read, set, update } from 'orca'
+import { atom, derived, plugin, read, set, update } from 'orca'
 import type { ConnectionsState, NodeDetails, TestReport, TreeNode } from '../protocol'
 import {
   cloneDef,
@@ -11,6 +11,7 @@ import {
   type SecretDraft,
   type SecretFlags
 } from '../shared/model'
+import { normalizeGroup } from '../shared/groups'
 import type { NodeKind } from '../shared/nodes'
 import { buildConnectionString, ConnectionStringError, parseConnectionString } from '../shared/uri'
 
@@ -21,6 +22,16 @@ export type Notice = { tone: 'success' | 'danger' | 'neutral'; text: string }
 
 export const connections = atom<ConnectionsState | null>(null)
 export const view = atom<View>('tree')
+/** Each saved group (trimmed, sorted) with the ids of its connections. Derived once per
+ *  `connections` change, not on every render of the tree or the connection form. */
+export const savedGroups = derived(() => {
+  const members = new Map<string, string[]>()
+  for (const c of read(connections)?.connections ?? []) {
+    const name = normalizeGroup(c.group)
+    if (name) members.set(name, [...(members.get(name) ?? []), c.id])
+  }
+  return [...members.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, ids]) => ({ name, ids }))
+})
 export const children = atom<Record<string, ChildState>>({})
 /** Node metadata by key, so actions know a selected node's kind and label. */
 export const nodeIndex = atom<Record<string, { kind: NodeKind; label: string; path: string }>>({})
@@ -248,6 +259,16 @@ export function edit(change: (def: ConnectionDef) => void): void {
   change(next)
   set(formDef, next)
   syncUri(next)
+}
+
+/** Changes a field a connection string can't express (name, group, read only). It leaves the
+ *  URI text alone, so in Connection string mode a half-typed string isn't replaced. */
+export function editMeta(change: (def: ConnectionDef) => void): void {
+  const current = read(formDef)
+  if (!current) return
+  const next = cloneDef(current)
+  change(next)
+  set(formDef, next)
 }
 
 export function setSecret(key: keyof SecretDraft, value: string | null): void {

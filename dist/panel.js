@@ -1601,7 +1601,7 @@ function formatBytes(bytes) {
 }
 
 // src/panel/state.ts
-import { atom, plugin, read, set, update } from "orca";
+import { atom, derived, plugin, read, set, update } from "orca";
 
 // src/shared/model.ts
 var DEFAULT_PORT = 27017;
@@ -1685,6 +1685,30 @@ function effectiveAuthSource(auth, defaultDatabase) {
 }
 function cloneDef(def) {
   return JSON.parse(JSON.stringify(def));
+}
+
+// src/shared/groups.ts
+function normalizeGroup(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function suggestGroups(groups, typed, limit = 8) {
+  const exact = typed.trim();
+  const q = exact.toLowerCase();
+  const others = groups.filter((g) => g !== exact);
+  let pool = others;
+  const filtered = Boolean(q) && !groups.includes(exact);
+  if (filtered) {
+    const starts = [];
+    const rest = [];
+    for (const g of others) {
+      const name = g.toLowerCase();
+      if (name.startsWith(q)) starts.push(g);
+      else if (name.includes(q) || q.startsWith(name)) rest.push(g);
+    }
+    pool = [...starts, ...rest];
+  }
+  const names = pool.slice(0, limit);
+  return { names, hidden: pool.length - names.length, filtered };
 }
 
 // src/shared/uri.ts
@@ -1971,6 +1995,14 @@ function hostLabel(h) {
 // src/panel/state.ts
 var connections = atom(null);
 var view = atom("tree");
+var savedGroups = derived(() => {
+  const members = /* @__PURE__ */ new Map();
+  for (const c of read(connections)?.connections ?? []) {
+    const name = normalizeGroup(c.group);
+    if (name) members.set(name, [...members.get(name) ?? [], c.id]);
+  }
+  return [...members.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, ids]) => ({ name, ids }));
+});
 var children = atom({});
 var nodeIndex = atom({});
 var expanded = atom([]);
@@ -2161,6 +2193,13 @@ function edit(change2) {
   change2(next);
   set(formDef, next);
   syncUri(next);
+}
+function editMeta(change2) {
+  const current = read(formDef);
+  if (!current) return;
+  const next = cloneDef(current);
+  change2(next);
+  set(formDef, next);
 }
 function setSecret(key, value) {
   update(formSecrets, (prev) => ({ ...prev, [key]: value }));
@@ -10092,6 +10131,19 @@ function testResult() {
     /* @__PURE__ */ jsx21(List, { label: "Test steps", children: report.steps.map((s) => /* @__PURE__ */ jsx21(ListItem, { icon: STEP_ICON[s.status], title: `${s.title}${s.status === "skipped" ? "" : ` · ${s.ms} ms`}`, description: s.hint ? `${s.detail} ${s.hint}` : s.detail }, s.id)) })
   ] }) });
 }
+function groupField(def) {
+  const groups = read23(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name);
+  const { names, hidden, filtered } = suggestGroups(groups, def.group);
+  const label = filtered ? "Matching groups:" : def.group.trim() ? "Other groups:" : "Existing groups:";
+  return /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
+    textInput("Group", def.group, (v) => editMeta((d) => d.group = v), { placeholder: "Optional, e.g. Clients or Staging" }),
+    names.length ? /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "center", wrap: true, children: [
+      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: label }),
+      names.map((g) => /* @__PURE__ */ jsx21(Button19, { size: "xs", variant: "outline", icon: "folder", tooltip: `Put this connection in ${g}`, onPress: () => editMeta((d) => d.group = g), children: g }, g)),
+      hidden ? /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: `and ${hidden} more; type to narrow them down` }) : null
+    ] }) : null
+  ] });
+}
 function ConnectionForm() {
   const def = read23(formDef);
   if (!def) return null;
@@ -10103,10 +10155,10 @@ function ConnectionForm() {
   return /* @__PURE__ */ jsxs20(Box19, { gap: "md", children: [
     /* @__PURE__ */ jsx21(Heading, { level: 2, children: read23(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
     /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-      textInput("Name", def.name, (v) => edit((d) => d.name = v), { placeholder: "Production cluster", field: "name" }),
-      textInput("Group", def.group, (v) => edit((d) => d.group = v), { placeholder: "Optional, e.g. Clients or Staging" }),
+      textInput("Name", def.name, (v) => editMeta((d) => d.name = v), { placeholder: "Production cluster", field: "name" }),
+      groupField(def),
       /* @__PURE__ */ jsxs20(Box19, { gap: "none", children: [
-        /* @__PURE__ */ jsx21(Switch5, { label: "Read only", checked: def.readOnly, onChange: (v) => edit((d) => d.readOnly = v) }),
+        /* @__PURE__ */ jsx21(Switch5, { label: "Read only", checked: def.readOnly, onChange: (v) => editMeta((d) => d.readOnly = v) }),
         /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: "Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work." })
       ] }),
       /* @__PURE__ */ jsx21(
@@ -10515,12 +10567,14 @@ function treeItems2() {
       children: state.favourites.map((f) => ({ key: `${FAV_PREFIX}${f.key}`, label: f.label, description: f.path, icon: ICONS[f.kind] }))
     });
   }
-  const groups = [...new Set(state.connections.map((c) => c.group).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  for (const g of groups) {
-    const members = state.connections.filter((c) => c.group === g);
-    items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g)}`, label: g, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
+  const byId = new Map(state.connections.map((c) => [c.id, c]));
+  const grouped = /* @__PURE__ */ new Set();
+  for (const g of read26(savedGroups)) {
+    const members = g.ids.map((id) => byId.get(id)).filter((c) => Boolean(c));
+    for (const id of g.ids) grouped.add(id);
+    items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
   }
-  items.push(...state.connections.filter((c) => !c.group).map(connectionItem));
+  items.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
   return filterItems(items, read26(filter).trim());
 }
 function connectionIdOf(key) {
@@ -10738,9 +10792,8 @@ function TreeView() {
   ] });
 }
 function rootKeys() {
-  const state = read26(connections);
-  if (!state) return [];
-  return ["favourites", ...new Set(state.connections.filter((c) => c.group).map((c) => `${GROUP_PREFIX}${encodeURIComponent(c.group)}`))];
+  if (!read26(connections)) return [];
+  return ["favourites", ...read26(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)];
 }
 
 // src/panel.tsx

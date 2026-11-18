@@ -1,5 +1,6 @@
 // Worker protocol over Orca's mock host: storage, secrets and the panel contract. No database.
 import { assert, describe, mockHost, mountWorker, test } from 'orca/testing'
+import type { JsonValue } from 'orca'
 import { emptyConnection, type ConnectionDef } from './shared/model'
 import { orcaClashes } from './shared/keys'
 import * as main from './worker'
@@ -96,6 +97,55 @@ describe('connections', () => {
     }
     await worker.request('connections.renameGroup', { from: 'Work', to: 'Clients' })
     assert.deepEqual((await worker.request('connections.state')).connections.map((c) => c.group), ['Clients', 'Clients'])
+  })
+
+  test('a saved group joins an existing one that differs only in case, and is trimmed', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    const named = (name: string, group: string) => Object.assign(draft(name), { group })
+    await worker.request('connections.save', { def: named('A', 'Clients'), secrets: {} })
+    await worker.request('connections.save', { def: named('B', '  clients '), secrets: {} })
+    await worker.request('connections.save', { def: named('C', ' Archive '), secrets: {} })
+    assert.deepEqual((await worker.request('connections.state')).connections.map((c) => c.group), ['Clients', 'Clients', 'Archive'])
+  })
+
+  test('a lone connection can change its own group\'s case', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    const def = Object.assign(draft('A'), { group: 'clients' })
+    const saved = await worker.request('connections.save', { def, secrets: {} })
+    assert.equal(saved.ok, true)
+    if (!saved.ok) return
+    await worker.request('connections.save', { def: { ...def, id: saved.id, group: 'Clients' }, secrets: {} })
+    assert.deepEqual((await worker.request('connections.state')).connections.map((c) => c.group), ['Clients'])
+  })
+
+  test('stored groups that are null or padded read as trimmed strings', async () => {
+    const first = mockHost()
+    const worker = await mountWorker(main, { host: first })
+    for (const name of ['A', 'B']) await worker.request('connections.save', { def: draft(name), secrets: {} })
+    // Rewrite the stored definitions the way an older version or a hand edit might have left them.
+    const storage = JSON.parse(JSON.stringify(first.data().storage)) as Record<string, { items: Record<string, unknown>[] }>
+    const stored = storage['connections.v1']!
+    stored.items[0]!.group = null
+    stored.items[1]!.group = ' Staging '
+    const again = await mountWorker(main, { host: mockHost({ storage: storage as unknown as Record<string, JsonValue> }) })
+    assert.deepEqual((await again.request('connections.state')).connections.map((c) => c.group), ['', 'Staging'])
+  })
+
+  test('import trims groups, reads a non-string group as none, and joins existing groups by case', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    await worker.request('connections.save', { def: Object.assign(draft('Mine'), { group: 'Clients' }), secrets: {} })
+    const file = JSON.parse((await worker.request('connections.export', { tasks: false })).json) as { connections: Record<string, unknown>[] }
+    const template = file.connections[0]!
+    file.connections = [
+      { ...template, name: 'Null', group: null },
+      { ...template, name: 'Number', group: 3 },
+      { ...template, name: 'Padded', group: ' Staging ' },
+      { ...template, name: 'Lower', group: 'clients' }
+    ]
+    const report = await worker.request('connections.import', { text: JSON.stringify(file) })
+    assert.deepEqual(report.errors, [])
+    const groups = Object.fromEntries((await worker.request('connections.state')).connections.map((c) => [c.name, c.group]))
+    assert.deepEqual(groups, { Mine: 'Clients', Null: '', Number: '', Padded: 'Staging', Lower: 'Clients' })
   })
 
   test('imports and exports without secrets', async () => {
