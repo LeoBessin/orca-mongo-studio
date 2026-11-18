@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "mongo-studio",
   "name": "Mongo Studio",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A full MongoDB client inside Orca: browse collections and edit documents, query with a query bar or the Query Builder, build aggregation pipelines stage by stage, and script in a Mongo Shell. Not affiliated with or endorsed by MongoDB, Inc.",
   "icon": "media/icon.webp",
   "engines": {
