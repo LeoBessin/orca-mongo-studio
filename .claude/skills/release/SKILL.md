@@ -11,47 +11,59 @@ clone that tag as is. Whatever is committed in `dist/` at the tag is what users 
 
 Argument: the new version, or `patch`/`minor`/`major`. If none is given, ask.
 
+Read the "Never uninstall" rule in `CLAUDE.md` first. Nothing in this skill uninstalls a plugin.
+
 ## Steps
 
-1. **Start clean, on `main`.** `git status` must show no unrelated changes, and the branch must be
-   `main` and up to date with `origin/main`. If not, stop and say why.
+1. **Start clean, on an up-to-date `main`.** `git status` shows no changes, the branch is `main`
+   and `git fetch && git status` says it matches `origin/main`. If not, stop and say why.
 
-2. **Bump the version in both files**, to the same value:
-   - `orca-plugin.json` → `"version"`
-   - `package.json` → `"version"` (and run `npm install --package-lock-only` so
-     `package-lock.json` follows)
-
-3. **Build, check, test**, and stop at the first failure:
+2. **Check `dist/` was already current.** Before touching anything:
    ```sh
-   npm run build && npm run typecheck && npm run check && npm test
+   npm run build && git status --porcelain dist/
    ```
-   Then confirm `git status` shows no change under `dist/` other than what the build just made,
-   and `git diff orca-plugin.json` shows only the version (`main` must still be
-   `dist/worker.mjs`; `npm test` rewrites it during the run).
+   Any output means a commit on `main` shipped source without its build (or this machine's
+   esbuild differs). Show the diff and ask the user how to proceed; don't fold it silently into
+   the release.
 
-4. **Test a real install.** Dev folders hide failures installed plugins hit (the frame's
-   32-request limit). Ask the user which way:
-   - **GitHub install (safe):** push the release commit to a branch first (ask before pushing),
-     unload the dev folder (`orca plugin dev unload .`; their keybindings clash), then
-     `orca plugin install LeoBessin/orca-mongo-studio@<branch>`, `orca plugin open
-     leobessin.mongo-studio`, `orca plugin shot leobessin.mongo-studio`, read the PNG and
-     `orca plugin logs leobessin.mongo-studio`. Uninstall it and `orca plugin dev load .` again
-     afterwards.
-   - **Folder install:** it uses the dev folder's storage key `local.mongo-studio`, and
-     uninstalling it **wipes the dev connections**. First export them:
-     `orca plugin dev request . connections.export --data '{"tasks":true}' --json > .orca/connections-backup.json`
-     and confirm the file has the connections. Never run `orca plugin uninstall local.mongo-studio`
-     without that backup.
-   - The user may skip this step for a release that doesn't touch the panel, editor or bundling;
-     say that it was skipped.
+3. **Bump the version in both files**, to the same value: `"version"` in `orca-plugin.json` and
+   `package.json`, then `npm install --package-lock-only` so `package-lock.json` follows.
 
-5. **Commit and tag**, with a message headline for users:
+4. **Check and test**, and stop at the first failure (`check` builds):
    ```sh
-   git commit -am "Mongo Studio X.Y.Z: <headline>"
-   git tag -a vX.Y.Z -m vX.Y.Z
+   npm run typecheck && npm run check && npm test
+   ```
+   Then `git diff orca-plugin.json` must show only the version (`npm test` rewrites `main` during
+   the run and must have put back `dist/worker.mjs`).
+
+5. **Commit locally:**
+   ```sh
+   git commit -am "Mongo Studio X.Y.Z: <headline for users>"
    ```
 
-6. **Stop before pushing.** Show the commit, the tag and the `dist/` size, and ask the user to
+6. **Test the real install.** A dev folder hides failures an installed plugin hits (the frame's
+   32-request limit). The test installs the release commit over the user's catalog copy,
+   `leobessin.mongo-studio`, in place; it never uninstalls. Ask the user before each of these,
+   since they push and replace their installed copy:
+   - `git push origin HEAD:refs/heads/release/vX.Y.Z`
+   - If the dev plugin is enabled (`orca plugin list`), `orca plugin disable local.mongo-studio`;
+     its keybindings clash with the installed copy's.
+   - `orca plugin install LeoBessin/orca-mongo-studio@release/vX.Y.Z`. Exit 3 means approval:
+     show the user the fingerprint and let them approve. If Orca refuses because it's already
+     installed, stop and ask; do not uninstall to get around it.
+   - `orca plugin open leobessin.mongo-studio`, then
+     `orca plugin shot leobessin.mongo-studio --width 420 --out .orca/shots/release.png --json`.
+     Read the PNG; the JSON's `errors` must be empty and `settled` true. Check
+     `orca plugin logs leobessin.mongo-studio` for errors.
+   - Afterwards: `git push origin --delete release/vX.Y.Z`, and re-enable the dev plugin if you
+     disabled it. The installed copy can stay; it's the release commit.
+
+   The user may skip this step for a release that doesn't touch the panel, the editor, `src/shared/`
+   modules the editor imports, or the build. Say that it was skipped.
+
+7. **Tag:** `git tag -a vX.Y.Z -m vX.Y.Z`.
+
+8. **Stop before pushing.** Show the commit, the tag and the `dist/` sizes, and ask the user to
    confirm `git push origin main vX.Y.Z`. Pushing the tag publishes the release to everyone.
    After the push, point them to https://orca.dev/plugins/leobessin/orca-mongo-studio for the
    listing's status.
