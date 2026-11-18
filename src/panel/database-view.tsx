@@ -35,6 +35,7 @@ import {
   toggleDbSection
 } from './database-state'
 import { openUsers } from './users-state'
+import { PlaceLine } from './place-view'
 
 const KINDS = [
   { value: 'plain', label: 'Collection', description: 'Documents of any shape' },
@@ -268,7 +269,7 @@ export function DatabaseTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{t.isNew ? 'New database' : `Database ${t.db}`}</Text>
-          <Text size="xs" muted truncate>{connectionName(t.connectionId)}</Text>
+          <PlaceLine places={[{ connectionId: t.connectionId, ...(t.isNew ? { db: t.newDb } : {}), writes: true }]} />
         </Box>
         <IconButton icon="close" label={`Close ${t.isNew ? 'the new database' : t.db}`} variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

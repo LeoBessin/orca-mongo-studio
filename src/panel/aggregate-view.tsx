@@ -60,6 +60,7 @@ import { changeExplain, runExplain } from './explain-state'
 import { guard } from './guard'
 import { Results } from './results-view'
 import { CodeSection } from './shell-view'
+import { PlaceLine } from './place-view'
 
 // ---- Stage list ----
 
@@ -258,6 +259,7 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{aggTitle(t)}</Text>
+          <PlaceLine places={[{ connectionId: t.ns.connectionId, writes: true }]} />
           <Row gap="xs">
             <Badge tone="neutral">{`${on} of ${a.stages.length} stage${a.stages.length === 1 ? '' : 's'} on`}</Badge>
             {t.kind === 'view' ? <Badge tone="warning">On a view</Badge> : null}

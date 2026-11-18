@@ -25,6 +25,7 @@ import {
   type Path
 } from './collection-state'
 import { guard } from './guard'
+import { PlaceLine } from './place-view'
 
 const VIEWS = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value: value as DocView, label }))
 
@@ -102,7 +103,7 @@ export function DocumentView({ t }: { t: CollTab }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{toShellInline(f.id)}</Text>
-          <Text size="xs" muted truncate>{`${nsLabel(t.ns)}${doc ? ` · ${Object.keys(doc).length} fields` : ''}`}</Text>
+          <PlaceLine places={[{ ...t.ns, writes: true }]} {...(doc ? { detail: `${Object.keys(doc).length} fields` } : {})} />
         </Box>
         <Toolbar label="Open document" gap="xs">
           <IconButton icon="refresh" label="Read the document again" variant="ghost" size="sm" disabled={f.loading || f.deleted} onPress={guard(t.id, () => loadFocus(t.id))} />

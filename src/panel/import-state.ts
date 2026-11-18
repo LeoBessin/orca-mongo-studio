@@ -5,8 +5,9 @@ import { plugin } from 'orca'
 import type { DataSource, ImportFormat, ImportOptions, ImportPreview, Namespace, WriteMode } from '../protocol'
 import type { CsvColumn } from '../shared/csv'
 import { mappingProblems } from '../shared/csv'
-import { adminTabId, changeAdmin, connectionName, numberText, refreshTree, sayAdmin, showOrAdd, tabOf } from './admin-state'
+import { adminTabId, changeAdmin, numberText, refreshTree, sayAdmin, showOrAdd, tabOf } from './admin-state'
 import { cancelJob, dropDownload, followJob, uploadText, type JobBox } from './data-state'
+import type { Place } from './place-view'
 import { errorText } from './state'
 
 export type ImportColumn = CsvColumn & { samples: string[] }
@@ -225,6 +226,7 @@ export async function cancelImport(id: string): Promise<void> {
   await cancelJob(tabOf(id, 'import')?.job)
 }
 
-export function targetLabel(t: ImportTab): string {
-  return `${connectionName(t.connectionId)} · ${t.db || '…'}${t.preview?.folder ? '' : `.${t.collection || '…'}`}`
+/** Where the import writes: a database for a folder of collections, otherwise one collection. */
+export function importPlaces(t: ImportTab): Place[] {
+  return [{ connectionId: t.connectionId, db: t.db, ...(t.preview?.folder ? {} : { collection: t.collection }), label: 'Into', writes: true }]
 }

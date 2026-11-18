@@ -9,6 +9,7 @@ import type { NodeKind } from '../shared/nodes'
 import { parseShellDocument, ShellParseError } from '../shared/shell-parse'
 import { adminTabId, changeAdmin, connectionName, numberText, sayAdmin, showOrAdd, tabOf } from './admin-state'
 import { cancelJob, followJob, type JobBox } from './data-state'
+import type { Place } from './place-view'
 import { errorText } from './state'
 
 export type CompareShow = 'differ' | 'onlyA' | 'onlyB'
@@ -64,6 +65,16 @@ export function openCompare(a: Namespace, collKind: NodeKind, b?: Namespace): vo
 
 export function setCompare(id: string, change: Partial<CompareTab>): void {
   changeAdmin(id, 'compare', (t) => ({ ...change, sync: { ...(change.sync ?? t.sync), confirm: false } }))
+}
+
+/** Where the tab works. After a comparison, the pair it compared, which is what Sync writes to,
+ *  even if side B's fields were changed since; before one, the pair as entered. */
+export function comparePlaces(t: CompareTab): Place[] {
+  const [a, b] = t.ran ? [t.ran.a, t.ran.b] : [t.a, bNs(t)]
+  return [
+    { ...a, label: 'A', writes: true },
+    { ...b, label: 'B', writes: true }
+  ]
 }
 
 export function bNs(t: CompareTab): Namespace {

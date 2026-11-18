@@ -20,11 +20,12 @@ import { adminTabs, aguard, changeAdmin, closeAdmin, numberText } from './admin-
 import { NoticeBar } from './admin-notice'
 import { openNamespace } from './collection-state'
 import { jobRunning } from './data-state'
-import { cancelExport, exportProblems, loadFields, moveField, saveExport, setExport, setFields, sourceLabel, startExport, type ExportTab } from './export-state'
+import { cancelExport, exportProblems, loadFields, moveField, saveExport, setExport, setFields, exportPlaces, sourceDetail, startExport, type ExportTab } from './export-state'
 import { DELIMITERS } from './import-state'
 import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { connections } from './state'
+import { PlaceLine } from './place-view'
 
 function QueryFields({ t }: { t: ExportTab }): OrcaNode {
   if (t.from.kind !== 'query') return null
@@ -147,7 +148,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{t.format === 'collection' ? 'Copy' : 'Export'}</Text>
-          <Text size="xs" muted truncate>{sourceLabel(t)}</Text>
+          <PlaceLine places={exportPlaces(t)} detail={sourceDetail(t)} />
         </Box>
         <IconButton icon="close" label="Close the export" variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

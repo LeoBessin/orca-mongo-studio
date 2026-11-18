@@ -2,7 +2,7 @@
 
 
 // src/panel.tsx
-import { Badge as Badge8, Box as Box22, plugin as plugin18, read as read27, Row as Row23, set as set14, Tab, Tabs, Text as Text23 } from "orca";
+import { plugin as plugin18, read as read28, set as set14, Tab, Tabs } from "orca";
 
 // src/panel/collection-state.ts
 import { atom as atom2, plugin as plugin2, read as read2, set as set2, update as update2 } from "orca";
@@ -3106,7 +3106,10 @@ function closeAdmin(id) {
   if (read4(view) === id) set4(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
 }
 function closeAdminTabsFor(connectionId) {
-  for (const id of Object.keys(read4(adminTabs))) if (adminTab(id)?.connectionId === connectionId) closeAdmin(id);
+  for (const id of Object.keys(read4(adminTabs))) {
+    const t = adminTab(id);
+    if (t?.connectionId === connectionId || t?.kind === "compare" && (t.b.connectionId === connectionId || t.ran?.b.connectionId === connectionId)) closeAdmin(id);
+  }
 }
 function sameNs(a, b) {
   return a.connectionId === b.connectionId && a.db === b.db && a.collection === b.collection;
@@ -3145,7 +3148,7 @@ function nodeNamespace(nodeKey2) {
 var numberText = (n2) => n2.toLocaleString("en-US");
 
 // src/panel/admin-view.tsx
-import { read as read16 } from "orca";
+import { read as read17 } from "orca";
 
 // src/panel/database-view.tsx
 import {
@@ -3158,12 +3161,12 @@ import {
   Input,
   KeyValue,
   RadioGroup,
-  read as read5,
-  Row as Row2,
+  read as read6,
+  Row as Row3,
   Select,
   Skeleton,
   Table,
-  Text as Text2,
+  Text as Text3,
   Textarea,
   Toolbar
 } from "orca";
@@ -3527,8 +3530,27 @@ async function dropConfirmed(id) {
   await refreshTree(t.connectionId, t.db);
 }
 
-// src/panel/database-view.tsx
+// src/panel/place-view.tsx
+import { Badge, read as read5, Row as Row2, Text as Text2 } from "orca";
 import { jsx as jsx2, jsxs as jsxs2 } from "orca/jsx-runtime";
+function placeText(p, name) {
+  const db = p.db?.trim();
+  const coll = p.collection?.trim();
+  const where = db ? ` › ${db}${coll ? `.${coll}` : ""}` : "";
+  return `${p.label ? `${p.label}: ` : ""}${name}${where}`;
+}
+function PlaceLine({ places, detail }) {
+  const byId = new Map((read5(connections)?.connections ?? []).map((c) => [c.id, c]));
+  const locked = places.filter((p) => p.writes && byId.get(p.connectionId)?.readOnly);
+  const text = places.map((p) => placeText(p, byId.get(p.connectionId)?.name ?? "Connection")).join(" · ");
+  return /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "center", children: [
+    locked.map((p) => /* @__PURE__ */ jsx2(Badge, { tone: "warning", children: p.label ? `${p.label} read only` : "Read only" }, `${p.label ?? ""}${p.connectionId}`)),
+    /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, truncate: true, children: detail ? `${text} · ${detail}` : text })
+  ] });
+}
+
+// src/panel/database-view.tsx
+import { jsx as jsx3, jsxs as jsxs3 } from "orca/jsx-runtime";
 var KINDS = [
   { value: "plain", label: "Collection", description: "Documents of any shape" },
   { value: "capped", label: "Capped", description: "A fixed size; the oldest documents make room" },
@@ -3547,9 +3569,9 @@ var OPS = [
 var LEVEL_TEXT = ["Off", "Slow operations", "Every operation"];
 function Overview({ t }) {
   const info = t.info;
-  return /* @__PURE__ */ jsx2(Collapsible, { title: "Overview", description: info ? `${numberText(info.collections.length)} collections and views` : "Statistics and collections", open: t.open.overview, onChange: (open) => toggleDbSection(t.id, "overview", open), children: info ? /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-    /* @__PURE__ */ jsx2(KeyValue, { label: "Statistics", items: info.stats }),
-    /* @__PURE__ */ jsx2(
+  return /* @__PURE__ */ jsx3(Collapsible, { title: "Overview", description: info ? `${numberText(info.collections.length)} collections and views` : "Statistics and collections", open: t.open.overview, onChange: (open) => toggleDbSection(t.id, "overview", open), children: info ? /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+    /* @__PURE__ */ jsx3(KeyValue, { label: "Statistics", items: info.stats }),
+    /* @__PURE__ */ jsx3(
       Table,
       {
         label: "Collections",
@@ -3563,32 +3585,32 @@ function Overview({ t }) {
         onRowAction: ({ key }) => void aguard(t.id, () => openCollectionOf(t.id, key.slice(2)))()
       }
     ),
-    info.collections.length ? /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, children: "Enter or a double click opens a collection." }) : null
-  ] }) : /* @__PURE__ */ jsx2(Skeleton, { lines: 4, label: "Loading the database" }) });
+    info.collections.length ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "Enter or a double click opens a collection." }) : null
+  ] }) : /* @__PURE__ */ jsx3(Skeleton, { lines: 4, label: "Loading the database" }) });
 }
 function CreateCollection({ t }) {
   const d = t.create;
   const e = t.createErrors;
   const { spec } = createSpec(d);
   const db = t.isNew ? t.newDb.trim() : t.db;
-  return /* @__PURE__ */ jsx2(Collapsible, { title: t.isNew ? "First collection" : "Create a collection", description: "Plain, capped, time series or clustered, with rules", open: t.open.create, onChange: (open) => toggleDbSection(t.id, "create", open), children: /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-    /* @__PURE__ */ jsx2(Input, { label: "Name", placeholder: "orders", value: d.name, invalid: Boolean(e.name), onChange: (name) => editCreate(t.id, { name }) }),
-    e.name ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.name }) : null,
-    /* @__PURE__ */ jsx2(RadioGroup, { label: "Kind", value: d.kind, options: KINDS, onChange: (v) => editCreate(t.id, { kind: v }) }),
-    d.kind === "capped" ? /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-      /* @__PURE__ */ jsxs2(Row2, { gap: "xs", children: [
-        /* @__PURE__ */ jsx2(Input, { label: "Size (bytes)", placeholder: "1048576", value: d.size, invalid: Boolean(e.size), onChange: (size) => editCreate(t.id, { size }) }),
-        /* @__PURE__ */ jsx2(Input, { label: "Most documents", placeholder: "No limit", value: d.max, invalid: Boolean(e.max), onChange: (max) => editCreate(t.id, { max }) })
+  return /* @__PURE__ */ jsx3(Collapsible, { title: t.isNew ? "First collection" : "Create a collection", description: "Plain, capped, time series or clustered, with rules", open: t.open.create, onChange: (open) => toggleDbSection(t.id, "create", open), children: /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+    /* @__PURE__ */ jsx3(Input, { label: "Name", placeholder: "orders", value: d.name, invalid: Boolean(e.name), onChange: (name) => editCreate(t.id, { name }) }),
+    e.name ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.name }) : null,
+    /* @__PURE__ */ jsx3(RadioGroup, { label: "Kind", value: d.kind, options: KINDS, onChange: (v) => editCreate(t.id, { kind: v }) }),
+    d.kind === "capped" ? /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
+        /* @__PURE__ */ jsx3(Input, { label: "Size (bytes)", placeholder: "1048576", value: d.size, invalid: Boolean(e.size), onChange: (size) => editCreate(t.id, { size }) }),
+        /* @__PURE__ */ jsx3(Input, { label: "Most documents", placeholder: "No limit", value: d.max, invalid: Boolean(e.max), onChange: (max) => editCreate(t.id, { max }) })
       ] }),
-      e.size || e.max ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.size ?? e.max }) : null
+      e.size || e.max ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.size ?? e.max }) : null
     ] }) : null,
-    d.kind === "timeseries" ? /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-      /* @__PURE__ */ jsxs2(Row2, { gap: "xs", children: [
-        /* @__PURE__ */ jsx2(Input, { label: "Time field", placeholder: "ts", value: d.timeField, invalid: Boolean(e.timeField), onChange: (timeField) => editCreate(t.id, { timeField }) }),
-        /* @__PURE__ */ jsx2(Input, { label: "Meta field", placeholder: "sensor", value: d.metaField, invalid: Boolean(e.metaField), onChange: (metaField) => editCreate(t.id, { metaField }) })
+    d.kind === "timeseries" ? /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
+        /* @__PURE__ */ jsx3(Input, { label: "Time field", placeholder: "ts", value: d.timeField, invalid: Boolean(e.timeField), onChange: (timeField) => editCreate(t.id, { timeField }) }),
+        /* @__PURE__ */ jsx3(Input, { label: "Meta field", placeholder: "sensor", value: d.metaField, invalid: Boolean(e.metaField), onChange: (metaField) => editCreate(t.id, { metaField }) })
       ] }),
-      e.timeField || e.metaField ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.timeField ?? e.metaField }) : null,
-      /* @__PURE__ */ jsx2(
+      e.timeField || e.metaField ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.timeField ?? e.metaField }) : null,
+      /* @__PURE__ */ jsx3(
         Select,
         {
           label: "Granularity",
@@ -3603,22 +3625,22 @@ function CreateCollection({ t }) {
         }
       )
     ] }) : null,
-    d.kind === "timeseries" || d.kind === "clustered" ? /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-      /* @__PURE__ */ jsx2(Input, { label: "Delete documents after (seconds)", placeholder: "Keep them", value: d.expire, invalid: Boolean(e.expire), onChange: (expire) => editCreate(t.id, { expire }) }),
-      e.expire ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.expire }) : null
+    d.kind === "timeseries" || d.kind === "clustered" ? /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+      /* @__PURE__ */ jsx3(Input, { label: "Delete documents after (seconds)", placeholder: "Keep them", value: d.expire, invalid: Boolean(e.expire), onChange: (expire) => editCreate(t.id, { expire }) }),
+      e.expire ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.expire }) : null
     ] }) : null,
-    d.kind === "timeseries" ? null : /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-      /* @__PURE__ */ jsx2(Textarea, { label: "Validator", rows: 4, placeholder: "{ $jsonSchema: { bsonType: 'object', required: ['name'] } }", value: d.validator, invalid: Boolean(e.validator), onChange: (validator) => editCreate(t.id, { validator }) }),
-      e.validator ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.validator }) : null,
-      d.validator.trim() ? /* @__PURE__ */ jsxs2(Row2, { gap: "xs", children: [
-        /* @__PURE__ */ jsx2(Select, { label: "Level", value: d.level, options: [{ value: "strict", label: "Strict" }, { value: "moderate", label: "Moderate" }, { value: "off", label: "Off" }], onChange: (v) => editCreate(t.id, { level: v }) }),
-        /* @__PURE__ */ jsx2(Select, { label: "Action", value: d.action, options: [{ value: "error", label: "Error" }, { value: "warn", label: "Warn" }, { value: "errorAndLog", label: "Error and log" }], onChange: (v) => editCreate(t.id, { action: v }) })
+    d.kind === "timeseries" ? null : /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+      /* @__PURE__ */ jsx3(Textarea, { label: "Validator", rows: 4, placeholder: "{ $jsonSchema: { bsonType: 'object', required: ['name'] } }", value: d.validator, invalid: Boolean(e.validator), onChange: (validator) => editCreate(t.id, { validator }) }),
+      e.validator ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.validator }) : null,
+      d.validator.trim() ? /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
+        /* @__PURE__ */ jsx3(Select, { label: "Level", value: d.level, options: [{ value: "strict", label: "Strict" }, { value: "moderate", label: "Moderate" }, { value: "off", label: "Off" }], onChange: (v) => editCreate(t.id, { level: v }) }),
+        /* @__PURE__ */ jsx3(Select, { label: "Action", value: d.action, options: [{ value: "error", label: "Error" }, { value: "warn", label: "Warn" }, { value: "errorAndLog", label: "Error and log" }], onChange: (v) => editCreate(t.id, { action: v }) })
       ] }) : null
     ] }),
-    /* @__PURE__ */ jsx2(Input, { label: "Collation", placeholder: "{ locale: 'en', strength: 2 }", value: d.collation, invalid: Boolean(e.collation), onChange: (collation) => editCreate(t.id, { collation }) }),
-    e.collation ? /* @__PURE__ */ jsx2(Text2, { size: "xs", tone: "danger", children: e.collation }) : null,
-    spec && db ? /* @__PURE__ */ jsx2(CodeView, { label: "mongosh", code: createCommandText(db, spec), language: "javascript", wrap: true }) : null,
-    /* @__PURE__ */ jsx2(Row2, { gap: "xs", children: /* @__PURE__ */ jsx2(Button, { variant: "solid", tone: "accent", icon: "add", disabled: t.creating, onPress: aguard(t.id, () => createCollection(t.id)), children: t.creating ? "Creating…" : t.isNew ? "Create database" : "Create collection" }) })
+    /* @__PURE__ */ jsx3(Input, { label: "Collation", placeholder: "{ locale: 'en', strength: 2 }", value: d.collation, invalid: Boolean(e.collation), onChange: (collation) => editCreate(t.id, { collation }) }),
+    e.collation ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.collation }) : null,
+    spec && db ? /* @__PURE__ */ jsx3(CodeView, { label: "mongosh", code: createCommandText(db, spec), language: "javascript", wrap: true }) : null,
+    /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button, { variant: "solid", tone: "accent", icon: "add", disabled: t.creating, onPress: aguard(t.id, () => createCollection(t.id)), children: t.creating ? "Creating…" : t.isNew ? "Create database" : "Create collection" }) })
   ] }) });
 }
 function Profiler({ t }) {
@@ -3627,17 +3649,17 @@ function Profiler({ t }) {
   const d = t.profilerDraft;
   const f = t.profileFilter;
   const sel = t.entries?.find((e) => e.key === t.entrySelected);
-  return /* @__PURE__ */ jsx2(
+  return /* @__PURE__ */ jsx3(
     Collapsible,
     {
       title: "Profiler",
       description: p ? `${LEVEL_TEXT[p.level] ?? `Level ${p.level}`}${p.level === 1 ? ` over ${p.slowms} ms` : ""}` : "Record slow operations",
       open: t.open.profiler,
       onChange: (open) => toggleDbSection(t.id, "profiler", open),
-      children: /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-        t.profilerError ? /* @__PURE__ */ jsx2(Callout2, { tone: "warning", icon: "warning", title: "The profiler can't be read here", children: t.profilerError }) : null,
-        ro ? null : /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-          /* @__PURE__ */ jsx2(
+      children: /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+        t.profilerError ? /* @__PURE__ */ jsx3(Callout2, { tone: "warning", icon: "warning", title: "The profiler can't be read here", children: t.profilerError }) : null,
+        ro ? null : /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+          /* @__PURE__ */ jsx3(
             RadioGroup,
             {
               label: "Record",
@@ -3651,24 +3673,24 @@ function Profiler({ t }) {
               onChange: (level) => changeAdmin(t.id, "database", (x) => ({ profilerDraft: { ...x.profilerDraft, level } }))
             }
           ),
-          /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "end", children: [
-            /* @__PURE__ */ jsx2(Input, { label: "Slow means over (ms)", value: d.slowms, onChange: (slowms) => changeAdmin(t.id, "database", (x) => ({ profilerDraft: { ...x.profilerDraft, slowms } })) }),
-            /* @__PURE__ */ jsx2(Input, { label: "Sample rate (0 to 1)", value: d.sampleRate, onChange: (sampleRate) => changeAdmin(t.id, "database", (x) => ({ profilerDraft: { ...x.profilerDraft, sampleRate } })) }),
-            /* @__PURE__ */ jsx2(Button, { onPress: aguard(t.id, () => applyProfiler(t.id)), children: "Apply" })
+          /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", children: [
+            /* @__PURE__ */ jsx3(Input, { label: "Slow means over (ms)", value: d.slowms, onChange: (slowms) => changeAdmin(t.id, "database", (x) => ({ profilerDraft: { ...x.profilerDraft, slowms } })) }),
+            /* @__PURE__ */ jsx3(Input, { label: "Sample rate (0 to 1)", value: d.sampleRate, onChange: (sampleRate) => changeAdmin(t.id, "database", (x) => ({ profilerDraft: { ...x.profilerDraft, sampleRate } })) }),
+            /* @__PURE__ */ jsx3(Button, { onPress: aguard(t.id, () => applyProfiler(t.id)), children: "Apply" })
           ] })
         ] }),
-        ro ? null : /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, children: "The slow threshold and sample rate apply to the whole server, and to its log. Recording everything slows the server down." }),
-        p?.note ? /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, children: p.note }) : null,
-        /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "end", wrap: true, children: [
-          /* @__PURE__ */ jsx2(Select, { label: "Operation", value: f.op || "any", options: OPS, onChange: (op) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, op: op === "any" ? "" : op } })) }),
-          /* @__PURE__ */ jsx2(Input, { label: "Slower than (ms)", value: f.minMs, onChange: (minMs) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, minMs } })) }),
-          /* @__PURE__ */ jsx2(Input, { label: "Collection", placeholder: "orders", value: f.ns, onChange: (ns) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, ns } })), onSubmit: () => void aguard(t.id, () => readProfile(t.id))() })
+        ro ? null : /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "The slow threshold and sample rate apply to the whole server, and to its log. Recording everything slows the server down." }),
+        p?.note ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: p.note }) : null,
+        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", wrap: true, children: [
+          /* @__PURE__ */ jsx3(Select, { label: "Operation", value: f.op || "any", options: OPS, onChange: (op) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, op: op === "any" ? "" : op } })) }),
+          /* @__PURE__ */ jsx3(Input, { label: "Slower than (ms)", value: f.minMs, onChange: (minMs) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, minMs } })) }),
+          /* @__PURE__ */ jsx3(Input, { label: "Collection", placeholder: "orders", value: f.ns, onChange: (ns) => changeAdmin(t.id, "database", (x) => ({ profileFilter: { ...x.profileFilter, ns } })), onSubmit: () => void aguard(t.id, () => readProfile(t.id))() })
         ] }),
-        /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "center", justify: "between", children: [
-          /* @__PURE__ */ jsx2(Button, { size: "sm", icon: "search", disabled: t.reading, onPress: aguard(t.id, () => readProfile(t.id)), children: t.reading ? "Reading…" : t.entries ? "Read again" : "Read entries" }),
-          t.entries ? /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, children: `${numberText(t.entries.length)} newest entries · ${numberText(t.entriesMs ?? 0)} ms` }) : null
+        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "center", justify: "between", children: [
+          /* @__PURE__ */ jsx3(Button, { size: "sm", icon: "search", disabled: t.reading, onPress: aguard(t.id, () => readProfile(t.id)), children: t.reading ? "Reading…" : t.entries ? "Read again" : "Read entries" }),
+          t.entries ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: `${numberText(t.entries.length)} newest entries · ${numberText(t.entriesMs ?? 0)} ms` }) : null
         ] }),
-        t.entries ? /* @__PURE__ */ jsx2(
+        t.entries ? /* @__PURE__ */ jsx3(
           Table,
           {
             label: "Profiler entries",
@@ -3687,8 +3709,8 @@ function Profiler({ t }) {
             onSelectionChange: ({ keys }) => changeAdmin(t.id, "database", () => ({ entrySelected: keys[0] }))
           }
         ) : null,
-        sel ? /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-          /* @__PURE__ */ jsx2(
+        sel ? /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+          /* @__PURE__ */ jsx3(
             KeyValue,
             {
               label: "Entry",
@@ -3704,7 +3726,7 @@ function Profiler({ t }) {
               ]
             }
           ),
-          /* @__PURE__ */ jsx2(CodeView, { label: "Profiler entry", code: sel.raw, language: "json", maxHeight: "md" })
+          /* @__PURE__ */ jsx3(CodeView, { label: "Profiler entry", code: sel.raw, language: "json", maxHeight: "md" })
         ] }) : null
       ] })
     }
@@ -3712,43 +3734,43 @@ function Profiler({ t }) {
 }
 function Drop({ t }) {
   const system = ["admin", "local", "config"].includes(t.db);
-  return /* @__PURE__ */ jsx2(Collapsible, { title: "Drop the database", description: system ? "System databases are never dropped here" : "Remove it with everything in it", open: t.open.drop, onChange: (open) => toggleDbSection(t.id, "drop", open), children: system ? /* @__PURE__ */ jsx2(Text2, { size: "sm", muted: true, children: `${t.db} is a system database. Mongo Studio does not drop it.` }) : /* @__PURE__ */ jsx2(Callout2, { tone: "danger", icon: "warning", title: `Drop ${t.db}?`, children: /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-    /* @__PURE__ */ jsx2(Text2, { children: `Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ""}, document${typeof t.info?.documents === "number" ? ` (${numberText(t.info.documents)})` : ""}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone. Type the database's name to confirm.` }),
-    /* @__PURE__ */ jsx2(Input, { label: "Database name", placeholder: t.db, value: t.dropName, onChange: (dropName) => changeAdmin(t.id, "database", () => ({ dropName })) }),
-    /* @__PURE__ */ jsx2(Row2, { gap: "xs", children: /* @__PURE__ */ jsx2(Button, { variant: "solid", tone: "danger", icon: "delete", disabled: t.dropName !== t.db, onPress: aguard(t.id, () => dropDatabase(t.id)), children: "Drop database" }) })
+  return /* @__PURE__ */ jsx3(Collapsible, { title: "Drop the database", description: system ? "System databases are never dropped here" : "Remove it with everything in it", open: t.open.drop, onChange: (open) => toggleDbSection(t.id, "drop", open), children: system ? /* @__PURE__ */ jsx3(Text3, { size: "sm", muted: true, children: `${t.db} is a system database. Mongo Studio does not drop it.` }) : /* @__PURE__ */ jsx3(Callout2, { tone: "danger", icon: "warning", title: `Drop ${t.db}?`, children: /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+    /* @__PURE__ */ jsx3(Text3, { children: `Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ""}, document${typeof t.info?.documents === "number" ? ` (${numberText(t.info.documents)})` : ""}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone. Type the database's name to confirm.` }),
+    /* @__PURE__ */ jsx3(Input, { label: "Database name", placeholder: t.db, value: t.dropName, onChange: (dropName) => changeAdmin(t.id, "database", () => ({ dropName })) }),
+    /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button, { variant: "solid", tone: "danger", icon: "delete", disabled: t.dropName !== t.db, onPress: aguard(t.id, () => dropDatabase(t.id)), children: "Drop database" }) })
   ] }) }) });
 }
 function DatabaseTabView({ id }) {
-  const t = read5(adminTabs)[id];
+  const t = read6(adminTabs)[id];
   if (!t || t.kind !== "database") return null;
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsxs2(Box, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs2(Box, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx2(Text2, { weight: "semibold", truncate: true, children: t.isNew ? "New database" : `Database ${t.db}` }),
-        /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, truncate: true, children: connectionName(t.connectionId) })
+  return /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs3(Box, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx3(Text3, { weight: "semibold", truncate: true, children: t.isNew ? "New database" : `Database ${t.db}` }),
+        /* @__PURE__ */ jsx3(PlaceLine, { places: [{ connectionId: t.connectionId, ...t.isNew ? { db: t.newDb } : {}, writes: true }] })
       ] }),
-      /* @__PURE__ */ jsx2(IconButton2, { icon: "close", label: `Close ${t.isNew ? "the new database" : t.db}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx3(IconButton2, { icon: "close", label: `Close ${t.isNew ? "the new database" : t.db}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    t.isNew ? null : /* @__PURE__ */ jsxs2(Toolbar, { label: "Database actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx2(Button, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadDatabase(t.id)), children: "Refresh" }),
-      /* @__PURE__ */ jsx2(Button, { size: "sm", icon: "agent", variant: "ghost", onPress: aguard(t.id, () => openUsers(t.connectionId, t.db)), children: "Users and roles" })
+    t.isNew ? null : /* @__PURE__ */ jsxs3(Toolbar, { label: "Database actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx3(Button, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadDatabase(t.id)), children: "Refresh" }),
+      /* @__PURE__ */ jsx3(Button, { size: "sm", icon: "agent", variant: "ghost", onPress: aguard(t.id, () => openUsers(t.connectionId, t.db)), children: "Users and roles" })
     ] }),
-    /* @__PURE__ */ jsx2(NoticeBar, { id: t.id, notice: t.notice }),
-    t.infoError ? /* @__PURE__ */ jsx2(Callout2, { tone: "danger", icon: "error", title: "Could not read the database", children: t.infoError }) : null,
-    t.isNew ? /* @__PURE__ */ jsxs2(Box, { gap: "xs", children: [
-      /* @__PURE__ */ jsx2(Input, { label: "Database name", placeholder: "inventory", value: t.newDb, onChange: (newDb) => changeAdmin(t.id, "database", () => ({ newDb })) }),
-      /* @__PURE__ */ jsx2(Text2, { size: "xs", muted: true, children: "MongoDB creates a database with its first collection." })
-    ] }) : /* @__PURE__ */ jsx2(Overview, { t }),
-    ro ? null : /* @__PURE__ */ jsx2(CreateCollection, { t }),
-    t.isNew ? null : /* @__PURE__ */ jsx2(Profiler, { t }),
-    t.isNew || ro ? null : /* @__PURE__ */ jsx2(Drop, { t })
+    /* @__PURE__ */ jsx3(NoticeBar, { id: t.id, notice: t.notice }),
+    t.infoError ? /* @__PURE__ */ jsx3(Callout2, { tone: "danger", icon: "error", title: "Could not read the database", children: t.infoError }) : null,
+    t.isNew ? /* @__PURE__ */ jsxs3(Box, { gap: "xs", children: [
+      /* @__PURE__ */ jsx3(Input, { label: "Database name", placeholder: "inventory", value: t.newDb, onChange: (newDb) => changeAdmin(t.id, "database", () => ({ newDb })) }),
+      /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "MongoDB creates a database with its first collection." })
+    ] }) : /* @__PURE__ */ jsx3(Overview, { t }),
+    ro ? null : /* @__PURE__ */ jsx3(CreateCollection, { t }),
+    t.isNew ? null : /* @__PURE__ */ jsx3(Profiler, { t }),
+    t.isNew || ro ? null : /* @__PURE__ */ jsx3(Drop, { t })
   ] });
 }
 
 // src/panel/manage-view.tsx
 import {
-  Badge,
+  Badge as Badge2,
   Box as Box2,
   Button as Button2,
   Callout as Callout3,
@@ -3759,12 +3781,12 @@ import {
   IconButton as IconButton3,
   Input as Input2,
   KeyValue as KeyValue2,
-  read as read6,
-  Row as Row3,
+  read as read7,
+  Row as Row4,
   Select as Select2,
   Skeleton as Skeleton2,
   Table as Table2,
-  Text as Text3,
+  Text as Text4,
   Textarea as Textarea2,
   Toolbar as Toolbar2
 } from "orca";
@@ -4341,7 +4363,7 @@ function setExport(id, change2) {
 }
 
 // src/panel/manage-view.tsx
-import { jsx as jsx3, jsxs as jsxs3 } from "orca/jsx-runtime";
+import { jsx as jsx4, jsxs as jsxs4 } from "orca/jsx-runtime";
 var LEVELS = [
   { value: "strict", label: "Strict: every insert and update" },
   { value: "moderate", label: "Moderate: skip documents already invalid" },
@@ -4367,23 +4389,23 @@ function indexRow(i) {
 function IndexActions({ t, i }) {
   const isId = i.name === "_id_";
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsxs3(Box2, { gap: "xs", children: [
-    ro || isId ? null : /* @__PURE__ */ jsxs3(Toolbar2, { label: `${i.name} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: i.hidden ? "play" : "pause", variant: "ghost", onPress: aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden)), children: i.hidden ? "Unhide" : "Hide" }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmDropIndex: i.name })), children: "Drop" })
+  return /* @__PURE__ */ jsxs4(Box2, { gap: "xs", children: [
+    ro || isId ? null : /* @__PURE__ */ jsxs4(Toolbar2, { label: `${i.name} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: i.hidden ? "play" : "pause", variant: "ghost", onPress: aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden)), children: i.hidden ? "Unhide" : "Hide" }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmDropIndex: i.name })), children: "Drop" })
     ] }),
-    i.ttl !== void 0 && !ro ? /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx3(Input2, { label: "Expire after (seconds)", value: t.ttlText ?? String(i.ttl), onChange: (v) => changeAdmin(t.id, "manage", () => ({ ttlText: v })), onSubmit: () => void aguard(t.id, () => saveTtl(t.id, i.name))() }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", disabled: (t.ttlText ?? String(i.ttl)) === String(i.ttl), onPress: aguard(t.id, () => saveTtl(t.id, i.name)), children: "Change TTL" })
+    i.ttl !== void 0 && !ro ? /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx4(Input2, { label: "Expire after (seconds)", value: t.ttlText ?? String(i.ttl), onChange: (v) => changeAdmin(t.id, "manage", () => ({ ttlText: v })), onSubmit: () => void aguard(t.id, () => saveTtl(t.id, i.name))() }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", disabled: (t.ttlText ?? String(i.ttl)) === String(i.ttl), onPress: aguard(t.id, () => saveTtl(t.id, i.name)), children: "Change TTL" })
     ] }) : null,
-    t.confirmDropIndex === i.name ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "warning", title: `Drop ${i.name} from ${t.ns.db}.${t.ns.collection}?`, children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsx3(Text3, { children: `Queries that use it fall back to other indexes or a collection scan. Building it again takes time${typeof t.info?.count === "number" ? ` over ${numberText(t.info.count)} document${t.info.count === 1 ? "" : "s"}` : " on a big collection"}${i.hidden ? "" : "; hiding it first shows what happens without it"}. The documents are not touched.` }),
-      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-        /* @__PURE__ */ jsx3(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => dropIndexConfirmed(t.id)), children: "Drop index" }),
-        /* @__PURE__ */ jsx3(Button2, { variant: "ghost", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmDropIndex: void 0 })), children: "Cancel" })
+    t.confirmDropIndex === i.name ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "warning", title: `Drop ${i.name} from ${t.ns.db}.${t.ns.collection}?`, children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+      /* @__PURE__ */ jsx4(Text4, { children: `Queries that use it fall back to other indexes or a collection scan. Building it again takes time${typeof t.info?.count === "number" ? ` over ${numberText(t.info.count)} document${t.info.count === 1 ? "" : "s"}` : " on a big collection"}${i.hidden ? "" : "; hiding it first shows what happens without it"}. The documents are not touched.` }),
+      /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+        /* @__PURE__ */ jsx4(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => dropIndexConfirmed(t.id)), children: "Drop index" }),
+        /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmDropIndex: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    /* @__PURE__ */ jsx3(
+    /* @__PURE__ */ jsx4(
       KeyValue2,
       {
         label: `${i.name} details`,
@@ -4397,7 +4419,7 @@ function IndexActions({ t, i }) {
         ]
       }
     ),
-    /* @__PURE__ */ jsx3(CodeView2, { label: "Index definition", code: toShell(i.spec), language: "javascript", maxHeight: "sm" })
+    /* @__PURE__ */ jsx4(CodeView2, { label: "Index definition", code: toShell(i.spec), language: "javascript", maxHeight: "sm" })
   ] });
 }
 function NewIndex({ t }) {
@@ -4405,67 +4427,67 @@ function NewIndex({ t }) {
   const e = t.draftErrors;
   const built = buildIndex(d);
   const hasText = d.keys.some((k) => k.kind === "text");
-  return /* @__PURE__ */ jsx3(Card, { title: "New index", description: `On ${t.ns.db}.${t.ns.collection}`, children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-    d.keys.map((k, n2) => /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx3(Box2, { grow: true, children: /* @__PURE__ */ jsx3(Input2, { label: `Field ${n2 + 1}`, placeholder: k.kind === "wildcard" ? "empty: every field" : "address.city", value: k.field, onChange: (v) => editKey(t.id, k.id, { field: v }) }) }),
-      /* @__PURE__ */ jsx3(Select2, { label: `Field ${n2 + 1} kind`, labelHidden: true, value: k.kind, options: INDEX_KIND_OPTIONS, onChange: (v) => editKey(t.id, k.id, { kind: v }) }),
-      /* @__PURE__ */ jsx3(IconButton3, { icon: "remove", label: `Remove field ${n2 + 1}`, variant: "ghost", size: "sm", disabled: d.keys.length === 1, onPress: () => removeKey(t.id, k.id) })
+  return /* @__PURE__ */ jsx4(Card, { title: "New index", description: `On ${t.ns.db}.${t.ns.collection}`, children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+    d.keys.map((k, n2) => /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx4(Box2, { grow: true, children: /* @__PURE__ */ jsx4(Input2, { label: `Field ${n2 + 1}`, placeholder: k.kind === "wildcard" ? "empty: every field" : "address.city", value: k.field, onChange: (v) => editKey(t.id, k.id, { field: v }) }) }),
+      /* @__PURE__ */ jsx4(Select2, { label: `Field ${n2 + 1} kind`, labelHidden: true, value: k.kind, options: INDEX_KIND_OPTIONS, onChange: (v) => editKey(t.id, k.id, { kind: v }) }),
+      /* @__PURE__ */ jsx4(IconButton3, { icon: "remove", label: `Remove field ${n2 + 1}`, variant: "ghost", size: "sm", disabled: d.keys.length === 1, onPress: () => removeKey(t.id, k.id) })
     ] }, k.id)),
-    e.keys ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.keys }) : null,
-    /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "add", variant: "ghost", onPress: () => addKey(t.id), children: "Add a field" }) }),
-    /* @__PURE__ */ jsx3(Input2, { label: "Name", placeholder: built.key ? defaultIndexName(built.key) : "Given by MongoDB", value: d.name, invalid: Boolean(e.name), onChange: (v) => editDraft(t.id, { name: v }) }),
-    e.name ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.name }) : null,
-    /* @__PURE__ */ jsxs3(Row3, { gap: "sm", wrap: true, children: [
-      /* @__PURE__ */ jsx3(Checkbox, { label: "Unique", checked: d.unique, onChange: (v) => editDraft(t.id, { unique: v }) }),
-      /* @__PURE__ */ jsx3(Checkbox, { label: "Sparse", checked: d.sparse, onChange: (v) => editDraft(t.id, { sparse: v }) }),
-      /* @__PURE__ */ jsx3(Checkbox, { label: "Hidden", description: "Built, but unused by queries", checked: d.hidden, onChange: (v) => editDraft(t.id, { hidden: v }) })
+    e.keys ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.keys }) : null,
+    /* @__PURE__ */ jsx4(Row4, { gap: "xs", children: /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "add", variant: "ghost", onPress: () => addKey(t.id), children: "Add a field" }) }),
+    /* @__PURE__ */ jsx4(Input2, { label: "Name", placeholder: built.key ? defaultIndexName(built.key) : "Given by MongoDB", value: d.name, invalid: Boolean(e.name), onChange: (v) => editDraft(t.id, { name: v }) }),
+    e.name ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.name }) : null,
+    /* @__PURE__ */ jsxs4(Row4, { gap: "sm", wrap: true, children: [
+      /* @__PURE__ */ jsx4(Checkbox, { label: "Unique", checked: d.unique, onChange: (v) => editDraft(t.id, { unique: v }) }),
+      /* @__PURE__ */ jsx4(Checkbox, { label: "Sparse", checked: d.sparse, onChange: (v) => editDraft(t.id, { sparse: v }) }),
+      /* @__PURE__ */ jsx4(Checkbox, { label: "Hidden", description: "Built, but unused by queries", checked: d.hidden, onChange: (v) => editDraft(t.id, { hidden: v }) })
     ] }),
-    e.unique ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.unique }) : null,
-    /* @__PURE__ */ jsx3(Input2, { label: "Expire documents after (seconds, TTL)", placeholder: "Leave empty to keep documents", value: d.ttl, invalid: Boolean(e.ttl), onChange: (v) => editDraft(t.id, { ttl: v }) }),
-    e.ttl ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.ttl }) : null,
-    /* @__PURE__ */ jsx3(Textarea2, { label: "Partial filter", rows: 2, placeholder: "{ status: { $exists: true } }", value: d.partial, invalid: Boolean(e.partial), onChange: (v) => editDraft(t.id, { partial: v }) }),
-    e.partial ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.partial }) : null,
-    /* @__PURE__ */ jsx3(Collapsible2, { title: "More options", description: "Collation, wildcard projection, text weights and languages, other options", open: t.draftMore, onChange: (open) => changeAdmin(t.id, "manage", () => ({ draftMore: open })), children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsx3(Input2, { label: "Collation", placeholder: "{ locale: 'en', strength: 2 }", value: d.collation, invalid: Boolean(e.collation), onChange: (v) => editDraft(t.id, { collation: v }) }),
-      e.collation ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.collation }) : null,
-      /* @__PURE__ */ jsx3(Input2, { label: "Wildcard projection", placeholder: "{ secret: 0 }", value: d.wildcardProjection, invalid: Boolean(e.wildcardProjection), onChange: (v) => editDraft(t.id, { wildcardProjection: v }) }),
-      e.wildcardProjection ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.wildcardProjection }) : null,
-      hasText || d.weights || d.defaultLanguage || d.languageOverride ? /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-        /* @__PURE__ */ jsx3(Input2, { label: "Text weights", placeholder: "{ title: 10, body: 1 }", value: d.weights, invalid: Boolean(e.weights), onChange: (v) => editDraft(t.id, { weights: v }) }),
-        e.weights ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.weights }) : null,
-        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-          /* @__PURE__ */ jsx3(Input2, { label: "Default language", placeholder: "english", value: d.defaultLanguage, invalid: Boolean(e.defaultLanguage), onChange: (v) => editDraft(t.id, { defaultLanguage: v }) }),
-          /* @__PURE__ */ jsx3(Input2, { label: "Language field", placeholder: "language", value: d.languageOverride, invalid: Boolean(e.languageOverride), onChange: (v) => editDraft(t.id, { languageOverride: v }) })
+    e.unique ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.unique }) : null,
+    /* @__PURE__ */ jsx4(Input2, { label: "Expire documents after (seconds, TTL)", placeholder: "Leave empty to keep documents", value: d.ttl, invalid: Boolean(e.ttl), onChange: (v) => editDraft(t.id, { ttl: v }) }),
+    e.ttl ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.ttl }) : null,
+    /* @__PURE__ */ jsx4(Textarea2, { label: "Partial filter", rows: 2, placeholder: "{ status: { $exists: true } }", value: d.partial, invalid: Boolean(e.partial), onChange: (v) => editDraft(t.id, { partial: v }) }),
+    e.partial ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.partial }) : null,
+    /* @__PURE__ */ jsx4(Collapsible2, { title: "More options", description: "Collation, wildcard projection, text weights and languages, other options", open: t.draftMore, onChange: (open) => changeAdmin(t.id, "manage", () => ({ draftMore: open })), children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+      /* @__PURE__ */ jsx4(Input2, { label: "Collation", placeholder: "{ locale: 'en', strength: 2 }", value: d.collation, invalid: Boolean(e.collation), onChange: (v) => editDraft(t.id, { collation: v }) }),
+      e.collation ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.collation }) : null,
+      /* @__PURE__ */ jsx4(Input2, { label: "Wildcard projection", placeholder: "{ secret: 0 }", value: d.wildcardProjection, invalid: Boolean(e.wildcardProjection), onChange: (v) => editDraft(t.id, { wildcardProjection: v }) }),
+      e.wildcardProjection ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.wildcardProjection }) : null,
+      hasText || d.weights || d.defaultLanguage || d.languageOverride ? /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+        /* @__PURE__ */ jsx4(Input2, { label: "Text weights", placeholder: "{ title: 10, body: 1 }", value: d.weights, invalid: Boolean(e.weights), onChange: (v) => editDraft(t.id, { weights: v }) }),
+        e.weights ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.weights }) : null,
+        /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+          /* @__PURE__ */ jsx4(Input2, { label: "Default language", placeholder: "english", value: d.defaultLanguage, invalid: Boolean(e.defaultLanguage), onChange: (v) => editDraft(t.id, { defaultLanguage: v }) }),
+          /* @__PURE__ */ jsx4(Input2, { label: "Language field", placeholder: "language", value: d.languageOverride, invalid: Boolean(e.languageOverride), onChange: (v) => editDraft(t.id, { languageOverride: v }) })
         ] }),
-        e.defaultLanguage || e.languageOverride ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.defaultLanguage ?? e.languageOverride }) : null
+        e.defaultLanguage || e.languageOverride ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.defaultLanguage ?? e.languageOverride }) : null
       ] }) : null,
-      /* @__PURE__ */ jsx3(Input2, { label: "Other options", placeholder: "{ bits: 26, min: -180, max: 180 }", value: d.extra, invalid: Boolean(e.extra), onChange: (v) => editDraft(t.id, { extra: v }) }),
-      e.extra ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: e.extra }) : /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "2d bits, min and max; textIndexVersion; 2dsphereIndexVersion; storageEngine." })
+      /* @__PURE__ */ jsx4(Input2, { label: "Other options", placeholder: "{ bits: 26, min: -180, max: 180 }", value: d.extra, invalid: Boolean(e.extra), onChange: (v) => editDraft(t.id, { extra: v }) }),
+      e.extra ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: e.extra }) : /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: "2d bits, min and max; textIndexVersion; 2dsphereIndexVersion; storageEngine." })
     ] }) }),
-    built.key ? /* @__PURE__ */ jsx3(CodeView2, { label: "mongosh", code: createIndexCommand(t.ns.collection, built.key, built.options), language: "javascript", wrap: true }) : null,
-    /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-      /* @__PURE__ */ jsx3(Button2, { variant: "solid", tone: "accent", icon: "check", disabled: t.creating, onPress: aguard(t.id, () => createIndexFromDraft(t.id)), children: t.creating ? "Building…" : "Create index" }),
-      /* @__PURE__ */ jsx3(Button2, { variant: "ghost", onPress: () => cancelIndex(t.id), children: "Cancel" })
+    built.key ? /* @__PURE__ */ jsx4(CodeView2, { label: "mongosh", code: createIndexCommand(t.ns.collection, built.key, built.options), language: "javascript", wrap: true }) : null,
+    /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+      /* @__PURE__ */ jsx4(Button2, { variant: "solid", tone: "accent", icon: "check", disabled: t.creating, onPress: aguard(t.id, () => createIndexFromDraft(t.id)), children: t.creating ? "Building…" : "Create index" }),
+      /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => cancelIndex(t.id), children: "Cancel" })
     ] }),
-    /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "The build runs on the server. Big collections take a while, and reads and writes go on meanwhile." })
+    /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: "The build runs on the server. Big collections take a while, and reads and writes go on meanwhile." })
   ] }) });
 }
 function Indexes({ t }) {
   const list = t.indexes;
   const sel = list?.indexes.find((i) => i.name === t.indexSelected);
   const total = list?.indexes.reduce((s, i) => s + (i.size ?? 0), 0) ?? 0;
-  return /* @__PURE__ */ jsx3(
+  return /* @__PURE__ */ jsx4(
     Collapsible2,
     {
       title: "Indexes",
       description: list ? `${list.indexes.length} index${list.indexes.length === 1 ? "" : "es"}${total ? ` · ${formatBytes(total)}` : ""}` : "Every kind, with sizes and use",
       open: t.open.indexes,
       onChange: (open) => toggleSection(t.id, "indexes", open),
-      children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-        t.indexesError ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "error", title: "Could not list the indexes", children: t.indexesError }) : null,
-        list?.building.map((b, n2) => /* @__PURE__ */ jsx3(Callout3, { tone: "accent", icon: "refresh", title: "Building", children: `${b.names.join(", ")}${b.progress ? `: ${b.progress}` : ""}${b.secs !== void 0 ? `, ${b.secs} s so far` : ""}. Refresh to follow it.` }, `b${n2}`)),
-        !list && !t.indexesError ? /* @__PURE__ */ jsx3(Skeleton2, { lines: 3, label: "Loading the indexes" }) : null,
-        list ? /* @__PURE__ */ jsx3(
+      children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+        t.indexesError ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not list the indexes", children: t.indexesError }) : null,
+        list?.building.map((b, n2) => /* @__PURE__ */ jsx4(Callout3, { tone: "accent", icon: "refresh", title: "Building", children: `${b.names.join(", ")}${b.progress ? `: ${b.progress}` : ""}${b.secs !== void 0 ? `, ${b.secs} s so far` : ""}. Refresh to follow it.` }, `b${n2}`)),
+        !list && !t.indexesError ? /* @__PURE__ */ jsx4(Skeleton2, { lines: 3, label: "Loading the indexes" }) : null,
+        list ? /* @__PURE__ */ jsx4(
           Table2,
           {
             label: "Indexes",
@@ -4483,9 +4505,9 @@ function Indexes({ t }) {
             onSelectionChange: ({ keys }) => selectIndex(t.id, keys[0]?.slice(2))
           }
         ) : null,
-        t.draft || isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "add", onPress: () => newIndex(t.id), children: "New index" }) }),
-        t.draft ? /* @__PURE__ */ jsx3(NewIndex, { t }) : null,
-        sel ? /* @__PURE__ */ jsx3(IndexActions, { t, i: sel }) : list?.indexes.length ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "Select an index for its details and actions. Used counts start again when the server restarts." }) : null
+        t.draft || isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx4(Row4, { gap: "xs", children: /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "add", onPress: () => newIndex(t.id), children: "New index" }) }),
+        t.draft ? /* @__PURE__ */ jsx4(NewIndex, { t }) : null,
+        sel ? /* @__PURE__ */ jsx4(IndexActions, { t, i: sel }) : list?.indexes.length ? /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: "Select an index for its details and actions. Used counts start again when the server restarts." }) : null
       ] })
     }
   );
@@ -4494,24 +4516,24 @@ function Validation({ t }) {
   const v = t.validation;
   const check = v.check;
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsx3(
+  return /* @__PURE__ */ jsx4(
     Collapsible2,
     {
       title: "Validation",
       description: t.info ? t.info.validator ? `Rules on · ${t.info.validationLevel}, ${t.info.validationAction}` : "No rules" : "Rules every write must pass",
       open: t.open.validation,
       onChange: (open) => toggleSection(t.id, "validation", open),
-      children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-        /* @__PURE__ */ jsx3(Textarea2, { label: "Validator", rows: 10, placeholder: "{\n  $jsonSchema: {\n    bsonType: 'object',\n    required: ['name']\n  }\n}", value: v.text, invalid: Boolean(v.error), onChange: (text) => setValidation(t.id, { text }), onSubmit: () => void aguard(t.id, () => checkValidation(t.id))() }),
-        v.error ? /* @__PURE__ */ jsx3(Text3, { size: "xs", tone: "danger", children: v.error }) : /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: ro ? "A query filter or $jsonSchema, in shell syntax. Check documents tries rules without saving them." : "A query filter or $jsonSchema, in shell syntax. Empty removes the rules." }),
-        ro ? null : /* @__PURE__ */ jsx3(Select2, { label: "Level", value: v.level, options: LEVELS, onChange: (level) => setValidation(t.id, { level }) }),
-        ro ? null : /* @__PURE__ */ jsx3(Select2, { label: "Action", value: v.action, options: ACTIONS, onChange: (action) => setValidation(t.id, { action }) }),
-        /* @__PURE__ */ jsxs3(Toolbar2, { label: "Validation actions", gap: "xs", children: [
-          ro ? null : /* @__PURE__ */ jsx3(Button2, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: aguard(t.id, () => saveValidation(t.id)), children: "Save rules" }),
-          /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check === "checking" ? "Checking…" : "Check documents" }),
-          /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind, true)), children: "From the schema" })
+      children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+        /* @__PURE__ */ jsx4(Textarea2, { label: "Validator", rows: 10, placeholder: "{\n  $jsonSchema: {\n    bsonType: 'object',\n    required: ['name']\n  }\n}", value: v.text, invalid: Boolean(v.error), onChange: (text) => setValidation(t.id, { text }), onSubmit: () => void aguard(t.id, () => checkValidation(t.id))() }),
+        v.error ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: v.error }) : /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: ro ? "A query filter or $jsonSchema, in shell syntax. Check documents tries rules without saving them." : "A query filter or $jsonSchema, in shell syntax. Empty removes the rules." }),
+        ro ? null : /* @__PURE__ */ jsx4(Select2, { label: "Level", value: v.level, options: LEVELS, onChange: (level) => setValidation(t.id, { level }) }),
+        ro ? null : /* @__PURE__ */ jsx4(Select2, { label: "Action", value: v.action, options: ACTIONS, onChange: (action) => setValidation(t.id, { action }) }),
+        /* @__PURE__ */ jsxs4(Toolbar2, { label: "Validation actions", gap: "xs", children: [
+          ro ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: aguard(t.id, () => saveValidation(t.id)), children: "Save rules" }),
+          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check === "checking" ? "Checking…" : "Check documents" }),
+          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind, true)), children: "From the schema" })
         ] }),
-        check && check !== "checking" ? check.error ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check.error }) : /* @__PURE__ */ jsx3(Callout3, { tone: check.failing ? "warning" : "success", icon: check.failing ? "warning" : "check", children: check.failing ? `${numberText(check.failing)} of ${check.checked !== null ? numberText(check.checked) : "the"} documents break these rules${check.firstId !== void 0 ? `, the first with _id ${valueText(check.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check.checked !== null ? ` (${numberText(check.checked)})` : ""} passes these rules.` }) : null
+        check && check !== "checking" ? check.error ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check.error }) : /* @__PURE__ */ jsx4(Callout3, { tone: check.failing ? "warning" : "success", icon: check.failing ? "warning" : "check", children: check.failing ? `${numberText(check.failing)} of ${check.checked !== null ? numberText(check.checked) : "the"} documents break these rules${check.firstId !== void 0 ? `, the first with _id ${valueText(check.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check.checked !== null ? ` (${numberText(check.checked)})` : ""} passes these rules.` }) : null
       ] })
     }
   );
@@ -4519,72 +4541,72 @@ function Validation({ t }) {
 function Operations({ t }) {
   const view2 = t.collKind === "view" || t.info?.kind === "view";
   const what = `${t.ns.db}.${t.ns.collection}`;
-  return /* @__PURE__ */ jsx3(Collapsible2, { title: view2 ? "Drop" : "Rename, clear and drop", description: view2 ? "Remove the view" : "Change the name or remove the data", open: t.open.operations, onChange: (open) => toggleSection(t.id, "operations", open), children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-    view2 ? null : /* @__PURE__ */ jsxs3(Box2, { gap: "xs", children: [
-      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx3(Input2, { label: "New name", placeholder: t.ns.collection, value: t.rename.to, onChange: (to) => setRename(t.id, { to }) }),
-        /* @__PURE__ */ jsx3(Input2, { label: "In database", placeholder: t.ns.db, value: t.rename.toDb, onChange: (toDb) => setRename(t.id, { toDb }) })
+  return /* @__PURE__ */ jsx4(Collapsible2, { title: view2 ? "Drop" : "Rename, clear and drop", description: view2 ? "Remove the view" : "Change the name or remove the data", open: t.open.operations, onChange: (open) => toggleSection(t.id, "operations", open), children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+    view2 ? null : /* @__PURE__ */ jsxs4(Box2, { gap: "xs", children: [
+      /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
+        /* @__PURE__ */ jsx4(Input2, { label: "New name", placeholder: t.ns.collection, value: t.rename.to, onChange: (to) => setRename(t.id, { to }) }),
+        /* @__PURE__ */ jsx4(Input2, { label: "In database", placeholder: t.ns.db, value: t.rename.toDb, onChange: (toDb) => setRename(t.id, { toDb }) })
       ] }),
-      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-        /* @__PURE__ */ jsx3(Checkbox, { label: "Replace a collection that has the name", checked: t.rename.dropTarget, onChange: (dropTarget) => setRename(t.id, { dropTarget }) }),
-        /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "edit", disabled: !t.rename.to.trim() || Boolean(t.confirmRename), onPress: aguard(t.id, () => renameCollection(t.id)), children: "Rename" })
+      /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+        /* @__PURE__ */ jsx4(Checkbox, { label: "Replace a collection that has the name", checked: t.rename.dropTarget, onChange: (dropTarget) => setRename(t.id, { dropTarget }) }),
+        /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "edit", disabled: !t.rename.to.trim() || Boolean(t.confirmRename), onPress: aguard(t.id, () => renameCollection(t.id)), children: "Rename" })
       ] }),
-      t.confirmRename ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "warning", title: `Replace ${t.confirmRename.target}?`, children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-        /* @__PURE__ */ jsx3(Text3, { children: `${t.confirmRename.target} on ${connectionName(t.connectionId)} is dropped${t.confirmRename.count === null ? "" : ` with its ${numberText(t.confirmRename.count)} document${t.confirmRename.count === 1 ? "" : "s"}`} and its indexes, then ${what} takes its name. This can't be undone.` }),
-        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-          /* @__PURE__ */ jsx3(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => renameCollection(t.id, true)), children: "Replace and rename" }),
-          /* @__PURE__ */ jsx3(Button2, { variant: "ghost", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmRename: void 0 })), children: "Cancel" })
+      t.confirmRename ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "warning", title: `Replace ${t.confirmRename.target}?`, children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+        /* @__PURE__ */ jsx4(Text4, { children: `${t.confirmRename.target} on ${connectionName(t.connectionId)} is dropped${t.confirmRename.count === null ? "" : ` with its ${numberText(t.confirmRename.count)} document${t.confirmRename.count === 1 ? "" : "s"}`} and its indexes, then ${what} takes its name. This can't be undone.` }),
+        /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+          /* @__PURE__ */ jsx4(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => renameCollection(t.id, true)), children: "Replace and rename" }),
+          /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmRename: void 0 })), children: "Cancel" })
         ] })
       ] }) }) : null
     ] }),
-    view2 || t.info?.capped || isTimeseries(t) ? null : /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx3(Input2, { label: "Make capped at (bytes)", placeholder: "1048576", value: t.cappedSize, onChange: (v) => changeAdmin(t.id, "manage", () => ({ cappedSize: v })) }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", disabled: !t.cappedSize.trim(), onPress: aguard(t.id, () => convertToCapped(t.id)), children: "Make capped" })
+    view2 || t.info?.capped || isTimeseries(t) ? null : /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx4(Input2, { label: "Make capped at (bytes)", placeholder: "1048576", value: t.cappedSize, onChange: (v) => changeAdmin(t.id, "manage", () => ({ cappedSize: v })) }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", disabled: !t.cappedSize.trim(), onPress: aguard(t.id, () => convertToCapped(t.id)), children: "Make capped" })
     ] }),
-    /* @__PURE__ */ jsxs3(Toolbar2, { label: "Remove", gap: "xs", children: [
-      view2 || t.info?.capped ? null : /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "remove", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "clear"), children: "Delete all documents" }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "drop"), children: view2 ? "Drop view" : "Drop collection" })
+    /* @__PURE__ */ jsxs4(Toolbar2, { label: "Remove", gap: "xs", children: [
+      view2 || t.info?.capped ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "remove", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "clear"), children: "Delete all documents" }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "drop"), children: view2 ? "Drop view" : "Drop collection" })
     ] }),
-    t.confirm ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "warning", title: t.confirm === "clear" ? `Delete every document in ${what}?` : `Drop ${what}?`, children: /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsx3(Text3, { children: t.confirm === "clear" ? `${countText(t)} are deleted. The collection, its indexes and its rules stay.` : view2 ? "The view is removed. Its source collection is not touched." : `The collection is removed with ${countText(t)} and its ${t.indexes ? `${t.indexes.indexes.length} index${t.indexes.indexes.length === 1 ? "" : "es"}` : "indexes"}. This can't be undone.` }),
-      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-        /* @__PURE__ */ jsx3(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => confirmed(t.id)), children: t.confirm === "clear" ? "Delete documents" : view2 ? "Drop view" : "Drop collection" }),
-        /* @__PURE__ */ jsx3(Button2, { variant: "ghost", onPress: () => askConfirm(t.id, void 0), children: "Cancel" })
+    t.confirm ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "warning", title: t.confirm === "clear" ? `Delete every document in ${what}?` : `Drop ${what}?`, children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+      /* @__PURE__ */ jsx4(Text4, { children: t.confirm === "clear" ? `${countText(t)} are deleted. The collection, its indexes and its rules stay.` : view2 ? "The view is removed. Its source collection is not touched." : `The collection is removed with ${countText(t)} and its ${t.indexes ? `${t.indexes.indexes.length} index${t.indexes.indexes.length === 1 ? "" : "es"}` : "indexes"}. This can't be undone.` }),
+      /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+        /* @__PURE__ */ jsx4(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => confirmed(t.id)), children: t.confirm === "clear" ? "Delete documents" : view2 ? "Drop view" : "Drop collection" }),
+        /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => askConfirm(t.id, void 0), children: "Cancel" })
       ] })
     ] }) }) : null
   ] }) });
 }
 function ManageTabView({ id }) {
-  const t = read6(adminTabs)[id];
+  const t = read7(adminTabs)[id];
   if (!t || t.kind !== "manage") return null;
   const info = t.info;
   const noIndexes = readonlyReason(t);
-  return /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs3(Row3, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs3(Box2, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx3(Text3, { weight: "semibold", truncate: true, children: `${t.ns.db}.${t.ns.collection}` }),
-        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-          /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, truncate: true, children: connectionName(t.connectionId) }),
-          info ? /* @__PURE__ */ jsx3(Badge, { tone: "neutral", children: info.kind === "timeseries" ? "time series" : info.kind }) : null,
-          info?.capped ? /* @__PURE__ */ jsx3(Badge, { tone: "neutral", children: "capped" }) : null
+  return /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs4(Box2, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx4(Text4, { weight: "semibold", truncate: true, children: `${t.ns.db}.${t.ns.collection}` }),
+        /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
+          /* @__PURE__ */ jsx4(PlaceLine, { places: [{ connectionId: t.connectionId, writes: true }] }),
+          info ? /* @__PURE__ */ jsx4(Badge2, { tone: "neutral", children: info.kind === "timeseries" ? "time series" : info.kind }) : null,
+          info?.capped ? /* @__PURE__ */ jsx4(Badge2, { tone: "neutral", children: "capped" }) : null
         ] })
       ] }),
-      /* @__PURE__ */ jsx3(IconButton3, { icon: "close", label: `Close managing ${t.ns.collection}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx4(IconButton3, { icon: "close", label: `Close managing ${t.ns.collection}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs3(Toolbar2, { label: "Collection actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadManage(t.id)), children: "Refresh" }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "open-external", variant: "ghost", onPress: aguard(t.id, () => openNamespace(t.ns, t.collKind)), children: "Open" }),
-      /* @__PURE__ */ jsx3(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind)), children: "Schema" })
+    /* @__PURE__ */ jsxs4(Toolbar2, { label: "Collection actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadManage(t.id)), children: "Refresh" }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "open-external", variant: "ghost", onPress: aguard(t.id, () => openNamespace(t.ns, t.collKind)), children: "Open" }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind)), children: "Schema" })
     ] }),
-    /* @__PURE__ */ jsx3(NoticeBar, { id: t.id, notice: t.notice }),
-    t.infoError ? /* @__PURE__ */ jsx3(Callout3, { tone: "danger", icon: "error", title: "Could not read the collection", children: t.infoError }) : null,
-    /* @__PURE__ */ jsx3(Collapsible2, { title: "Overview", description: "Statistics and options", open: t.open.overview, onChange: (open) => toggleSection(t.id, "overview", open), children: info ? /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsx3(KeyValue2, { label: "Statistics", items: info.stats }),
-      Object.keys(info.options).length ? /* @__PURE__ */ jsx3(CodeView2, { label: "Options", code: toShell(info.options), language: "javascript", maxHeight: "sm" }) : null
-    ] }) : /* @__PURE__ */ jsx3(Skeleton2, { lines: 4, label: "Loading the statistics" }) }),
-    noIndexes ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: noIndexes }) : /* @__PURE__ */ jsx3(Indexes, { t }),
-    noIndexes || isTimeseries(t) ? null : /* @__PURE__ */ jsx3(Validation, { t }),
-    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx3(Operations, { t })
+    /* @__PURE__ */ jsx4(NoticeBar, { id: t.id, notice: t.notice }),
+    t.infoError ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not read the collection", children: t.infoError }) : null,
+    /* @__PURE__ */ jsx4(Collapsible2, { title: "Overview", description: "Statistics and options", open: t.open.overview, onChange: (open) => toggleSection(t.id, "overview", open), children: info ? /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
+      /* @__PURE__ */ jsx4(KeyValue2, { label: "Statistics", items: info.stats }),
+      Object.keys(info.options).length ? /* @__PURE__ */ jsx4(CodeView2, { label: "Options", code: toShell(info.options), language: "javascript", maxHeight: "sm" }) : null
+    ] }) : /* @__PURE__ */ jsx4(Skeleton2, { lines: 4, label: "Loading the statistics" }) }),
+    noIndexes ? /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: noIndexes }) : /* @__PURE__ */ jsx4(Indexes, { t }),
+    noIndexes || isTimeseries(t) ? null : /* @__PURE__ */ jsx4(Validation, { t }),
+    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx4(Operations, { t })
   ] });
 }
 
@@ -4603,16 +4625,16 @@ import {
   KeyValue as KeyValue3,
   Progress,
   RadioGroup as RadioGroup2,
-  read as read7,
-  Row as Row4,
+  read as read8,
+  Row as Row5,
   Select as Select3,
   Skeleton as Skeleton3,
   Table as Table3,
-  Text as Text4,
+  Text as Text5,
   Toolbar as Toolbar3,
   Tree
 } from "orca";
-import { jsx as jsx4, jsxs as jsxs4 } from "orca/jsx-runtime";
+import { jsx as jsx5, jsxs as jsxs5 } from "orca/jsx-runtime";
 function treeItems(report, parent, expanded2) {
   return report.fields.filter((f) => f.parent === parent).map((f) => {
     const key = fieldKey(f.path);
@@ -4652,11 +4674,11 @@ function FieldDetails({ f }) {
   if (f.arrays) items.push({ label: "Array length", value: `${f.arrays.minLength} to ${f.arrays.maxLength}, ${Math.round(f.arrays.avgLength * 10) / 10} on average` });
   if (f.bools) items.push({ label: "true / false", value: `${numberText(f.bools.true)} / ${numberText(f.bools.false)}` });
   const buckets = f.numbers?.buckets ?? f.dates?.buckets;
-  return /* @__PURE__ */ jsx4(Card2, { title: f.name === ELEMENT ? `${f.parent} elements` : f.name, children: /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
-    /* @__PURE__ */ jsx4(KeyValue3, { label: `${f.path} details`, items }),
-    /* @__PURE__ */ jsx4(Box3, { gap: "xs", children: f.types.map((t) => /* @__PURE__ */ jsx4(Progress, { label: `${BSON_TYPE_LABELS[t.type]}: ${numberText(t.count)} (${percent(t.count, f.count)}%)`, value: percent(t.count, f.count) }, t.type)) }),
-    buckets && buckets.length > 1 ? /* @__PURE__ */ jsx4(Table3, { label: f.dates ? "Dates" : "Values", columns: BAR_COLUMNS, rows: bucketRows(buckets, "b"), maxHeight: "sm" }) : null,
-    f.strings && f.strings.top.length ? /* @__PURE__ */ jsx4(
+  return /* @__PURE__ */ jsx5(Card2, { title: f.name === ELEMENT ? `${f.parent} elements` : f.name, children: /* @__PURE__ */ jsxs5(Box3, { gap: "sm", children: [
+    /* @__PURE__ */ jsx5(KeyValue3, { label: `${f.path} details`, items }),
+    /* @__PURE__ */ jsx5(Box3, { gap: "xs", children: f.types.map((t) => /* @__PURE__ */ jsx5(Progress, { label: `${BSON_TYPE_LABELS[t.type]}: ${numberText(t.count)} (${percent(t.count, f.count)}%)`, value: percent(t.count, f.count) }, t.type)) }),
+    buckets && buckets.length > 1 ? /* @__PURE__ */ jsx5(Table3, { label: f.dates ? "Dates" : "Values", columns: BAR_COLUMNS, rows: bucketRows(buckets, "b"), maxHeight: "sm" }) : null,
+    f.strings && f.strings.top.length ? /* @__PURE__ */ jsx5(
       Table3,
       {
         label: "Most common",
@@ -4670,8 +4692,8 @@ function FieldDetails({ f }) {
 function Export({ t }) {
   const text = exportText(t);
   const name = `${t.ns.collection}.schema.json`;
-  return /* @__PURE__ */ jsx4(Collapsible3, { title: "Export the schema", description: "As a $jsonSchema validator or a JSON Schema", open: t.exportOpen, onChange: (open) => changeAdmin(t.id, "schema", () => ({ exportOpen: open })), children: /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
-    /* @__PURE__ */ jsx4(
+  return /* @__PURE__ */ jsx5(Collapsible3, { title: "Export the schema", description: "As a $jsonSchema validator or a JSON Schema", open: t.exportOpen, onChange: (open) => changeAdmin(t.id, "schema", () => ({ exportOpen: open })), children: /* @__PURE__ */ jsxs5(Box3, { gap: "sm", children: [
+    /* @__PURE__ */ jsx5(
       RadioGroup2,
       {
         label: "Format",
@@ -4683,48 +4705,48 @@ function Export({ t }) {
         onChange: (v) => setExport(t.id, { flavor: v })
       }
     ),
-    /* @__PURE__ */ jsx4(Checkbox2, { label: "Require fields every sampled document has", checked: t.required, onChange: (required) => setExport(t.id, { required }) }),
-    /* @__PURE__ */ jsx4(Checkbox2, { label: "Refuse fields the sample did not have", checked: t.closed, onChange: (closed) => setExport(t.id, { closed }) }),
-    /* @__PURE__ */ jsx4(CodeView3, { label: "Schema", code: text, language: t.flavor === "mongo" ? "javascript" : "json", maxHeight: "md" }),
-    /* @__PURE__ */ jsxs4(Toolbar3, { label: "Export actions", gap: "xs", children: [
-      t.flavor === "mongo" && t.collKind !== "view" && t.collKind !== "timeseries" ? /* @__PURE__ */ jsx4(Button3, { size: "sm", icon: "check", variant: "solid", tone: "accent", onPress: aguard(t.id, () => openManage(t.ns, t.collKind, { section: "validation", validator: text })), children: "Use as validator" }) : null,
-      /* @__PURE__ */ jsx4(Button3, { size: "sm", icon: "download", variant: "ghost", onPress: aguard(t.id, async () => {
+    /* @__PURE__ */ jsx5(Checkbox2, { label: "Require fields every sampled document has", checked: t.required, onChange: (required) => setExport(t.id, { required }) }),
+    /* @__PURE__ */ jsx5(Checkbox2, { label: "Refuse fields the sample did not have", checked: t.closed, onChange: (closed) => setExport(t.id, { closed }) }),
+    /* @__PURE__ */ jsx5(CodeView3, { label: "Schema", code: text, language: t.flavor === "mongo" ? "javascript" : "json", maxHeight: "md" }),
+    /* @__PURE__ */ jsxs5(Toolbar3, { label: "Export actions", gap: "xs", children: [
+      t.flavor === "mongo" && t.collKind !== "view" && t.collKind !== "timeseries" ? /* @__PURE__ */ jsx5(Button3, { size: "sm", icon: "check", variant: "solid", tone: "accent", onPress: aguard(t.id, () => openManage(t.ns, t.collKind, { section: "validation", validator: text })), children: "Use as validator" }) : null,
+      /* @__PURE__ */ jsx5(Button3, { size: "sm", icon: "download", variant: "ghost", onPress: aguard(t.id, async () => {
         await files2.saveAs({ suggestedName: t.flavor === "mongo" ? `${t.ns.collection}.validator.js` : name, mimeType: t.flavor === "mongo" ? "text/javascript" : "application/schema+json", data: text });
       }), children: "Save as file" })
     ] }),
-    /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: `Built from ${numberText(t.report?.sampled ?? 0)} sampled documents: check it before using it on writes.` })
+    /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: `Built from ${numberText(t.report?.sampled ?? 0)} sampled documents: check it before using it on writes.` })
   ] }) });
 }
 function SchemaTabView({ id }) {
-  const t = read7(adminTabs)[id];
+  const t = read8(adminTabs)[id];
   if (!t || t.kind !== "schema") return null;
   const r = t.report;
   const selected2 = r?.fields.find((f) => fieldKey(f.path) === t.selected);
   const expanded2 = new Set(t.expanded);
-  return /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs4(Box3, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx4(Text4, { weight: "semibold", truncate: true, children: `Schema of ${t.ns.db}.${t.ns.collection}` }),
-        /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, truncate: true, children: connectionName(t.connectionId) })
+  return /* @__PURE__ */ jsxs5(Box3, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs5(Box3, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx5(Text5, { weight: "semibold", truncate: true, children: `Schema of ${t.ns.db}.${t.ns.collection}` }),
+        /* @__PURE__ */ jsx5(PlaceLine, { places: [{ connectionId: t.connectionId }] })
       ] }),
-      /* @__PURE__ */ jsx4(IconButton4, { icon: "close", label: `Close the schema of ${t.ns.collection}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx5(IconButton4, { icon: "close", label: `Close the schema of ${t.ns.collection}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx4(Box3, { grow: true, children: /* @__PURE__ */ jsx4(Input3, { label: "Filter", placeholder: "{ status: 'shipped' }", value: t.filter, invalid: Boolean(t.filterError), onChange: (v) => changeAdmin(t.id, "schema", () => ({ filter: v, filterError: void 0 })), onSubmit: () => void aguard(t.id, () => analyze(t.id))() }) }),
-      /* @__PURE__ */ jsx4(Select3, { label: "Sample", value: String(t.size), options: SAMPLE_SIZES.map((n2) => ({ value: String(n2), label: `${numberText(n2)} documents` })), onChange: (v) => changeAdmin(t.id, "schema", () => ({ size: Number(v) })) })
+    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx5(Box3, { grow: true, children: /* @__PURE__ */ jsx5(Input3, { label: "Filter", placeholder: "{ status: 'shipped' }", value: t.filter, invalid: Boolean(t.filterError), onChange: (v) => changeAdmin(t.id, "schema", () => ({ filter: v, filterError: void 0 })), onSubmit: () => void aguard(t.id, () => analyze(t.id))() }) }),
+      /* @__PURE__ */ jsx5(Select3, { label: "Sample", value: String(t.size), options: SAMPLE_SIZES.map((n2) => ({ value: String(n2), label: `${numberText(n2)} documents` })), onChange: (v) => changeAdmin(t.id, "schema", () => ({ size: Number(v) })) })
     ] }),
-    t.filterError ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "danger", children: t.filterError }) : null,
-    /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsx4(Button3, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: aguard(t.id, () => analyze(t.id)), children: t.loading ? "Sampling…" : r ? "Sample again" : "Analyze" }),
-      r ? /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: `${numberText(r.sampled)} document${r.sampled === 1 ? "" : "s"} · ${numberText(r.fields.length)} fields · ${numberText(r.ms)} ms` }) : null
+    t.filterError ? /* @__PURE__ */ jsx5(Text5, { size: "xs", tone: "danger", children: t.filterError }) : null,
+    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsx5(Button3, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: aguard(t.id, () => analyze(t.id)), children: t.loading ? "Sampling…" : r ? "Sample again" : "Analyze" }),
+      r ? /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: `${numberText(r.sampled)} document${r.sampled === 1 ? "" : "s"} · ${numberText(r.fields.length)} fields · ${numberText(r.ms)} ms` }) : null
     ] }),
-    /* @__PURE__ */ jsx4(NoticeBar, { id: t.id, notice: t.notice }),
-    t.error ? /* @__PURE__ */ jsx4(Callout4, { tone: "danger", icon: "error", title: "Could not sample", children: t.error }) : null,
-    t.loading && !r ? /* @__PURE__ */ jsx4(Skeleton3, { lines: 6, label: "Sampling documents" }) : null,
-    r && r.sampled === 0 ? /* @__PURE__ */ jsx4(Callout4, { tone: "neutral", icon: "info", children: "No documents matched, so there is nothing to describe." }) : null,
-    r?.fieldsCapped ? /* @__PURE__ */ jsx4(Text4, { size: "xs", tone: "warning", children: "These documents have very many fields: the deepest and rarest are left out." }) : null,
-    r && r.sampled > 0 ? /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
-      /* @__PURE__ */ jsx4(
+    /* @__PURE__ */ jsx5(NoticeBar, { id: t.id, notice: t.notice }),
+    t.error ? /* @__PURE__ */ jsx5(Callout4, { tone: "danger", icon: "error", title: "Could not sample", children: t.error }) : null,
+    t.loading && !r ? /* @__PURE__ */ jsx5(Skeleton3, { lines: 6, label: "Sampling documents" }) : null,
+    r && r.sampled === 0 ? /* @__PURE__ */ jsx5(Callout4, { tone: "neutral", icon: "info", children: "No documents matched, so there is nothing to describe." }) : null,
+    r?.fieldsCapped ? /* @__PURE__ */ jsx5(Text5, { size: "xs", tone: "warning", children: "These documents have very many fields: the deepest and rarest are left out." }) : null,
+    r && r.sampled > 0 ? /* @__PURE__ */ jsxs5(Box3, { gap: "sm", children: [
+      /* @__PURE__ */ jsx5(
         Tree,
         {
           label: "Fields",
@@ -4736,8 +4758,8 @@ function SchemaTabView({ id }) {
           onSelect: ({ key }) => changeAdmin(t.id, "schema", () => ({ selected: key }))
         }
       ),
-      selected2 ? /* @__PURE__ */ jsx4(FieldDetails, { f: selected2 }) : /* @__PURE__ */ jsx4(Text4, { size: "xs", muted: true, children: "Select a field for its types, histogram and most common values." }),
-      /* @__PURE__ */ jsx4(Export, { t })
+      selected2 ? /* @__PURE__ */ jsx5(FieldDetails, { f: selected2 }) : /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: "Select a field for its types, histogram and most common values." }),
+      /* @__PURE__ */ jsx5(Export, { t })
     ] }) : null
   ] });
 }
@@ -4754,13 +4776,13 @@ import {
   IconButton as IconButton5,
   Input as Input4,
   KeyValue as KeyValue4,
-  read as read8,
+  read as read9,
   RelativeTime,
-  Row as Row5,
+  Row as Row6,
   Skeleton as Skeleton4,
   Switch,
   Table as Table4,
-  Text as Text5,
+  Text as Text6,
   Toolbar as Toolbar4
 } from "orca";
 
@@ -4863,36 +4885,36 @@ async function killConfirmed(id) {
 }
 
 // src/panel/server-view.tsx
-import { jsx as jsx5, jsxs as jsxs5 } from "orca/jsx-runtime";
+import { jsx as jsx6, jsxs as jsxs6 } from "orca/jsx-runtime";
 function rateText(n2) {
   return n2 >= 100 ? numberText(Math.round(n2)) : String(Math.round(n2 * 10) / 10);
 }
 function Rates({ t }) {
   const r = rates(t);
-  if (!r) return /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: "Rates show after a second reading: refresh, or turn on live." });
+  if (!r) return /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: "Rates show after a second reading: refresh, or turn on live." });
   const ops = ["insert", "query", "update", "delete", "getmore", "command"].map((k) => `${k} ${rateText(r[`op.${k}`] ?? 0)}`).join(" · ");
   const net = r["net.in"] !== void 0 ? ` · in ${formatBytes(r["net.in"])}/s · out ${formatBytes(r["net.out"] ?? 0)}/s` : "";
-  return /* @__PURE__ */ jsx5(Text5, { size: "xs", children: `Per second: ${ops}${net}` });
+  return /* @__PURE__ */ jsx6(Text6, { size: "xs", children: `Per second: ${ops}${net}` });
 }
 function Ops({ t }) {
   const f = t.opsFilter;
   const sel = t.ops?.find((o) => o.opid === t.opSelected);
   const kill = t.ops?.find((o) => o.opid === t.confirmKill);
   const setFilter = (change2) => changeAdmin(t.id, "server", (x) => ({ opsFilter: { ...x.opsFilter, ...change2 } }));
-  return /* @__PURE__ */ jsx5(Collapsible4, { title: "Current operations", description: t.ops ? `${numberText(t.ops.length)}${t.opsCapped ? "+" : ""} shown` : "What the server is doing now", open: t.opsOpen, onChange: (open) => changeAdmin(t.id, "server", () => ({ opsOpen: open })), children: /* @__PURE__ */ jsxs5(Box4, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx5(Input4, { label: "Namespace has", placeholder: "shop.orders", value: f.nsText, onChange: (nsText2) => setFilter({ nsText: nsText2 }), onSubmit: () => void aguard(t.id, () => loadOps(t.id))() }),
-      /* @__PURE__ */ jsx5(Input4, { label: "Running at least (s)", placeholder: "0", value: f.minText, onChange: (minText) => setFilter({ minText }), onSubmit: () => void aguard(t.id, () => loadOps(t.id))() })
+  return /* @__PURE__ */ jsx6(Collapsible4, { title: "Current operations", description: t.ops ? `${numberText(t.ops.length)}${t.opsCapped ? "+" : ""} shown` : "What the server is doing now", open: t.opsOpen, onChange: (open) => changeAdmin(t.id, "server", () => ({ opsOpen: open })), children: /* @__PURE__ */ jsxs6(Box4, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx6(Input4, { label: "Namespace has", placeholder: "shop.orders", value: f.nsText, onChange: (nsText2) => setFilter({ nsText: nsText2 }), onSubmit: () => void aguard(t.id, () => loadOps(t.id))() }),
+      /* @__PURE__ */ jsx6(Input4, { label: "Running at least (s)", placeholder: "0", value: f.minText, onChange: (minText) => setFilter({ minText }), onSubmit: () => void aguard(t.id, () => loadOps(t.id))() })
     ] }),
-    /* @__PURE__ */ jsxs5(Row5, { gap: "sm", align: "center", justify: "between", wrap: true, children: [
-      /* @__PURE__ */ jsxs5(Row5, { gap: "sm", wrap: true, children: [
-        /* @__PURE__ */ jsx5(Checkbox3, { label: "Idle connections", checked: f.idle, onChange: (idle) => setFilter({ idle }) }),
-        /* @__PURE__ */ jsx5(Checkbox3, { label: "Server's own work", checked: f.system, onChange: (system) => setFilter({ system }) })
+    /* @__PURE__ */ jsxs6(Row6, { gap: "sm", align: "center", justify: "between", wrap: true, children: [
+      /* @__PURE__ */ jsxs6(Row6, { gap: "sm", wrap: true, children: [
+        /* @__PURE__ */ jsx6(Checkbox3, { label: "Idle connections", checked: f.idle, onChange: (idle) => setFilter({ idle }) }),
+        /* @__PURE__ */ jsx6(Checkbox3, { label: "Server's own work", checked: f.system, onChange: (system) => setFilter({ system }) })
       ] }),
-      /* @__PURE__ */ jsx5(Button4, { size: "sm", icon: "refresh", disabled: t.opsLoading, onPress: aguard(t.id, () => loadOps(t.id)), children: t.opsLoading ? "Reading…" : "Refresh" })
+      /* @__PURE__ */ jsx6(Button4, { size: "sm", icon: "refresh", disabled: t.opsLoading, onPress: aguard(t.id, () => loadOps(t.id)), children: t.opsLoading ? "Reading…" : "Refresh" })
     ] }),
-    t.opsError ? /* @__PURE__ */ jsx5(Callout5, { tone: "danger", icon: "error", title: "Could not read current operations", children: t.opsError }) : null,
-    t.ops ? /* @__PURE__ */ jsx5(
+    t.opsError ? /* @__PURE__ */ jsx6(Callout5, { tone: "danger", icon: "error", title: "Could not read current operations", children: t.opsError }) : null,
+    t.ops ? /* @__PURE__ */ jsx6(
       Table4,
       {
         label: "Current operations",
@@ -4910,10 +4932,10 @@ function Ops({ t }) {
         maxHeight: "md",
         onSelectionChange: ({ keys }) => changeAdmin(t.id, "server", () => ({ opSelected: keys[0], confirmKill: void 0 }))
       }
-    ) : !t.opsError ? /* @__PURE__ */ jsx5(Skeleton4, { lines: 3, label: "Reading current operations" }) : null,
-    t.opsCapped ? /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: "Only the 200 longest-running are shown. Narrow the filter to see others." }) : null,
-    sel ? /* @__PURE__ */ jsxs5(Box4, { gap: "xs", children: [
-      /* @__PURE__ */ jsx5(
+    ) : !t.opsError ? /* @__PURE__ */ jsx6(Skeleton4, { lines: 3, label: "Reading current operations" }) : null,
+    t.opsCapped ? /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: "Only the 200 longest-running are shown. Narrow the filter to see others." }) : null,
+    sel ? /* @__PURE__ */ jsxs6(Box4, { gap: "xs", children: [
+      /* @__PURE__ */ jsx6(
         KeyValue4,
         {
           label: `Operation ${sel.opid}`,
@@ -4929,48 +4951,49 @@ function Ops({ t }) {
           ]
         }
       ),
-      sel.command && sel.command !== "{}" ? /* @__PURE__ */ jsx5(CodeView4, { label: "Command", code: sel.command, language: "json", wrap: true, maxHeight: "sm" }) : null,
-      /* @__PURE__ */ jsx5(Collapsible4, { title: "Everything the server says about it", children: /* @__PURE__ */ jsx5(CodeView4, { label: "Operation", code: sel.raw, language: "json", maxHeight: "md" }) }),
-      isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx5(Row5, { gap: "xs", children: /* @__PURE__ */ jsx5(Button4, { size: "sm", icon: "stop", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "server", () => ({ confirmKill: sel.opid })), children: "Stop operation" }) })
+      sel.command && sel.command !== "{}" ? /* @__PURE__ */ jsx6(CodeView4, { label: "Command", code: sel.command, language: "json", wrap: true, maxHeight: "sm" }) : null,
+      /* @__PURE__ */ jsx6(Collapsible4, { title: "Everything the server says about it", children: /* @__PURE__ */ jsx6(CodeView4, { label: "Operation", code: sel.raw, language: "json", maxHeight: "md" }) }),
+      isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx6(Row6, { gap: "xs", children: /* @__PURE__ */ jsx6(Button4, { size: "sm", icon: "stop", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "server", () => ({ confirmKill: sel.opid })), children: "Stop operation" }) })
     ] }) : null,
-    kill ? /* @__PURE__ */ jsx5(Callout5, { tone: "danger", icon: "warning", title: `Stop operation ${kill.opid}?`, children: /* @__PURE__ */ jsxs5(Box4, { gap: "sm", children: [
-      /* @__PURE__ */ jsx5(Text5, { children: `${kill.op}${kill.ns ? ` on ${kill.ns}` : ""}, running for ${numberText(kill.secs)} s${kill.client ? `, from ${kill.client}` : ""}. Its client gets an error; a write stops part way, and what it did stays done.` }),
-      /* @__PURE__ */ jsxs5(Row5, { gap: "xs", children: [
-        /* @__PURE__ */ jsx5(Button4, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => killConfirmed(t.id)), children: "Stop it" }),
-        /* @__PURE__ */ jsx5(Button4, { variant: "ghost", onPress: () => changeAdmin(t.id, "server", () => ({ confirmKill: void 0 })), children: "Cancel" })
+    kill ? /* @__PURE__ */ jsx6(Callout5, { tone: "danger", icon: "warning", title: `Stop operation ${kill.opid}?`, children: /* @__PURE__ */ jsxs6(Box4, { gap: "sm", children: [
+      /* @__PURE__ */ jsx6(Text6, { children: `${kill.op}${kill.ns ? ` on ${kill.ns}` : ""}, running for ${numberText(kill.secs)} s${kill.client ? `, from ${kill.client}` : ""}. Its client gets an error; a write stops part way, and what it did stays done.` }),
+      /* @__PURE__ */ jsxs6(Row6, { gap: "xs", children: [
+        /* @__PURE__ */ jsx6(Button4, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => killConfirmed(t.id)), children: "Stop it" }),
+        /* @__PURE__ */ jsx6(Button4, { variant: "ghost", onPress: () => changeAdmin(t.id, "server", () => ({ confirmKill: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null
   ] }) });
 }
 function ServerTabView({ id }) {
-  const t = read8(adminTabs)[id];
+  const t = read9(adminTabs)[id];
   if (!t || t.kind !== "server") return null;
   const s = t.status;
-  return /* @__PURE__ */ jsxs5(Box4, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs5(Box4, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx5(Text5, { weight: "semibold", truncate: true, children: `Server: ${connectionName(t.connectionId)}` }),
-        s ? /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "center", children: [
-          /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: "Read" }),
-          /* @__PURE__ */ jsx5(RelativeTime, { at: s.at, muted: true })
+  return /* @__PURE__ */ jsxs6(Box4, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs6(Box4, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx6(Text6, { weight: "semibold", truncate: true, children: "Server" }),
+        /* @__PURE__ */ jsx6(PlaceLine, { places: [{ connectionId: t.connectionId, writes: true }] }),
+        s ? /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "center", children: [
+          /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: "Read" }),
+          /* @__PURE__ */ jsx6(RelativeTime, { at: s.at, muted: true })
         ] }) : null
       ] }),
-      /* @__PURE__ */ jsx5(IconButton5, { icon: "close", label: "Close the server status", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx6(IconButton5, { icon: "close", label: "Close the server status", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs5(Row5, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-      /* @__PURE__ */ jsx5(Toolbar4, { label: "Server actions", gap: "xs", children: /* @__PURE__ */ jsx5(Button4, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading || t.live, onPress: aguard(t.id, () => loadStatus(t.id)), children: "Refresh" }) }),
-      /* @__PURE__ */ jsx5(Switch, { label: `Live, every ${LIVE_MS / 1e3} s`, checked: t.live, onChange: (on) => void aguard(t.id, () => setLive(t.id, on))() })
+    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+      /* @__PURE__ */ jsx6(Toolbar4, { label: "Server actions", gap: "xs", children: /* @__PURE__ */ jsx6(Button4, { size: "sm", icon: "refresh", variant: "ghost", disabled: t.loading || t.live, onPress: aguard(t.id, () => loadStatus(t.id)), children: "Refresh" }) }),
+      /* @__PURE__ */ jsx6(Switch, { label: `Live, every ${LIVE_MS / 1e3} s`, checked: t.live, onChange: (on) => void aguard(t.id, () => setLive(t.id, on))() })
     ] }),
-    /* @__PURE__ */ jsx5(NoticeBar, { id: t.id, notice: t.notice }),
-    t.statusError ? /* @__PURE__ */ jsx5(Callout5, { tone: "danger", icon: "error", title: "Could not read the server status", children: t.statusError }) : null,
-    !s && !t.statusError ? /* @__PURE__ */ jsx5(Skeleton4, { lines: 6, label: "Reading the server status" }) : null,
-    s ? /* @__PURE__ */ jsxs5(Box4, { gap: "sm", children: [
-      /* @__PURE__ */ jsx5(Rates, { t }),
-      /* @__PURE__ */ jsx5(Grid, { minItemWidth: "md", gap: "sm", children: s.sections.map((sec) => /* @__PURE__ */ jsxs5(Box4, { gap: "xs", padding: "sm", border: true, radius: "md", children: [
-        /* @__PURE__ */ jsx5(Text5, { weight: "semibold", size: "sm", children: sec.title }),
-        /* @__PURE__ */ jsx5(KeyValue4, { label: sec.title, items: sec.items })
+    /* @__PURE__ */ jsx6(NoticeBar, { id: t.id, notice: t.notice }),
+    t.statusError ? /* @__PURE__ */ jsx6(Callout5, { tone: "danger", icon: "error", title: "Could not read the server status", children: t.statusError }) : null,
+    !s && !t.statusError ? /* @__PURE__ */ jsx6(Skeleton4, { lines: 6, label: "Reading the server status" }) : null,
+    s ? /* @__PURE__ */ jsxs6(Box4, { gap: "sm", children: [
+      /* @__PURE__ */ jsx6(Rates, { t }),
+      /* @__PURE__ */ jsx6(Grid, { minItemWidth: "md", gap: "sm", children: s.sections.map((sec) => /* @__PURE__ */ jsxs6(Box4, { gap: "xs", padding: "sm", border: true, radius: "md", children: [
+        /* @__PURE__ */ jsx6(Text6, { weight: "semibold", size: "sm", children: sec.title }),
+        /* @__PURE__ */ jsx6(KeyValue4, { label: sec.title, items: sec.items })
       ] }, sec.title)) }),
-      s.members?.length ? /* @__PURE__ */ jsx5(
+      s.members?.length ? /* @__PURE__ */ jsx6(
         Table4,
         {
           label: "Replica set members",
@@ -4984,7 +5007,7 @@ function ServerTabView({ id }) {
         }
       ) : null
     ] }) : null,
-    /* @__PURE__ */ jsx5(Ops, { t })
+    /* @__PURE__ */ jsx6(Ops, { t })
   ] });
 }
 
@@ -4999,16 +5022,16 @@ import {
   IconButton as IconButton6,
   Input as Input5,
   KeyValue as KeyValue5,
-  read as read9,
-  Row as Row6,
+  read as read10,
+  Row as Row7,
   Select as Select4,
   Skeleton as Skeleton5,
   Table as Table5,
-  Text as Text6,
+  Text as Text7,
   Textarea as Textarea3,
   Toolbar as Toolbar5
 } from "orca";
-import { jsx as jsx6, jsxs as jsxs6 } from "orca/jsx-runtime";
+import { jsx as jsx7, jsxs as jsxs7 } from "orca/jsx-runtime";
 var refs = (roles, db) => roles.map((r) => r.db === db ? r.role : `${r.role}@${r.db}`).join(", ") || "none";
 function GrantedRoles({ t, e }) {
   const custom = t.state?.roles.map((r) => r.role) ?? [];
@@ -5017,9 +5040,9 @@ function GrantedRoles({ t, e }) {
     ...custom.map((r) => ({ value: r, label: `${r} (custom)` })),
     ...builtin.map((r) => ({ value: r, label: r }))
   ];
-  return /* @__PURE__ */ jsxs6(Box5, { gap: "xs", children: [
-    /* @__PURE__ */ jsx6(Text6, { weight: "medium", children: e.kind === "user" ? "Roles" : "Inherits from" }),
-    /* @__PURE__ */ jsx6(
+  return /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
+    /* @__PURE__ */ jsx7(Text7, { weight: "medium", children: e.kind === "user" ? "Roles" : "Inherits from" }),
+    /* @__PURE__ */ jsx7(
       Table5,
       {
         label: e.kind === "user" ? "Granted roles" : "Inherited roles",
@@ -5035,91 +5058,91 @@ function GrantedRoles({ t, e }) {
         onSelectionChange: ({ keys }) => changeEditor(t.id, { rolesSelected: keys })
       }
     ),
-    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "end", wrap: true, children: [
-      /* @__PURE__ */ jsx6(Select4, { label: "Role", labelHidden: true, value: options4.some((o) => o.value === e.addRole) ? e.addRole : "", placeholder: "Choose a role…", options: options4, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
-      /* @__PURE__ */ jsx6(Input5, { label: "Role name", labelHidden: true, placeholder: "or type a role", value: e.addRole, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
-      /* @__PURE__ */ jsx6(Input5, { label: "On database", labelHidden: true, placeholder: t.db, value: e.addDb, onChange: (addDb) => changeEditor(t.id, { addDb }) })
+    /* @__PURE__ */ jsxs7(Row7, { gap: "xs", align: "end", wrap: true, children: [
+      /* @__PURE__ */ jsx7(Select4, { label: "Role", labelHidden: true, value: options4.some((o) => o.value === e.addRole) ? e.addRole : "", placeholder: "Choose a role…", options: options4, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
+      /* @__PURE__ */ jsx7(Input5, { label: "Role name", labelHidden: true, placeholder: "or type a role", value: e.addRole, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
+      /* @__PURE__ */ jsx7(Input5, { label: "On database", labelHidden: true, placeholder: t.db, value: e.addDb, onChange: (addDb) => changeEditor(t.id, { addDb }) })
     ] }),
-    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", children: [
-      /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "add", disabled: !e.addRole.trim(), onPress: () => addGrantedRole(t.id), children: "Add role" }),
-      /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "remove", variant: "ghost", disabled: !e.rolesSelected.length, onPress: () => removeGrantedRoles(t.id), children: "Remove selected" })
+    /* @__PURE__ */ jsxs7(Row7, { gap: "xs", children: [
+      /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "add", disabled: !e.addRole.trim(), onPress: () => addGrantedRole(t.id), children: "Add role" }),
+      /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "remove", variant: "ghost", disabled: !e.rolesSelected.length, onPress: () => removeGrantedRoles(t.id), children: "Remove selected" })
     ] }),
-    e.kind === "role" && t.db !== "admin" ? /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: `A role in ${t.db} inherits only roles of ${t.db}; roles in admin may inherit from any database.` }) : null
+    e.kind === "role" && t.db !== "admin" ? /* @__PURE__ */ jsx7(Text7, { size: "xs", muted: true, children: `A role in ${t.db} inherits only roles of ${t.db}; roles in admin may inherit from any database.` }) : null
   ] });
 }
 function UserForm({ t, e }) {
   const external = t.db === "$external";
-  return /* @__PURE__ */ jsx6(Card3, { title: e.isNew ? "New user" : `User ${e.user}`, description: `In ${t.db}`, children: /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
-    e.isNew ? /* @__PURE__ */ jsx6(Input5, { label: "Name", value: e.user, onChange: (user) => changeEditor(t.id, { user }) }) : null,
-    external ? /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: "Users in $external sign in elsewhere (X.509, LDAP, Kerberos, AWS, OIDC): name them as that system does, without a password." }) : /* @__PURE__ */ jsx6(Input5, { label: e.isNew ? "Password" : "New password", type: "password", placeholder: e.isNew ? "" : "Leave empty to keep the password", value: e.password, onChange: (password) => changeEditor(t.id, { password }) }),
-    /* @__PURE__ */ jsx6(GrantedRoles, { t, e }),
-    /* @__PURE__ */ jsx6(Textarea3, { label: "Custom data", rows: 3, placeholder: "{ team: 'ops' }", value: e.customData, onChange: (customData) => changeEditor(t.id, { customData }) }),
-    external ? null : /* @__PURE__ */ jsxs6(Box5, { gap: "xs", children: [
-      /* @__PURE__ */ jsx6(Row6, { gap: "sm", children: ["SCRAM-SHA-256", "SCRAM-SHA-1"].map((m) => /* @__PURE__ */ jsx6(Checkbox4, { label: m, checked: e.mechanisms.includes(m), onChange: (on) => changeEditor(t.id, { mechanisms: on ? [...e.mechanisms, m] : e.mechanisms.filter((x) => x !== m) }) }, m)) }),
-      /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, children: e.isNew ? "None checked: the server's defaults." : "Mechanisms change only with a new password." })
+  return /* @__PURE__ */ jsx7(Card3, { title: e.isNew ? "New user" : `User ${e.user}`, description: `In ${t.db}`, children: /* @__PURE__ */ jsxs7(Box5, { gap: "sm", children: [
+    e.isNew ? /* @__PURE__ */ jsx7(Input5, { label: "Name", value: e.user, onChange: (user) => changeEditor(t.id, { user }) }) : null,
+    external ? /* @__PURE__ */ jsx7(Text7, { size: "xs", muted: true, children: "Users in $external sign in elsewhere (X.509, LDAP, Kerberos, AWS, OIDC): name them as that system does, without a password." }) : /* @__PURE__ */ jsx7(Input5, { label: e.isNew ? "Password" : "New password", type: "password", placeholder: e.isNew ? "" : "Leave empty to keep the password", value: e.password, onChange: (password) => changeEditor(t.id, { password }) }),
+    /* @__PURE__ */ jsx7(GrantedRoles, { t, e }),
+    /* @__PURE__ */ jsx7(Textarea3, { label: "Custom data", rows: 3, placeholder: "{ team: 'ops' }", value: e.customData, onChange: (customData) => changeEditor(t.id, { customData }) }),
+    external ? null : /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
+      /* @__PURE__ */ jsx7(Row7, { gap: "sm", children: ["SCRAM-SHA-256", "SCRAM-SHA-1"].map((m) => /* @__PURE__ */ jsx7(Checkbox4, { label: m, checked: e.mechanisms.includes(m), onChange: (on) => changeEditor(t.id, { mechanisms: on ? [...e.mechanisms, m] : e.mechanisms.filter((x) => x !== m) }) }, m)) }),
+      /* @__PURE__ */ jsx7(Text7, { size: "xs", muted: true, children: e.isNew ? "None checked: the server's defaults." : "Mechanisms change only with a new password." })
     ] }),
-    e.error ? /* @__PURE__ */ jsx6(Text6, { size: "xs", tone: "danger", children: e.error }) : null,
-    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", children: [
-      /* @__PURE__ */ jsx6(Button5, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving, onPress: aguard(t.id, () => saveEditor(t.id)), children: e.saving ? "Saving…" : e.isNew ? "Create user" : "Save user" }),
-      /* @__PURE__ */ jsx6(Button5, { variant: "ghost", onPress: () => closeEditor2(t.id), children: "Cancel" })
+    e.error ? /* @__PURE__ */ jsx7(Text7, { size: "xs", tone: "danger", children: e.error }) : null,
+    /* @__PURE__ */ jsxs7(Row7, { gap: "xs", children: [
+      /* @__PURE__ */ jsx7(Button5, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving, onPress: aguard(t.id, () => saveEditor(t.id)), children: e.saving ? "Saving…" : e.isNew ? "Create user" : "Save user" }),
+      /* @__PURE__ */ jsx7(Button5, { variant: "ghost", onPress: () => closeEditor2(t.id), children: "Cancel" })
     ] })
   ] }) });
 }
 function RoleForm({ t, e }) {
-  return /* @__PURE__ */ jsx6(Card3, { title: e.isNew ? "New role" : `Role ${e.role}`, description: `In ${t.db}`, children: /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
-    e.isNew ? /* @__PURE__ */ jsx6(Input5, { label: "Name", value: e.role, onChange: (role) => changeEditor(t.id, { role }) }) : null,
-    /* @__PURE__ */ jsx6(Textarea3, { label: "Privileges", rows: 8, value: e.privileges, onChange: (privileges) => changeEditor(t.id, { privileges }) }),
-    /* @__PURE__ */ jsxs6(Text6, { size: "xs", muted: true, children: [
+  return /* @__PURE__ */ jsx7(Card3, { title: e.isNew ? "New role" : `Role ${e.role}`, description: `In ${t.db}`, children: /* @__PURE__ */ jsxs7(Box5, { gap: "sm", children: [
+    e.isNew ? /* @__PURE__ */ jsx7(Input5, { label: "Name", value: e.role, onChange: (role) => changeEditor(t.id, { role }) }) : null,
+    /* @__PURE__ */ jsx7(Textarea3, { label: "Privileges", rows: 8, value: e.privileges, onChange: (privileges) => changeEditor(t.id, { privileges }) }),
+    /* @__PURE__ */ jsxs7(Text7, { size: "xs", muted: true, children: [
       "A list of ",
       "{ resource, actions }",
       " in shell syntax. collection: '' means every collection of the database; ",
       "{ cluster: true }",
       " is the whole server."
     ] }),
-    /* @__PURE__ */ jsx6(GrantedRoles, { t, e }),
-    e.error ? /* @__PURE__ */ jsx6(Text6, { size: "xs", tone: "danger", children: e.error }) : null,
-    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", children: [
-      /* @__PURE__ */ jsx6(Button5, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving, onPress: aguard(t.id, () => saveEditor(t.id)), children: e.saving ? "Saving…" : e.isNew ? "Create role" : "Save role" }),
-      /* @__PURE__ */ jsx6(Button5, { variant: "ghost", onPress: () => closeEditor2(t.id), children: "Cancel" })
+    /* @__PURE__ */ jsx7(GrantedRoles, { t, e }),
+    e.error ? /* @__PURE__ */ jsx7(Text7, { size: "xs", tone: "danger", children: e.error }) : null,
+    /* @__PURE__ */ jsxs7(Row7, { gap: "xs", children: [
+      /* @__PURE__ */ jsx7(Button5, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving, onPress: aguard(t.id, () => saveEditor(t.id)), children: e.saving ? "Saving…" : e.isNew ? "Create role" : "Save role" }),
+      /* @__PURE__ */ jsx7(Button5, { variant: "ghost", onPress: () => closeEditor2(t.id), children: "Cancel" })
     ] })
   ] }) });
 }
 function UsersTabView({ id }) {
-  const t = read9(adminTabs)[id];
+  const t = read10(adminTabs)[id];
   if (!t || t.kind !== "users") return null;
   const s = t.state;
   const user = s?.users.find((u) => u.user === t.userSelected);
   const role = s?.roles.find((r) => r.role === t.roleSelected);
   const c = t.confirmDrop;
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs6(Row6, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs6(Box5, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx6(Text6, { weight: "semibold", truncate: true, children: `Users and roles in ${t.db}` }),
-        /* @__PURE__ */ jsx6(Text6, { size: "xs", muted: true, truncate: true, children: connectionName(t.connectionId) })
+  return /* @__PURE__ */ jsxs7(Box5, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs7(Row7, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs7(Box5, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx7(Text7, { weight: "semibold", truncate: true, children: `Users and roles in ${t.db}` }),
+        /* @__PURE__ */ jsx7(PlaceLine, { places: [{ connectionId: t.connectionId, writes: true }] })
       ] }),
-      /* @__PURE__ */ jsx6(IconButton6, { icon: "close", label: `Close users and roles of ${t.db}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx7(IconButton6, { icon: "close", label: `Close users and roles of ${t.db}`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs6(Toolbar5, { label: "Users and roles actions", gap: "xs", children: [
-      ro ? null : /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "add", onPress: () => newUser(t.id), children: "New user" }),
-      ro ? null : /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "add", variant: "ghost", onPress: () => newRole(t.id), children: "New role" }),
-      /* @__PURE__ */ jsx6(IconButton6, { icon: "refresh", label: "Refresh", size: "sm", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadUsers(t.id)) })
+    /* @__PURE__ */ jsxs7(Toolbar5, { label: "Users and roles actions", gap: "xs", children: [
+      ro ? null : /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "add", onPress: () => newUser(t.id), children: "New user" }),
+      ro ? null : /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "add", variant: "ghost", onPress: () => newRole(t.id), children: "New role" }),
+      /* @__PURE__ */ jsx7(IconButton6, { icon: "refresh", label: "Refresh", size: "sm", variant: "ghost", disabled: t.loading, onPress: aguard(t.id, () => loadUsers(t.id)) })
     ] }),
-    /* @__PURE__ */ jsx6(NoticeBar, { id: t.id, notice: t.notice }),
-    t.error ? /* @__PURE__ */ jsx6(Callout6, { tone: "danger", icon: "error", title: "Could not list users and roles", children: t.error }) : null,
-    !s && !t.error ? /* @__PURE__ */ jsx6(Skeleton5, { lines: 4, label: "Loading users and roles" }) : null,
-    t.editor?.kind === "user" ? /* @__PURE__ */ jsx6(UserForm, { t, e: t.editor }) : null,
-    t.editor?.kind === "role" ? /* @__PURE__ */ jsx6(RoleForm, { t, e: t.editor }) : null,
-    c ? /* @__PURE__ */ jsx6(Callout6, { tone: "danger", icon: "warning", title: `Drop ${c.kind} ${c.name} from ${t.db}?`, children: /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
-      /* @__PURE__ */ jsx6(Text6, { children: c.kind === "user" ? "The user can no longer sign in, and its open sessions lose their rights." : "Users and roles that have it lose its privileges." }),
-      /* @__PURE__ */ jsxs6(Row6, { gap: "xs", children: [
-        /* @__PURE__ */ jsx6(Button5, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => dropConfirmed(t.id)), children: c.kind === "user" ? "Drop user" : "Drop role" }),
-        /* @__PURE__ */ jsx6(Button5, { variant: "ghost", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: void 0 })), children: "Cancel" })
+    /* @__PURE__ */ jsx7(NoticeBar, { id: t.id, notice: t.notice }),
+    t.error ? /* @__PURE__ */ jsx7(Callout6, { tone: "danger", icon: "error", title: "Could not list users and roles", children: t.error }) : null,
+    !s && !t.error ? /* @__PURE__ */ jsx7(Skeleton5, { lines: 4, label: "Loading users and roles" }) : null,
+    t.editor?.kind === "user" ? /* @__PURE__ */ jsx7(UserForm, { t, e: t.editor }) : null,
+    t.editor?.kind === "role" ? /* @__PURE__ */ jsx7(RoleForm, { t, e: t.editor }) : null,
+    c ? /* @__PURE__ */ jsx7(Callout6, { tone: "danger", icon: "warning", title: `Drop ${c.kind} ${c.name} from ${t.db}?`, children: /* @__PURE__ */ jsxs7(Box5, { gap: "sm", children: [
+      /* @__PURE__ */ jsx7(Text7, { children: c.kind === "user" ? "The user can no longer sign in, and its open sessions lose their rights." : "Users and roles that have it lose its privileges." }),
+      /* @__PURE__ */ jsxs7(Row7, { gap: "xs", children: [
+        /* @__PURE__ */ jsx7(Button5, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => dropConfirmed(t.id)), children: c.kind === "user" ? "Drop user" : "Drop role" }),
+        /* @__PURE__ */ jsx7(Button5, { variant: "ghost", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    s ? /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
-      /* @__PURE__ */ jsx6(Text6, { weight: "semibold", children: "Users" }),
-      /* @__PURE__ */ jsx6(
+    s ? /* @__PURE__ */ jsxs7(Box5, { gap: "sm", children: [
+      /* @__PURE__ */ jsx7(Text7, { weight: "semibold", children: "Users" }),
+      /* @__PURE__ */ jsx7(
         Table5,
         {
           label: "Users",
@@ -5137,15 +5160,15 @@ function UsersTabView({ id }) {
           onRowAction: ({ key }) => ro ? void 0 : editUser(t.id, key.slice(2))
         }
       ),
-      user ? /* @__PURE__ */ jsxs6(Box5, { gap: "xs", children: [
-        ro ? null : /* @__PURE__ */ jsxs6(Toolbar5, { label: `${user.user} actions`, gap: "xs", children: [
-          /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "edit", onPress: () => editUser(t.id, user.user), children: "Edit" }),
-          /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "user", name: user.user } })), children: "Drop" })
+      user ? /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
+        ro ? null : /* @__PURE__ */ jsxs7(Toolbar5, { label: `${user.user} actions`, gap: "xs", children: [
+          /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "edit", onPress: () => editUser(t.id, user.user), children: "Edit" }),
+          /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "user", name: user.user } })), children: "Drop" })
         ] }),
-        /* @__PURE__ */ jsx6(KeyValue5, { label: `${user.user} details`, items: [{ label: "Roles", value: refs(user.roles, "") }, { label: "Sign-in", value: user.mechanisms.join(", ") || "external" }, ...user.customData ? [{ label: "Custom data", value: user.customData, code: true }] : []] })
+        /* @__PURE__ */ jsx7(KeyValue5, { label: `${user.user} details`, items: [{ label: "Roles", value: refs(user.roles, "") }, { label: "Sign-in", value: user.mechanisms.join(", ") || "external" }, ...user.customData ? [{ label: "Custom data", value: user.customData, code: true }] : []] })
       ] }) : null,
-      /* @__PURE__ */ jsx6(Text6, { weight: "semibold", children: "Custom roles" }),
-      /* @__PURE__ */ jsx6(
+      /* @__PURE__ */ jsx7(Text7, { weight: "semibold", children: "Custom roles" }),
+      /* @__PURE__ */ jsx7(
         Table5,
         {
           label: "Custom roles",
@@ -5163,12 +5186,12 @@ function UsersTabView({ id }) {
           onRowAction: ({ key }) => ro ? void 0 : editRole(t.id, key.slice(2))
         }
       ),
-      role ? /* @__PURE__ */ jsxs6(Box5, { gap: "xs", children: [
-        ro ? null : /* @__PURE__ */ jsxs6(Toolbar5, { label: `${role.role} actions`, gap: "xs", children: [
-          /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "edit", onPress: () => editRole(t.id, role.role), children: "Edit" }),
-          /* @__PURE__ */ jsx6(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "role", name: role.role } })), children: "Drop" })
+      role ? /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
+        ro ? null : /* @__PURE__ */ jsxs7(Toolbar5, { label: `${role.role} actions`, gap: "xs", children: [
+          /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "edit", onPress: () => editRole(t.id, role.role), children: "Edit" }),
+          /* @__PURE__ */ jsx7(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "role", name: role.role } })), children: "Drop" })
         ] }),
-        /* @__PURE__ */ jsx6(CodeView5, { label: `${role.role} privileges`, code: toShell(role.privileges), language: "javascript", maxHeight: "sm" })
+        /* @__PURE__ */ jsx7(CodeView5, { label: `${role.role} privileges`, code: toShell(role.privileges), language: "javascript", maxHeight: "sm" })
       ] }) : null
     ] }) : null
   ] });
@@ -5186,12 +5209,12 @@ import {
   Input as Input7,
   KeyValue as KeyValue7,
   RadioGroup as RadioGroup3,
-  read as read12,
-  Row as Row9,
+  read as read13,
+  Row as Row10,
   Select as Select5,
   Skeleton as Skeleton7,
   Table as Table8,
-  Text as Text9,
+  Text as Text10,
   Toolbar as Toolbar7
 } from "orca";
 
@@ -5228,6 +5251,13 @@ function openCompare(a, collKind, b) {
 }
 function setCompare(id, change2) {
   changeAdmin(id, "compare", (t) => ({ ...change2, sync: { ...change2.sync ?? t.sync, confirm: false } }));
+}
+function comparePlaces(t) {
+  const [a, b] = t.ran ? [t.ran.a, t.ran.b] : [t.a, bNs(t)];
+  return [
+    { ...a, label: "A", writes: true },
+    { ...b, label: "B", writes: true }
+  ];
 }
 function bNs(t) {
   return { connectionId: t.b.connectionId, db: t.b.db.trim(), collection: t.b.collection.trim() };
@@ -5339,7 +5369,7 @@ async function cancelCompare(id) {
 
 // src/panel/tasks-view.tsx
 import {
-  Badge as Badge2,
+  Badge as Badge3,
   Box as Box7,
   Button as Button7,
   Callout as Callout8,
@@ -5348,12 +5378,12 @@ import {
   IconButton as IconButton7,
   Input as Input6,
   KeyValue as KeyValue6,
-  read as read11,
+  read as read12,
   RelativeTime as RelativeTime2,
-  Row as Row8,
+  Row as Row9,
   Skeleton as Skeleton6,
   Table as Table7,
-  Text as Text8,
+  Text as Text9,
   Toolbar as Toolbar6,
   update as update6
 } from "orca";
@@ -5457,31 +5487,31 @@ function resultSummary(result) {
 }
 
 // src/panel/job-view.tsx
-import { Box as Box6, Button as Button6, Callout as Callout7, Progress as Progress2, Row as Row7, Table as Table6, Text as Text7 } from "orca";
-import { jsx as jsx7, jsxs as jsxs7 } from "orca/jsx-runtime";
+import { Box as Box6, Button as Button6, Callout as Callout7, Progress as Progress2, Row as Row8, Table as Table6, Text as Text8 } from "orca";
+import { jsx as jsx8, jsxs as jsxs8 } from "orca/jsx-runtime";
 function JobProgress({ box, what, onCancel, onSave }) {
   if (!box) return null;
   const s = box.state;
   const d = box.download;
   const pct = s ? progressPercent(s) : void 0;
-  return /* @__PURE__ */ jsxs7(Box6, { gap: "xs", children: [
-    s && s.status === "running" ? /* @__PURE__ */ jsxs7(Box6, { gap: "xs", children: [
-      /* @__PURE__ */ jsx7(Progress2, { label: `${s.phase} · ${progressText(s)}`, ...pct !== void 0 ? { value: pct } : {} }),
-      /* @__PURE__ */ jsxs7(Row7, { gap: "xs", align: "center", justify: "between", children: [
-        /* @__PURE__ */ jsx7(Text7, { size: "xs", muted: true, children: `${Math.round(s.ms / 1e3)} s` }),
-        /* @__PURE__ */ jsx7(Button6, { size: "sm", icon: "stop", variant: "ghost", tone: "danger", onPress: onCancel, children: "Cancel" })
+  return /* @__PURE__ */ jsxs8(Box6, { gap: "xs", children: [
+    s && s.status === "running" ? /* @__PURE__ */ jsxs8(Box6, { gap: "xs", children: [
+      /* @__PURE__ */ jsx8(Progress2, { label: `${s.phase} · ${progressText(s)}`, ...pct !== void 0 ? { value: pct } : {} }),
+      /* @__PURE__ */ jsxs8(Row8, { gap: "xs", align: "center", justify: "between", children: [
+        /* @__PURE__ */ jsx8(Text8, { size: "xs", muted: true, children: `${Math.round(s.ms / 1e3)} s` }),
+        /* @__PURE__ */ jsx8(Button6, { size: "sm", icon: "stop", variant: "ghost", tone: "danger", onPress: onCancel, children: "Cancel" })
       ] })
     ] }) : null,
-    !s && !box.error ? /* @__PURE__ */ jsx7(Progress2, { label: `Starting ${what}…` }) : null,
-    box.error ? /* @__PURE__ */ jsx7(Callout7, { tone: "danger", icon: "error", title: `Lost track of the ${what}`, children: box.error }) : null,
-    s?.status === "failed" ? /* @__PURE__ */ jsx7(Callout7, { tone: "danger", icon: "error", title: `The ${what} failed`, children: s.message ?? "No reason given." }) : null,
-    s?.status === "cancelled" ? /* @__PURE__ */ jsx7(Callout7, { tone: "neutral", icon: "info", children: `The ${what} was cancelled after ${progressText(s)}.` }) : null,
-    d && !d.ready && !d.error ? /* @__PURE__ */ jsx7(Progress2, { label: `Fetching ${d.name}: ${bytesText(d.fetched)} of ${bytesText(d.size)}`, value: d.size ? Math.round(d.fetched / d.size * 100) : 100 }) : null,
-    d?.error ? /* @__PURE__ */ jsx7(Callout7, { tone: "danger", icon: "error", title: "Could not fetch the file", children: d.error }) : null,
-    d?.ready && onSave ? /* @__PURE__ */ jsx7(Row7, { gap: "xs", align: "center", children: /* @__PURE__ */ jsx7(Button6, { variant: "solid", tone: "accent", icon: "download", onPress: onSave, children: `Save ${d.name} (${bytesText(d.size)})…` }) }) : null,
-    s && s.errorCount > 0 ? /* @__PURE__ */ jsxs7(Box6, { gap: "xs", children: [
-      /* @__PURE__ */ jsx7(Text7, { size: "sm", tone: "warning", children: `${s.errorCount.toLocaleString("en-US")} error${s.errorCount === 1 ? "" : "s"}${s.errorCount > s.errors.length ? `; the first ${s.errors.length}:` : ":"}` }),
-      /* @__PURE__ */ jsx7(
+    !s && !box.error ? /* @__PURE__ */ jsx8(Progress2, { label: `Starting ${what}…` }) : null,
+    box.error ? /* @__PURE__ */ jsx8(Callout7, { tone: "danger", icon: "error", title: `Lost track of the ${what}`, children: box.error }) : null,
+    s?.status === "failed" ? /* @__PURE__ */ jsx8(Callout7, { tone: "danger", icon: "error", title: `The ${what} failed`, children: s.message ?? "No reason given." }) : null,
+    s?.status === "cancelled" ? /* @__PURE__ */ jsx8(Callout7, { tone: "neutral", icon: "info", children: `The ${what} was cancelled after ${progressText(s)}.` }) : null,
+    d && !d.ready && !d.error ? /* @__PURE__ */ jsx8(Progress2, { label: `Fetching ${d.name}: ${bytesText(d.fetched)} of ${bytesText(d.size)}`, value: d.size ? Math.round(d.fetched / d.size * 100) : 100 }) : null,
+    d?.error ? /* @__PURE__ */ jsx8(Callout7, { tone: "danger", icon: "error", title: "Could not fetch the file", children: d.error }) : null,
+    d?.ready && onSave ? /* @__PURE__ */ jsx8(Row8, { gap: "xs", align: "center", children: /* @__PURE__ */ jsx8(Button6, { variant: "solid", tone: "accent", icon: "download", onPress: onSave, children: `Save ${d.name} (${bytesText(d.size)})…` }) }) : null,
+    s && s.errorCount > 0 ? /* @__PURE__ */ jsxs8(Box6, { gap: "xs", children: [
+      /* @__PURE__ */ jsx8(Text8, { size: "sm", tone: "warning", children: `${s.errorCount.toLocaleString("en-US")} error${s.errorCount === 1 ? "" : "s"}${s.errorCount > s.errors.length ? `; the first ${s.errors.length}:` : ":"}` }),
+      /* @__PURE__ */ jsx8(
         Table6,
         {
           label: "Errors",
@@ -5498,7 +5528,7 @@ function JobProgress({ box, what, onCancel, onSave }) {
 }
 
 // src/panel/tasks-state.ts
-import { atom as atom5, plugin as plugin12, read as read10, set as set5, update as update5 } from "orca";
+import { atom as atom5, plugin as plugin12, read as read11, set as set5, update as update5 } from "orca";
 
 // src/panel/export-state.ts
 import { plugin as plugin10 } from "orca";
@@ -5692,10 +5722,17 @@ function paste(clip2, at) {
     target: { ...t.target, connectionId: at.connectionId, db: at.db ?? ns.db, collection: at.collection ?? ns.collection, mode: clip2.kind === "documents" ? "upsert" : "insert" }
   }));
 }
-function sourceLabel(t) {
+function exportPlaces(t) {
   const f = t.from;
-  if (f.kind === "database") return `${connectionName(f.connectionId)} · database ${f.db}`;
-  return `${connectionName(f.ns.connectionId)} · ${f.ns.db}.${f.ns.collection}${f.kind === "pipeline" ? ` · pipeline of ${f.pipeline.length} stage${f.pipeline.length === 1 ? "" : "s"}` : ""}`;
+  const from = f.kind === "database" ? { connectionId: f.connectionId, db: f.db } : { ...f.ns };
+  if (t.format !== "collection") return [from];
+  const into = { ...targetNs(t), writes: true };
+  if (f.kind === "database") delete into.collection;
+  return [{ ...from, label: "From" }, { ...into, label: "Into" }];
+}
+function sourceDetail(t) {
+  const f = t.from;
+  return f.kind === "pipeline" ? `pipeline of ${f.pipeline.length} stage${f.pipeline.length === 1 ? "" : "s"}` : void 0;
 }
 
 // src/panel/import-state.ts
@@ -5891,8 +5928,8 @@ function nsOf(t) {
 async function cancelImport(id) {
   await cancelJob(tabOf(id, "import")?.job);
 }
-function targetLabel(t) {
-  return `${connectionName(t.connectionId)} · ${t.db || "…"}${t.preview?.folder ? "" : `.${t.collection || "…"}`}`;
+function importPlaces(t) {
+  return [{ connectionId: t.connectionId, db: t.db, ...t.preview?.folder ? {} : { collection: t.collection }, label: "Into", writes: true }];
 }
 
 // src/panel/tasks-state.ts
@@ -5927,13 +5964,13 @@ function openTasks(select) {
   void loadTasks();
 }
 function closeTasks() {
-  for (const box of Object.values(read10(tasksUi).runs)) dropDownload(box);
+  for (const box of Object.values(read11(tasksUi).runs)) dropDownload(box);
   set5(tasksOpen, false);
   ui({ runs: {} });
-  if (read10(view) === TASKS_TAB) set5(view, "tree");
+  if (read11(view) === TASKS_TAB) set5(view, "tree");
 }
 function taskById(id) {
-  return id ? read10(taskList)?.find((t) => t.id === id) : void 0;
+  return id ? read11(taskList)?.find((t) => t.id === id) : void 0;
 }
 function selectTask(id) {
   ui({ selected: id, confirmRun: void 0, confirmDelete: void 0, renaming: void 0 });
@@ -5963,7 +6000,7 @@ async function runTask(id, confirmed2 = false) {
   });
   const { jobId } = await plugin12.request("tasks.run", { id });
   putRun(id, { jobId });
-  const end = await followJob(jobId, () => read10(tasksUi).runs[id], (box) => putRun(id, box));
+  const end = await followJob(jobId, () => read11(tasksUi).runs[id], (box) => putRun(id, box));
   if (end?.status === "done" && end.result) {
     const touched = writtenTo(task.request);
     if (touched) await refreshTree(touched.connectionId, touched.db);
@@ -5977,10 +6014,10 @@ function writtenTo(r) {
   return void 0;
 }
 async function cancelTaskRun(id) {
-  await cancelJob(read10(tasksUi).runs[id]);
+  await cancelJob(read11(tasksUi).runs[id]);
 }
 async function saveTaskDownload(id) {
-  const box = read10(tasksUi).runs[id];
+  const box = read11(tasksUi).runs[id];
   if (await saveDownload(box)) sayTasks("success", `Saved ${box?.download?.name ?? "the file"}.`);
 }
 function startRename(id) {
@@ -6101,7 +6138,7 @@ function setTaskName(tabId, name) {
 }
 
 // src/panel/tasks-view.tsx
-import { jsx as jsx8, jsxs as jsxs8 } from "orca/jsx-runtime";
+import { jsx as jsx9, jsxs as jsxs9 } from "orca/jsx-runtime";
 function tguard(run) {
   return async () => {
     try {
@@ -6113,11 +6150,11 @@ function tguard(run) {
 }
 var STATUS_TEXT = { done: "Done", failed: "Failed", cancelled: "Cancelled", running: "Running" };
 function missingConnection(task) {
-  const known = new Set(read11(connections)?.connections.map((c) => c.id) ?? []);
+  const known = new Set(read12(connections)?.connections.map((c) => c.id) ?? []);
   return taskConnections(task.request).some((id) => !known.has(id));
 }
 function Selected({ task }) {
-  const u = read11(tasksUi);
+  const u = read12(tasksUi);
   const box = u.runs[task.id];
   const running = jobRunning(box);
   const writesTo = taskWriteConnection(task.request);
@@ -6125,71 +6162,71 @@ function Selected({ task }) {
   const renaming = u.renaming?.id === task.id ? u.renaming : void 0;
   const confirm = u.confirmRun?.id === task.id ? u.confirmRun : void 0;
   const last = task.lastRun;
-  return /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs8(Toolbar6, { label: `${task.name} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx8(Button7, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: running || Boolean(confirm) || blocked, onPress: tguard(() => runTask(task.id)), children: running ? "Running…" : "Run" }),
-      /* @__PURE__ */ jsx8(Button7, { size: "sm", icon: "open-external", variant: "ghost", onPress: tguard(() => openTaskInTab(task.id)), children: "Open in its tab" }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "edit", label: "Rename", variant: "ghost", size: "sm", onPress: () => startRename(task.id) }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "copy", label: "Duplicate", variant: "ghost", size: "sm", onPress: tguard(() => duplicateTask(task.id)) }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
+  return /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs9(Toolbar6, { label: `${task.name} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: running || Boolean(confirm) || blocked, onPress: tguard(() => runTask(task.id)), children: running ? "Running…" : "Run" }),
+      /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "open-external", variant: "ghost", onPress: tguard(() => openTaskInTab(task.id)), children: "Open in its tab" }),
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "edit", label: "Rename", variant: "ghost", size: "sm", onPress: () => startRename(task.id) }),
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "copy", label: "Duplicate", variant: "ghost", size: "sm", onPress: tguard(() => duplicateTask(task.id)) }),
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
     ] }),
-    blocked ? /* @__PURE__ */ jsx8(Text8, { size: "xs", tone: "warning", children: `It writes to ${connectionName(writesTo)}, which is read only: turn that off in the connection's settings to run it.` }) : null,
-    renaming ? /* @__PURE__ */ jsxs8(Row8, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx8(Box7, { grow: true, children: /* @__PURE__ */ jsx8(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update6(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
-      /* @__PURE__ */ jsx8(Button7, { variant: "solid", tone: "accent", onPress: tguard(() => renameTask(task.id, renaming.name)), children: "Rename" }),
-      /* @__PURE__ */ jsx8(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
+    blocked ? /* @__PURE__ */ jsx9(Text9, { size: "xs", tone: "warning", children: `It writes to ${connectionName(writesTo)}, which is read only: turn that off in the connection's settings to run it.` }) : null,
+    renaming ? /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx9(Box7, { grow: true, children: /* @__PURE__ */ jsx9(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update6(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
+      /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "accent", onPress: tguard(() => renameTask(task.id, renaming.name)), children: "Rename" }),
+      /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
     ] }) : null,
-    u.confirmDelete === task.id ? /* @__PURE__ */ jsx8(Callout8, { tone: "danger", icon: "warning", title: `Delete the task "${task.name}"?`, children: /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
-      /* @__PURE__ */ jsx8(Text8, { children: "Only the saved task is removed. Its collections and files are not touched." }),
-      /* @__PURE__ */ jsxs8(Row8, { gap: "xs", children: [
-        /* @__PURE__ */ jsx8(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => deleteTask(task.id)), children: "Delete task" }),
-        /* @__PURE__ */ jsx8(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
+    u.confirmDelete === task.id ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: `Delete the task "${task.name}"?`, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
+      /* @__PURE__ */ jsx9(Text9, { children: "Only the saved task is removed. Its collections and files are not touched." }),
+      /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
+        /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => deleteTask(task.id)), children: "Delete task" }),
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    confirm ? /* @__PURE__ */ jsx8(Callout8, { tone: "danger", icon: "warning", title: confirm.title, children: /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
-      /* @__PURE__ */ jsx8(Text8, { children: `${confirm.text}${confirm.exists ? confirm.count === null ? "" : ` It holds ${numberText(confirm.count)} document${confirm.count === 1 ? "" : "s"} now.` : " It does not exist yet."}` }),
-      /* @__PURE__ */ jsxs8(Row8, { gap: "xs", children: [
-        /* @__PURE__ */ jsx8(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => runTask(task.id, true)), children: "Run the task" }),
-        /* @__PURE__ */ jsx8(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
+    confirm ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: confirm.title, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
+      /* @__PURE__ */ jsx9(Text9, { children: `${confirm.text}${confirm.exists ? confirm.count === null ? "" : ` It holds ${numberText(confirm.count)} document${confirm.count === 1 ? "" : "s"} now.` : " It does not exist yet."}` }),
+      /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
+        /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => runTask(task.id, true)), children: "Run the task" }),
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    /* @__PURE__ */ jsx8(JobProgress, { box, what: taskKindLabel(task.request).toLowerCase(), onCancel: tguard(() => cancelTaskRun(task.id)), onSave: tguard(() => saveTaskDownload(task.id)) }),
-    /* @__PURE__ */ jsx8(KeyValue6, { label: `${task.name} settings`, items: describeTask(task.request, connectionName) }),
-    last ? /* @__PURE__ */ jsxs8(Box7, { gap: "none", children: [
-      /* @__PURE__ */ jsxs8(Row8, { gap: "xs", align: "center", children: [
-        /* @__PURE__ */ jsx8(Badge2, { tone: last.status === "done" ? last.errorCount ? "warning" : "success" : last.status === "failed" ? "danger" : "neutral", children: STATUS_TEXT[last.status] }),
-        /* @__PURE__ */ jsxs8(Text8, { size: "xs", muted: true, children: [
+    /* @__PURE__ */ jsx9(JobProgress, { box, what: taskKindLabel(task.request).toLowerCase(), onCancel: tguard(() => cancelTaskRun(task.id)), onSave: tguard(() => saveTaskDownload(task.id)) }),
+    /* @__PURE__ */ jsx9(KeyValue6, { label: `${task.name} settings`, items: describeTask(task.request, connectionName) }),
+    last ? /* @__PURE__ */ jsxs9(Box7, { gap: "none", children: [
+      /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "center", children: [
+        /* @__PURE__ */ jsx9(Badge3, { tone: last.status === "done" ? last.errorCount ? "warning" : "success" : last.status === "failed" ? "danger" : "neutral", children: STATUS_TEXT[last.status] }),
+        /* @__PURE__ */ jsxs9(Text9, { size: "xs", muted: true, children: [
           "Last run ",
-          /* @__PURE__ */ jsx8(RelativeTime2, { at: last.at }),
+          /* @__PURE__ */ jsx9(RelativeTime2, { at: last.at }),
           ` · ${Math.max(1, Math.round(last.ms / 1e3))} s${last.errorCount ? ` · ${numberText(last.errorCount)} error${last.errorCount === 1 ? "" : "s"}` : ""}`
         ] })
       ] }),
-      /* @__PURE__ */ jsx8(Text8, { size: "sm", children: last.summary })
-    ] }) : /* @__PURE__ */ jsx8(Text8, { size: "xs", muted: true, children: "Not run yet." })
+      /* @__PURE__ */ jsx9(Text9, { size: "sm", children: last.summary })
+    ] }) : /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Not run yet." })
   ] });
 }
 function TasksView() {
-  const list = read11(taskList);
-  const error = read11(tasksError);
-  const u = read11(tasksUi);
+  const list = read12(taskList);
+  const error = read12(tasksError);
+  const u = read12(tasksUi);
   const selected2 = list?.find((t) => t.id === u.selected);
-  return /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs8(Row8, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs8(Box7, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx8(Text8, { weight: "semibold", children: "Saved tasks" }),
-        /* @__PURE__ */ jsx8(Text8, { size: "xs", muted: true, children: "Imports, exports, copies, compares and syncs, saved with their options and run when you choose. Nothing runs on a schedule." })
+  return /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs9(Box7, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx9(Text9, { weight: "semibold", children: "Saved tasks" }),
+        /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Imports, exports, copies, compares and syncs, saved with their options and run when you choose. Nothing runs on a schedule." })
       ] }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "refresh", label: "Reload the tasks", variant: "ghost", size: "sm", onPress: () => openTasks() }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "close", label: "Close saved tasks", variant: "ghost", size: "sm", onPress: closeTasks })
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "refresh", label: "Reload the tasks", variant: "ghost", size: "sm", onPress: () => openTasks() }),
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Close saved tasks", variant: "ghost", size: "sm", onPress: closeTasks })
     ] }),
-    u.notice ? /* @__PURE__ */ jsx8(Callout8, { tone: u.notice.tone, icon: u.notice.tone === "danger" ? "error" : u.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs8(Row8, { justify: "between", align: "center", children: [
-      /* @__PURE__ */ jsx8(Text8, { children: u.notice.text }),
-      /* @__PURE__ */ jsx8(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update6(tasksUi, (x) => ({ ...x, notice: void 0 })) })
+    u.notice ? /* @__PURE__ */ jsx9(Callout8, { tone: u.notice.tone, icon: u.notice.tone === "danger" ? "error" : u.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs9(Row9, { justify: "between", align: "center", children: [
+      /* @__PURE__ */ jsx9(Text9, { children: u.notice.text }),
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update6(tasksUi, (x) => ({ ...x, notice: void 0 })) })
     ] }) }) : null,
-    error ? /* @__PURE__ */ jsx8(Callout8, { tone: "danger", icon: "error", title: "Could not read the saved tasks", children: error }) : null,
-    !list && !error ? /* @__PURE__ */ jsx8(Skeleton6, { lines: 3, label: "Loading saved tasks" }) : null,
-    list && list.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { icon: "rocket", title: "No saved tasks", description: 'Set up an import, an export or copy, or a compare, in its tab, then press "Save as task" there.' }) : null,
-    list && list.length ? /* @__PURE__ */ jsx8(
+    error ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "error", title: "Could not read the saved tasks", children: error }) : null,
+    !list && !error ? /* @__PURE__ */ jsx9(Skeleton6, { lines: 3, label: "Loading saved tasks" }) : null,
+    list && list.length === 0 ? /* @__PURE__ */ jsx9(EmptyState, { icon: "rocket", title: "No saved tasks", description: 'Set up an import, an export or copy, or a compare, in its tab, then press "Save as task" there.' }) : null,
+    list && list.length ? /* @__PURE__ */ jsx9(
       Table7,
       {
         label: "Saved tasks",
@@ -6212,32 +6249,32 @@ function TasksView() {
         onSelectionChange: ({ keys }) => selectTask(keys[0])
       }
     ) : null,
-    selected2 ? /* @__PURE__ */ jsx8(Selected, { task: selected2 }) : list && list.length ? /* @__PURE__ */ jsx8(Text8, { size: "xs", muted: true, children: "Select a task to run it, open it in its tab, rename or delete it." }) : null
+    selected2 ? /* @__PURE__ */ jsx9(Selected, { task: selected2 }) : list && list.length ? /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Select a task to run it, open it in its tab, rename or delete it." }) : null
   ] });
 }
 function TaskSaver({ tabId, task, taskName, placeholder, kinds }) {
-  return /* @__PURE__ */ jsx8(Collapsible5, { title: "Save as task", description: task ? `Saved as "${task.name}"` : "Run it again later from Saved tasks", children: /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
-    /* @__PURE__ */ jsx8(Input6, { label: "Task name", placeholder, value: taskName, onChange: (v) => setTaskName(tabId, v) }),
-    /* @__PURE__ */ jsxs8(Row8, { gap: "xs", wrap: true, children: [
+  return /* @__PURE__ */ jsx9(Collapsible5, { title: "Save as task", description: task ? `Saved as "${task.name}"` : "Run it again later from Saved tasks", children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
+    /* @__PURE__ */ jsx9(Input6, { label: "Task name", placeholder, value: taskName, onChange: (v) => setTaskName(tabId, v) }),
+    /* @__PURE__ */ jsxs9(Row9, { gap: "xs", wrap: true, children: [
       kinds.map((k) => {
         const canUpdate = task && (task.kind === void 0 || task.kind === k.kind);
-        return canUpdate ? /* @__PURE__ */ jsx8(Button7, { size: "sm", icon: "check", variant: "solid", tone: "accent", onPress: aguard(tabId, () => saveTabAsTask(tabId, k.kind, true)), children: `Update "${task.name}"` }, `u-${k.kind}`) : null;
+        return canUpdate ? /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "check", variant: "solid", tone: "accent", onPress: aguard(tabId, () => saveTabAsTask(tabId, k.kind, true)), children: `Update "${task.name}"` }, `u-${k.kind}`) : null;
       }),
-      kinds.map((k) => /* @__PURE__ */ jsx8(Button7, { size: "sm", icon: "add", variant: task ? "ghost" : "solid", tone: task ? "neutral" : "accent", onPress: aguard(tabId, () => saveTabAsTask(tabId, k.kind, false)), children: task ? `${k.label} as a new task` : k.label }, `n-${k.kind}`)),
-      /* @__PURE__ */ jsx8(Button7, { size: "sm", icon: "rocket", variant: "ghost", onPress: () => openTasks(task?.id), children: "Saved tasks" })
+      kinds.map((k) => /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "add", variant: task ? "ghost" : "solid", tone: task ? "neutral" : "accent", onPress: aguard(tabId, () => saveTabAsTask(tabId, k.kind, false)), children: task ? `${k.label} as a new task` : k.label }, `n-${k.kind}`)),
+      /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "rocket", variant: "ghost", onPress: () => openTasks(task?.id), children: "Saved tasks" })
     ] })
   ] }) });
 }
 
 // src/panel/compare-view.tsx
-import { jsx as jsx9, jsxs as jsxs9 } from "orca/jsx-runtime";
+import { jsx as jsx10, jsxs as jsxs10 } from "orca/jsx-runtime";
 function Other({ t }) {
-  const conns = read12(connections)?.connections ?? [];
-  return /* @__PURE__ */ jsxs9(Box8, { gap: "xs", children: [
-    /* @__PURE__ */ jsx9(Select5, { label: "Compare with, on", value: t.b.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setCompare(t.id, { b: { ...t.b, connectionId: v } }) }),
-    /* @__PURE__ */ jsxs9(Box8, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx9(Input7, { label: "Database", value: t.b.db, onChange: (v) => setCompare(t.id, { b: { ...t.b, db: v } }) }),
-      /* @__PURE__ */ jsx9(Input7, { label: "Collection", value: t.b.collection, placeholder: `${t.a.collection}_copy`, onChange: (v) => setCompare(t.id, { b: { ...t.b, collection: v } }) })
+  const conns = read13(connections)?.connections ?? [];
+  return /* @__PURE__ */ jsxs10(Box8, { gap: "xs", children: [
+    /* @__PURE__ */ jsx10(Select5, { label: "Compare with, on", value: t.b.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setCompare(t.id, { b: { ...t.b, connectionId: v } }) }),
+    /* @__PURE__ */ jsxs10(Box8, { columns: 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx10(Input7, { label: "Database", value: t.b.db, onChange: (v) => setCompare(t.id, { b: { ...t.b, db: v } }) }),
+      /* @__PURE__ */ jsx10(Input7, { label: "Collection", value: t.b.collection, placeholder: `${t.a.collection}_copy`, onChange: (v) => setCompare(t.id, { b: { ...t.b, collection: v } }) })
     ] })
   ] });
 }
@@ -6252,8 +6289,8 @@ function Results({ t }) {
   const ids = idsShown(t);
   const counts = { differ: r.differ, onlyA: r.onlyA, onlyB: r.onlyB };
   const equal = r.differ + r.onlyA + r.onlyB === 0;
-  return /* @__PURE__ */ jsxs9(Box8, { gap: "sm", children: [
-    /* @__PURE__ */ jsx9(
+  return /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
+    /* @__PURE__ */ jsx10(
       KeyValue7,
       {
         label: "Comparison",
@@ -6265,10 +6302,10 @@ function Results({ t }) {
         ]
       }
     ),
-    equal ? /* @__PURE__ */ jsx9(Callout9, { tone: "success", icon: "check", children: `Every document matches${t.ran.filter ? " the filter" : ""} on both sides.` }) : null,
-    !equal ? /* @__PURE__ */ jsxs9(Box8, { gap: "xs", children: [
-      /* @__PURE__ */ jsx9(Toolbar7, { label: "Show", gap: "xs", children: SHOW.map((s) => /* @__PURE__ */ jsx9(Button8, { size: "sm", variant: t.show === s.value ? "solid" : "ghost", tone: t.show === s.value ? "accent" : "neutral", disabled: counts[s.value] === 0, onPress: () => changeAdmin(t.id, "compare", () => ({ show: s.value, selected: void 0, diff: void 0 })), children: s.label(counts[s.value]) }, s.value)) }),
-      /* @__PURE__ */ jsx9(
+    equal ? /* @__PURE__ */ jsx10(Callout9, { tone: "success", icon: "check", children: `Every document matches${t.ran.filter ? " the filter" : ""} on both sides.` }) : null,
+    !equal ? /* @__PURE__ */ jsxs10(Box8, { gap: "xs", children: [
+      /* @__PURE__ */ jsx10(Toolbar7, { label: "Show", gap: "xs", children: SHOW.map((s) => /* @__PURE__ */ jsx10(Button8, { size: "sm", variant: t.show === s.value ? "solid" : "ghost", tone: t.show === s.value ? "accent" : "neutral", disabled: counts[s.value] === 0, onPress: () => changeAdmin(t.id, "compare", () => ({ show: s.value, selected: void 0, diff: void 0 })), children: s.label(counts[s.value]) }, s.value)) }),
+      /* @__PURE__ */ jsx10(
         Table8,
         {
           label: "Documents",
@@ -6281,19 +6318,19 @@ function Results({ t }) {
           onSelectionChange: ({ keys }) => keys[0] && void aguard(t.id, () => selectPair(t.id, keys[0]))()
         }
       ),
-      r.capped ? /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: `Only the first _ids of each kind are listed (at most ${numberText(1e3)}); the counts are complete.` }) : null,
-      /* @__PURE__ */ jsx9(Pair, { t })
+      r.capped ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: `Only the first _ids of each kind are listed (at most ${numberText(1e3)}); the counts are complete.` }) : null,
+      /* @__PURE__ */ jsx10(Pair, { t })
     ] }) : null,
-    /* @__PURE__ */ jsx9(SyncSection, { t })
+    /* @__PURE__ */ jsx10(SyncSection, { t })
   ] });
 }
 function Pair({ t }) {
   const d = t.diff;
-  if (!d) return /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Select a document to see it on both sides." });
-  if (d.loading) return /* @__PURE__ */ jsx9(Skeleton7, { lines: 4, label: "Reading both documents" });
-  if (d.error) return /* @__PURE__ */ jsx9(Callout9, { tone: "danger", icon: "error", children: d.error });
-  return /* @__PURE__ */ jsxs9(Box8, { gap: "xs", children: [
-    d.diffs && d.diffs.length ? /* @__PURE__ */ jsx9(
+  if (!d) return /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Select a document to see it on both sides." });
+  if (d.loading) return /* @__PURE__ */ jsx10(Skeleton7, { lines: 4, label: "Reading both documents" });
+  if (d.error) return /* @__PURE__ */ jsx10(Callout9, { tone: "danger", icon: "error", children: d.error });
+  return /* @__PURE__ */ jsxs10(Box8, { gap: "xs", children: [
+    d.diffs && d.diffs.length ? /* @__PURE__ */ jsx10(
       Table8,
       {
         label: "Differences",
@@ -6306,9 +6343,9 @@ function Pair({ t }) {
         maxHeight: "sm"
       }
     ) : null,
-    d.capped ? /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Only the first 500 differences are listed." }) : null,
-    d.a ? /* @__PURE__ */ jsx9(CodeView6, { label: "A", code: toShell(d.a), language: "javascript", maxHeight: "sm" }) : /* @__PURE__ */ jsx9(Text9, { size: "sm", muted: true, children: "Not in A." }),
-    d.b ? /* @__PURE__ */ jsx9(CodeView6, { label: "B", code: toShell(d.b), language: "javascript", maxHeight: "sm" }) : /* @__PURE__ */ jsx9(Text9, { size: "sm", muted: true, children: "Not in B." })
+    d.capped ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Only the first 500 differences are listed." }) : null,
+    d.a ? /* @__PURE__ */ jsx10(CodeView6, { label: "A", code: toShell(d.a), language: "javascript", maxHeight: "sm" }) : /* @__PURE__ */ jsx10(Text10, { size: "sm", muted: true, children: "Not in A." }),
+    d.b ? /* @__PURE__ */ jsx10(CodeView6, { label: "B", code: toShell(d.b), language: "javascript", maxHeight: "sm" }) : /* @__PURE__ */ jsx10(Text10, { size: "sm", muted: true, children: "Not in B." })
   ] });
 }
 function SyncSection({ t }) {
@@ -6321,8 +6358,8 @@ function SyncSection({ t }) {
   const to = s.direction === "aToB" ? "B" : "A";
   const set15 = (change2) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, ...change2, confirm: false } }));
   const total = plan.insert + plan.replace + plan.remove;
-  return /* @__PURE__ */ jsx9(Collapsible6, { title: "Sync", description: `Make one side like the other`, open: s.open, onChange: (open) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, open } })), children: /* @__PURE__ */ jsxs9(Box8, { gap: "sm", children: [
-    /* @__PURE__ */ jsx9(
+  return /* @__PURE__ */ jsx10(Collapsible6, { title: "Sync", description: `Make one side like the other`, open: s.open, onChange: (open) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, open } })), children: /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
+    /* @__PURE__ */ jsx10(
       RadioGroup3,
       {
         label: "Direction",
@@ -6334,48 +6371,48 @@ function SyncSection({ t }) {
         onChange: (v) => set15({ direction: v })
       }
     ),
-    /* @__PURE__ */ jsx9(Checkbox5, { label: `Insert what is only in ${from}`, checked: s.insert, onChange: (insert) => set15({ insert }) }),
-    /* @__PURE__ */ jsx9(Checkbox5, { label: `Replace the documents that differ with ${from}'s`, checked: s.replace, onChange: (replace) => set15({ replace }) }),
-    /* @__PURE__ */ jsx9(Checkbox5, { label: `Delete what is only in ${to}`, checked: s.remove, onChange: (remove) => set15({ remove }) }),
-    t.ran.rules.ignoreFields.length ? /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Replacing writes the whole document, the left-out fields included." }) : null,
-    s.confirm ? /* @__PURE__ */ jsx9(Callout9, { tone: "danger", icon: "warning", title: `Change ${plan.to}?`, children: /* @__PURE__ */ jsxs9(Box8, { gap: "sm", children: [
-      /* @__PURE__ */ jsx9(Text9, { children: `From the last comparison: ${numberText(plan.insert)} inserted, ${numberText(plan.replace)} replaced, ${numberText(plan.remove)} deleted. Documents changed since are synced as they are now.` }),
-      /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
-        /* @__PURE__ */ jsx9(Button8, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => runSync(t.id, true)), children: "Sync" }),
-        /* @__PURE__ */ jsx9(Button8, { variant: "ghost", onPress: () => set15({}), children: "Cancel" })
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Insert what is only in ${from}`, checked: s.insert, onChange: (insert) => set15({ insert }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Replace the documents that differ with ${from}'s`, checked: s.replace, onChange: (replace) => set15({ replace }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Delete what is only in ${to}`, checked: s.remove, onChange: (remove) => set15({ remove }) }),
+    t.ran.rules.ignoreFields.length ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Replacing writes the whole document, the left-out fields included." }) : null,
+    s.confirm ? /* @__PURE__ */ jsx10(Callout9, { tone: "danger", icon: "warning", title: `Change ${plan.to}?`, children: /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
+      /* @__PURE__ */ jsx10(Text10, { children: `From the last comparison: ${numberText(plan.insert)} inserted, ${numberText(plan.replace)} replaced, ${numberText(plan.remove)} deleted. Documents changed since are synced as they are now.` }),
+      /* @__PURE__ */ jsxs10(Row10, { gap: "xs", children: [
+        /* @__PURE__ */ jsx10(Button8, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => runSync(t.id, true)), children: "Sync" }),
+        /* @__PURE__ */ jsx10(Button8, { variant: "ghost", onPress: () => set15({}), children: "Cancel" })
       ] })
-    ] }) }) : /* @__PURE__ */ jsx9(Row9, { gap: "xs", children: /* @__PURE__ */ jsx9(Button8, { icon: "refresh", variant: "solid", tone: "accent", disabled: running || total === 0, onPress: aguard(t.id, () => runSync(t.id)), children: running ? "Syncing…" : `Sync ${numberText(total)} document${total === 1 ? "" : "s"}` }) }),
-    /* @__PURE__ */ jsx9(JobProgress, { box: s.job, what: "sync", onCancel: aguard(t.id, () => cancelCompare(t.id)) })
+    ] }) }) : /* @__PURE__ */ jsx10(Row10, { gap: "xs", children: /* @__PURE__ */ jsx10(Button8, { icon: "refresh", variant: "solid", tone: "accent", disabled: running || total === 0, onPress: aguard(t.id, () => runSync(t.id)), children: running ? "Syncing…" : `Sync ${numberText(total)} document${total === 1 ? "" : "s"}` }) }),
+    /* @__PURE__ */ jsx10(JobProgress, { box: s.job, what: "sync", onCancel: aguard(t.id, () => cancelCompare(t.id)) })
   ] }) });
 }
 function CompareTabView({ id }) {
-  const t = read12(adminTabs)[id];
+  const t = read13(adminTabs)[id];
   if (!t || t.kind !== "compare") return null;
   const running = jobRunning(t.job);
   const problems = compareProblems(t);
   const b = bNs(t);
-  return /* @__PURE__ */ jsxs9(Box8, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs9(Box8, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx9(Text9, { weight: "semibold", truncate: true, children: `Compare ${t.a.db}.${t.a.collection}` }),
-        /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, truncate: true, children: `A: ${connectionName(t.a.connectionId)} · B: ${connectionName(b.connectionId)}${b.collection ? ` · ${b.db}.${b.collection}` : ""}` })
+  return /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs10(Row10, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs10(Box8, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx10(Text10, { weight: "semibold", truncate: true, children: `Compare ${t.a.db}.${t.a.collection}` }),
+        /* @__PURE__ */ jsx10(PlaceLine, { places: comparePlaces(t) })
       ] }),
-      /* @__PURE__ */ jsx9(IconButton8, { icon: "close", label: "Close the comparison", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx10(IconButton8, { icon: "close", label: "Close the comparison", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsx9(Other, { t }),
-    /* @__PURE__ */ jsx9(Input7, { label: "Filter (both sides)", value: t.filter, placeholder: "{} for every document", invalid: Boolean(t.filterError), onChange: (v) => setCompare(t.id, { filter: v, filterError: void 0 }) }),
-    t.filterError ? /* @__PURE__ */ jsx9(Text9, { size: "xs", tone: "danger", children: t.filterError }) : null,
-    /* @__PURE__ */ jsx9(Input7, { label: "Leave out fields", value: t.ignore, placeholder: "updatedAt, meta.version", onChange: (v) => setCompare(t.id, { ignore: v }) }),
-    /* @__PURE__ */ jsx9(Checkbox5, { label: "Field order doesn't count", description: "{ a, b } equals { b, a }; types always count (1 and 1.0 differ)", checked: t.ignoreOrder, onChange: (ignoreOrder) => setCompare(t.id, { ignoreOrder }) }),
-    problems.length && b.collection ? /* @__PURE__ */ jsx9(Text9, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
-    /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx9(Button8, { variant: "solid", tone: "accent", icon: "branch", disabled: running || problems.length > 0, onPress: aguard(t.id, () => runCompare(t.id)), children: running ? "Comparing…" : t.result ? "Compare again" : "Compare" }),
-      /* @__PURE__ */ jsx9(Text9, { size: "xs", muted: true, children: "Documents are matched by _id." })
+    /* @__PURE__ */ jsx10(Other, { t }),
+    /* @__PURE__ */ jsx10(Input7, { label: "Filter (both sides)", value: t.filter, placeholder: "{} for every document", invalid: Boolean(t.filterError), onChange: (v) => setCompare(t.id, { filter: v, filterError: void 0 }) }),
+    t.filterError ? /* @__PURE__ */ jsx10(Text10, { size: "xs", tone: "danger", children: t.filterError }) : null,
+    /* @__PURE__ */ jsx10(Input7, { label: "Leave out fields", value: t.ignore, placeholder: "updatedAt, meta.version", onChange: (v) => setCompare(t.id, { ignore: v }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: "Field order doesn't count", description: "{ a, b } equals { b, a }; types always count (1 and 1.0 differ)", checked: t.ignoreOrder, onChange: (ignoreOrder) => setCompare(t.id, { ignoreOrder }) }),
+    problems.length && b.collection ? /* @__PURE__ */ jsx10(Text10, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
+    /* @__PURE__ */ jsxs10(Row10, { gap: "xs", align: "center", children: [
+      /* @__PURE__ */ jsx10(Button8, { variant: "solid", tone: "accent", icon: "branch", disabled: running || problems.length > 0, onPress: aguard(t.id, () => runCompare(t.id)), children: running ? "Comparing…" : t.result ? "Compare again" : "Compare" }),
+      /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Documents are matched by _id." })
     ] }),
-    /* @__PURE__ */ jsx9(NoticeBar, { id: t.id, notice: t.notice }),
-    /* @__PURE__ */ jsx9(JobProgress, { box: t.job?.state?.status === "done" ? void 0 : t.job, what: "comparison", onCancel: aguard(t.id, () => cancelCompare(t.id)) }),
-    /* @__PURE__ */ jsx9(Results, { t }),
-    /* @__PURE__ */ jsx9(
+    /* @__PURE__ */ jsx10(NoticeBar, { id: t.id, notice: t.notice }),
+    /* @__PURE__ */ jsx10(JobProgress, { box: t.job?.state?.status === "done" ? void 0 : t.job, what: "comparison", onCancel: aguard(t.id, () => cancelCompare(t.id)) }),
+    /* @__PURE__ */ jsx10(Results, { t }),
+    /* @__PURE__ */ jsx10(
       TaskSaver,
       {
         tabId: t.id,
@@ -6398,23 +6435,23 @@ import {
   IconButton as IconButton9,
   Input as Input8,
   RadioGroup as RadioGroup4,
-  read as read13,
-  Row as Row10,
+  read as read14,
+  Row as Row11,
   Select as Select6,
   Table as Table9,
-  Text as Text10,
+  Text as Text11,
   Toolbar as Toolbar8
 } from "orca";
-import { jsx as jsx10, jsxs as jsxs10 } from "orca/jsx-runtime";
+import { jsx as jsx11, jsxs as jsxs11 } from "orca/jsx-runtime";
 function QueryFields({ t }) {
   if (t.from.kind !== "query") return null;
   const field = (key, label, placeholder) => {
     const error = t.queryErrors[key];
-    return /* @__PURE__ */ jsx10(Field, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx10(Input8, { label, labelHidden: true, value: t.query[key], placeholder, invalid: Boolean(error), onChange: (v) => setExport2(t.id, (x) => ({ query: { ...x.query, [key]: v }, queryErrors: { ...x.queryErrors, [key]: void 0 } })) }) });
+    return /* @__PURE__ */ jsx11(Field, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx11(Input8, { label, labelHidden: true, value: t.query[key], placeholder, invalid: Boolean(error), onChange: (v) => setExport2(t.id, (x) => ({ query: { ...x.query, [key]: v }, queryErrors: { ...x.queryErrors, [key]: void 0 } })) }) });
   };
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
+  return /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
     field("filter", "Filter", "{} for every document"),
-    /* @__PURE__ */ jsxs10(Box9, { columns: 3, gap: "xs", children: [
+    /* @__PURE__ */ jsxs11(Box9, { columns: 3, gap: "xs", children: [
       field("projection", "Projection", "{ name: 1 }"),
       field("sort", "Sort", "{ _id: 1 }"),
       field("limit", "Limit", "0 (none)")
@@ -6426,12 +6463,12 @@ function CsvOptions({ t }) {
   const sel = c.selected.filter((f) => c.fields.includes(f));
   const one = sel.length === 1 ? sel[0] : void 0;
   const missing = (c.available ?? []).filter((f) => !c.fields.includes(f));
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-    /* @__PURE__ */ jsxs10(Row10, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx10(Select6, { label: "Delimiter", value: c.delimiter, options: DELIMITERS, onChange: (v) => setExport2(t.id, { csv: { ...c, delimiter: v } }) }),
-      /* @__PURE__ */ jsx10(Box9, { grow: true, children: /* @__PURE__ */ jsx10(Checkbox6, { label: "A first row with the field names", checked: c.header, onChange: (header) => setExport2(t.id, { csv: { ...c, header } }) }) })
+  return /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+    /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx11(Select6, { label: "Delimiter", value: c.delimiter, options: DELIMITERS, onChange: (v) => setExport2(t.id, { csv: { ...c, delimiter: v } }) }),
+      /* @__PURE__ */ jsx11(Box9, { grow: true, children: /* @__PURE__ */ jsx11(Checkbox6, { label: "A first row with the field names", checked: c.header, onChange: (header) => setExport2(t.id, { csv: { ...c, header } }) }) })
     ] }),
-    /* @__PURE__ */ jsx10(
+    /* @__PURE__ */ jsx11(
       Table9,
       {
         label: "Columns",
@@ -6447,29 +6484,29 @@ function CsvOptions({ t }) {
         onSelectionChange: ({ keys }) => changeAdmin(t.id, "export", (x) => ({ csv: { ...x.csv, selected: keys } }))
       }
     ),
-    /* @__PURE__ */ jsxs10(Toolbar8, { label: "Column actions", gap: "xs", children: [
-      t.from.kind !== "database" ? /* @__PURE__ */ jsx10(Button9, { size: "sm", icon: "search", variant: "ghost", disabled: c.loading, onPress: aguard(t.id, () => loadFields(t.id)), children: c.loading ? "Sampling…" : "Load the fields" }) : null,
-      one ? /* @__PURE__ */ jsx10(IconButton9, { icon: "expand", label: "Move up", size: "sm", variant: "ghost", onPress: () => moveField(t.id, one, -1) }) : null,
-      one ? /* @__PURE__ */ jsx10(IconButton9, { icon: "collapse", label: "Move down", size: "sm", variant: "ghost", onPress: () => moveField(t.id, one, 1) }) : null,
-      sel.length ? /* @__PURE__ */ jsx10(Button9, { size: "sm", icon: "remove", variant: "ghost", onPress: () => setFields(t.id, c.fields.filter((f) => !sel.includes(f))), children: `Remove ${sel.length}` }) : null,
-      c.fields.length ? /* @__PURE__ */ jsx10(Button9, { size: "sm", icon: "delete", variant: "ghost", onPress: () => setFields(t.id, []), children: "Clear" }) : null
+    /* @__PURE__ */ jsxs11(Toolbar8, { label: "Column actions", gap: "xs", children: [
+      t.from.kind !== "database" ? /* @__PURE__ */ jsx11(Button9, { size: "sm", icon: "search", variant: "ghost", disabled: c.loading, onPress: aguard(t.id, () => loadFields(t.id)), children: c.loading ? "Sampling…" : "Load the fields" }) : null,
+      one ? /* @__PURE__ */ jsx11(IconButton9, { icon: "expand", label: "Move up", size: "sm", variant: "ghost", onPress: () => moveField(t.id, one, -1) }) : null,
+      one ? /* @__PURE__ */ jsx11(IconButton9, { icon: "collapse", label: "Move down", size: "sm", variant: "ghost", onPress: () => moveField(t.id, one, 1) }) : null,
+      sel.length ? /* @__PURE__ */ jsx11(Button9, { size: "sm", icon: "remove", variant: "ghost", onPress: () => setFields(t.id, c.fields.filter((f) => !sel.includes(f))), children: `Remove ${sel.length}` }) : null,
+      c.fields.length ? /* @__PURE__ */ jsx11(Button9, { size: "sm", icon: "delete", variant: "ghost", onPress: () => setFields(t.id, []), children: "Clear" }) : null
     ] }),
-    /* @__PURE__ */ jsx10(Row10, { gap: "xs", align: "end", children: /* @__PURE__ */ jsx10(Box9, { grow: true, children: missing.length ? /* @__PURE__ */ jsx10(Select6, { label: "Add a field", value: "", placeholder: `${missing.length} more sampled`, options: missing.map((f) => ({ value: f, label: f })), onChange: (f) => setFields(t.id, [...c.fields, f]) }) : /* @__PURE__ */ jsx10(Input8, { label: "Add a field", placeholder: "address.city", value: c.add, onChange: (v) => changeAdmin(t.id, "export", (x) => ({ csv: { ...x.csv, add: v } })), onSubmit: (v) => setExport2(t.id, (x) => ({ csv: { ...x.csv, add: "", fields: [...new Set([...x.csv.fields, v.trim()].filter(Boolean))] } })) }) }) }),
-    /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Dates are written as ISO 8601 and ObjectIds as hex; arrays and sub-documents as Extended JSON, which Import reads back." })
+    /* @__PURE__ */ jsx11(Row11, { gap: "xs", align: "end", children: /* @__PURE__ */ jsx11(Box9, { grow: true, children: missing.length ? /* @__PURE__ */ jsx11(Select6, { label: "Add a field", value: "", placeholder: `${missing.length} more sampled`, options: missing.map((f) => ({ value: f, label: f })), onChange: (f) => setFields(t.id, [...c.fields, f]) }) : /* @__PURE__ */ jsx11(Input8, { label: "Add a field", placeholder: "address.city", value: c.add, onChange: (v) => changeAdmin(t.id, "export", (x) => ({ csv: { ...x.csv, add: v } })), onSubmit: (v) => setExport2(t.id, (x) => ({ csv: { ...x.csv, add: "", fields: [...new Set([...x.csv.fields, v.trim()].filter(Boolean))] } })) }) }) }),
+    /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "Dates are written as ISO 8601 and ObjectIds as hex; arrays and sub-documents as Extended JSON, which Import reads back." })
   ] });
 }
 function TargetOptions({ t }) {
   const x = t.target;
-  const conns = read13(connections)?.connections ?? [];
+  const conns = read14(connections)?.connections ?? [];
   const many = t.from.kind === "database";
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-    /* @__PURE__ */ jsx10(Select6, { label: "Connection", value: x.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setExport2(t.id, { target: { ...x, connectionId: v } }) }),
-    /* @__PURE__ */ jsxs10(Box9, { columns: many ? 1 : 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx10(Input8, { label: "Database", value: x.db, onChange: (v) => setExport2(t.id, { target: { ...x, db: v } }) }),
-      many ? null : /* @__PURE__ */ jsx10(Input8, { label: "Collection", value: x.collection, onChange: (v) => setExport2(t.id, { target: { ...x, collection: v } }) })
+  return /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+    /* @__PURE__ */ jsx11(Select6, { label: "Connection", value: x.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setExport2(t.id, { target: { ...x, connectionId: v } }) }),
+    /* @__PURE__ */ jsxs11(Box9, { columns: many ? 1 : 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx11(Input8, { label: "Database", value: x.db, onChange: (v) => setExport2(t.id, { target: { ...x, db: v } }) }),
+      many ? null : /* @__PURE__ */ jsx11(Input8, { label: "Collection", value: x.collection, onChange: (v) => setExport2(t.id, { target: { ...x, collection: v } }) })
     ] }),
-    many ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Each collection keeps its name; views are created again as views." }) : null,
-    /* @__PURE__ */ jsx10(
+    many ? /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "Each collection keeps its name; views are created again as views." }) : null,
+    /* @__PURE__ */ jsx11(
       RadioGroup4,
       {
         label: "When the documents are there already",
@@ -6483,9 +6520,9 @@ function TargetOptions({ t }) {
         onChange: (v) => setExport2(t.id, { target: { ...x, mode: v } })
       }
     ),
-    t.from.kind !== "pipeline" ? /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-      /* @__PURE__ */ jsx10(Checkbox6, { label: "Copy the indexes", checked: x.indexes, onChange: (indexes) => setExport2(t.id, { target: { ...x, indexes } }) }),
-      /* @__PURE__ */ jsx10(Checkbox6, { label: "Create a new collection with the same options", description: "Capped size, validation, collation, time series", checked: x.options, onChange: (options4) => setExport2(t.id, { target: { ...x, options: options4 } }) })
+    t.from.kind !== "pipeline" ? /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+      /* @__PURE__ */ jsx11(Checkbox6, { label: "Copy the indexes", checked: x.indexes, onChange: (indexes) => setExport2(t.id, { target: { ...x, indexes } }) }),
+      /* @__PURE__ */ jsx11(Checkbox6, { label: "Create a new collection with the same options", description: "Capped size, validation, collation, time series", checked: x.options, onChange: (options4) => setExport2(t.id, { target: { ...x, options: options4 } }) })
     ] }) : null
   ] });
 }
@@ -6496,25 +6533,25 @@ var FORMATS = [
   { value: "collection", label: "Another collection", description: "On this or another connection" }
 ];
 function ExportTabView({ id }) {
-  const t = read13(adminTabs)[id];
+  const t = read14(adminTabs)[id];
   if (!t || t.kind !== "export") return null;
   const running = jobRunning(t.job);
   const problems = exportProblems(t);
   const many = t.from.kind === "database";
   const copied2 = t.job?.state?.status === "done" && t.format === "collection" && !many;
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs10(Row10, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs10(Box9, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx10(Text10, { weight: "semibold", truncate: true, children: t.format === "collection" ? "Copy" : "Export" }),
-        /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, truncate: true, children: sourceLabel(t) })
+  return /* @__PURE__ */ jsxs11(Box9, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs11(Box9, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx11(Text11, { weight: "semibold", truncate: true, children: t.format === "collection" ? "Copy" : "Export" }),
+        /* @__PURE__ */ jsx11(PlaceLine, { places: exportPlaces(t), detail: sourceDetail(t) })
       ] }),
-      /* @__PURE__ */ jsx10(IconButton9, { icon: "close", label: "Close the export", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx11(IconButton9, { icon: "close", label: "Close the export", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsx10(QueryFields, { t }),
-    t.from.kind === "pipeline" ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "The pipeline as it was when Export was pressed. Export again from the aggregation tab after changing it." }) : null,
-    /* @__PURE__ */ jsx10(RadioGroup4, { label: "Format", value: t.format, options: FORMATS, onChange: (v) => setExport2(t.id, { format: v }) }),
-    t.format === "json" ? /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-      /* @__PURE__ */ jsx10(
+    /* @__PURE__ */ jsx11(QueryFields, { t }),
+    t.from.kind === "pipeline" ? /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "The pipeline as it was when Export was pressed. Export again from the aggregation tab after changing it." }) : null,
+    /* @__PURE__ */ jsx11(RadioGroup4, { label: "Format", value: t.format, options: FORMATS, onChange: (v) => setExport2(t.id, { format: v }) }),
+    t.format === "json" ? /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+      /* @__PURE__ */ jsx11(
         RadioGroup4,
         {
           label: "Layout",
@@ -6527,13 +6564,13 @@ function ExportTabView({ id }) {
           onChange: (v) => setExport2(t.id, { json: { ...t.json, layout: v } })
         }
       ),
-      /* @__PURE__ */ jsx10(Checkbox6, { label: "Relaxed Extended JSON", description: "Numbers and dates as plain JSON; canonical keeps every type exactly", checked: t.json.relaxed, onChange: (relaxed) => setExport2(t.id, { json: { ...t.json, relaxed } }) }),
-      /* @__PURE__ */ jsx10(Checkbox6, { label: "Indented", checked: t.json.pretty, onChange: (pretty) => setExport2(t.id, { json: { ...t.json, pretty } }) })
+      /* @__PURE__ */ jsx11(Checkbox6, { label: "Relaxed Extended JSON", description: "Numbers and dates as plain JSON; canonical keeps every type exactly", checked: t.json.relaxed, onChange: (relaxed) => setExport2(t.id, { json: { ...t.json, relaxed } }) }),
+      /* @__PURE__ */ jsx11(Checkbox6, { label: "Indented", checked: t.json.pretty, onChange: (pretty) => setExport2(t.id, { json: { ...t.json, pretty } }) })
     ] }) : null,
-    t.format === "csv" ? /* @__PURE__ */ jsx10(CsvOptions, { t }) : null,
-    t.format === "bson" ? /* @__PURE__ */ jsx10(Checkbox6, { label: "Write .metadata.json with the indexes and options", description: "Only when writing to a path", checked: t.bsonMetadata, onChange: (bsonMetadata) => setExport2(t.id, { bsonMetadata }) }) : null,
-    t.format === "collection" ? /* @__PURE__ */ jsx10(TargetOptions, { t }) : /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-      /* @__PURE__ */ jsx10(
+    t.format === "csv" ? /* @__PURE__ */ jsx11(CsvOptions, { t }) : null,
+    t.format === "bson" ? /* @__PURE__ */ jsx11(Checkbox6, { label: "Write .metadata.json with the indexes and options", description: "Only when writing to a path", checked: t.bsonMetadata, onChange: (bsonMetadata) => setExport2(t.id, { bsonMetadata }) }) : null,
+    t.format === "collection" ? /* @__PURE__ */ jsx11(TargetOptions, { t }) : /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+      /* @__PURE__ */ jsx11(
         RadioGroup4,
         {
           label: "Save to",
@@ -6545,26 +6582,26 @@ function ExportTabView({ id }) {
           onChange: (v) => setExport2(t.id, { destination: v })
         }
       ),
-      t.destination === "path" ? /* @__PURE__ */ jsxs10(Box9, { gap: "xs", children: [
-        /* @__PURE__ */ jsx10(Input8, { label: many ? "Folder" : "Path", value: t.path, placeholder: many ? "~/dumps/shop" : `~/exports/${t.from.kind === "database" ? "" : t.from.ns.collection}.${t.format === "csv" ? "csv" : t.format}`, onChange: (v) => setExport2(t.id, { path: v }) }),
-        /* @__PURE__ */ jsx10(Checkbox6, { label: "Replace an existing file", checked: t.overwrite, onChange: (overwrite) => setExport2(t.id, { overwrite }) })
+      t.destination === "path" ? /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
+        /* @__PURE__ */ jsx11(Input8, { label: many ? "Folder" : "Path", value: t.path, placeholder: many ? "~/dumps/shop" : `~/exports/${t.from.kind === "database" ? "" : t.from.ns.collection}.${t.format === "csv" ? "csv" : t.format}`, onChange: (v) => setExport2(t.id, { path: v }) }),
+        /* @__PURE__ */ jsx11(Checkbox6, { label: "Replace an existing file", checked: t.overwrite, onChange: (overwrite) => setExport2(t.id, { overwrite }) })
       ] }) : null
     ] }),
-    /* @__PURE__ */ jsx10(NoticeBar, { id: t.id, notice: t.notice }),
-    t.confirm ? /* @__PURE__ */ jsx10(Callout10, { tone: "danger", icon: "warning", title: "Drop before copying?", children: /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
-      /* @__PURE__ */ jsx10(Text10, { children: `This drops ${t.confirm.label}${t.confirm.count === null ? "" : ` (${numberText(t.confirm.count)} documents)`}, with its indexes, and then copies into it.` }),
-      /* @__PURE__ */ jsxs10(Row10, { gap: "xs", children: [
-        /* @__PURE__ */ jsx10(Button9, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => startExport(t.id, true)), children: "Drop and copy" }),
-        /* @__PURE__ */ jsx10(Button9, { variant: "ghost", onPress: () => changeAdmin(t.id, "export", () => ({ confirm: void 0 })), children: "Cancel" })
+    /* @__PURE__ */ jsx11(NoticeBar, { id: t.id, notice: t.notice }),
+    t.confirm ? /* @__PURE__ */ jsx11(Callout10, { tone: "danger", icon: "warning", title: "Drop before copying?", children: /* @__PURE__ */ jsxs11(Box9, { gap: "sm", children: [
+      /* @__PURE__ */ jsx11(Text11, { children: `This drops ${t.confirm.label}${t.confirm.count === null ? "" : ` (${numberText(t.confirm.count)} documents)`}, with its indexes, and then copies into it.` }),
+      /* @__PURE__ */ jsxs11(Row11, { gap: "xs", children: [
+        /* @__PURE__ */ jsx11(Button9, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => startExport(t.id, true)), children: "Drop and copy" }),
+        /* @__PURE__ */ jsx11(Button9, { variant: "ghost", onPress: () => changeAdmin(t.id, "export", () => ({ confirm: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    problems.length ? /* @__PURE__ */ jsx10(Text10, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
-    /* @__PURE__ */ jsxs10(Row10, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx10(Button9, { variant: "solid", tone: "accent", icon: t.format === "collection" ? "copy" : "download", disabled: running || problems.length > 0 || Boolean(t.confirm), onPress: aguard(t.id, () => startExport(t.id)), children: running ? t.format === "collection" ? "Copying…" : "Exporting…" : t.format === "collection" ? "Copy" : "Export" }),
-      copied2 ? /* @__PURE__ */ jsx10(Button9, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.target.connectionId, db: t.target.db.trim(), collection: t.target.collection.trim() }, "coll")), children: "Open the copy" }) : null
+    problems.length ? /* @__PURE__ */ jsx11(Text11, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
+    /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "center", children: [
+      /* @__PURE__ */ jsx11(Button9, { variant: "solid", tone: "accent", icon: t.format === "collection" ? "copy" : "download", disabled: running || problems.length > 0 || Boolean(t.confirm), onPress: aguard(t.id, () => startExport(t.id)), children: running ? t.format === "collection" ? "Copying…" : "Exporting…" : t.format === "collection" ? "Copy" : "Export" }),
+      copied2 ? /* @__PURE__ */ jsx11(Button9, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.target.connectionId, db: t.target.db.trim(), collection: t.target.collection.trim() }, "coll")), children: "Open the copy" }) : null
     ] }),
-    /* @__PURE__ */ jsx10(JobProgress, { box: t.job, what: t.format === "collection" ? "copy" : "export", onCancel: aguard(t.id, () => cancelExport(t.id)), onSave: aguard(t.id, () => saveExport(t.id)) }),
-    /* @__PURE__ */ jsx10(TaskSaver, { tabId: t.id, task: t.task, taskName: t.taskName, placeholder: t.title, kinds: [{ kind: "export", label: t.format === "collection" ? "Save the copy as a task" : "Save the export as a task" }] })
+    /* @__PURE__ */ jsx11(JobProgress, { box: t.job, what: t.format === "collection" ? "copy" : "export", onCancel: aguard(t.id, () => cancelExport(t.id)), onSave: aguard(t.id, () => saveExport(t.id)) }),
+    /* @__PURE__ */ jsx11(TaskSaver, { tabId: t.id, task: t.task, taskName: t.taskName, placeholder: t.title, kinds: [{ kind: "export", label: t.format === "collection" ? "Save the copy as a task" : "Save the export as a task" }] })
   ] });
 }
 
@@ -6580,11 +6617,11 @@ import {
   Input as Input9,
   KeyValue as KeyValue8,
   RadioGroup as RadioGroup5,
-  read as read14,
-  Row as Row11,
+  read as read15,
+  Row as Row12,
   Skeleton as Skeleton8,
   Table as Table10,
-  Text as Text11,
+  Text as Text12,
   Textarea as Textarea4
 } from "orca";
 
@@ -6728,7 +6765,7 @@ async function cancelGridJob(id, which) {
 }
 
 // src/panel/gridfs-view.tsx
-import { jsx as jsx11, jsxs as jsxs11 } from "orca/jsx-runtime";
+import { jsx as jsx12, jsxs as jsxs12 } from "orca/jsx-runtime";
 function language(name, type) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (type?.includes("json") || ext === "json") return "json";
@@ -6739,7 +6776,7 @@ function language(name, type) {
 }
 function Selected2({ t }) {
   const f = selectedFile(t);
-  if (!f) return /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "Select a file for its details, a preview, and to download, rename or delete it." });
+  if (!f) return /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Select a file for its details, a preview, and to download, rename or delete it." });
   const p = t.preview?.key === t.selected ? t.preview : void 0;
   const items = [
     { label: "_id", value: valueText(f.id, 80), code: true },
@@ -6752,16 +6789,16 @@ function Selected2({ t }) {
   if (p?.data && p.data.chunks !== p.data.expectedChunks) items.push({ label: "Chunks", value: `${p.data.chunks} of ${p.data.expectedChunks}: the file is incomplete`, tone: "danger" });
   const d = t.download;
   const running = jobRunning(d.job);
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
-    /* @__PURE__ */ jsx11(KeyValue8, { label: `${f.filename} details`, items }),
-    p?.loading ? /* @__PURE__ */ jsx11(Skeleton8, { lines: 3, label: "Reading the start of the file" }) : null,
-    p?.error ? /* @__PURE__ */ jsx11(Callout11, { tone: "danger", icon: "error", children: p.error }) : null,
-    p?.data?.text !== void 0 ? /* @__PURE__ */ jsxs11(Box10, { gap: "xs", children: [
-      /* @__PURE__ */ jsx11(CodeView7, { label: `Start of ${f.filename}`, code: p.data.text, language: language(f.filename, f.contentType), lineNumbers: true, maxHeight: "md" }),
-      p.data.cut ? /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: `The first ${bytesText(64 * 1024)} of ${bytesText(f.length)}.` }) : null
-    ] }) : p?.data?.binary ? /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "Binary content: download it to open it." }) : null,
-    /* @__PURE__ */ jsx11(Collapsible7, { title: "Download", description: d.destination === "download" ? "The save dialog" : "To a path", defaultOpen: true, children: /* @__PURE__ */ jsxs11(Box10, { gap: "xs", children: [
-      /* @__PURE__ */ jsx11(
+  return /* @__PURE__ */ jsxs12(Box10, { gap: "sm", children: [
+    /* @__PURE__ */ jsx12(KeyValue8, { label: `${f.filename} details`, items }),
+    p?.loading ? /* @__PURE__ */ jsx12(Skeleton8, { lines: 3, label: "Reading the start of the file" }) : null,
+    p?.error ? /* @__PURE__ */ jsx12(Callout11, { tone: "danger", icon: "error", children: p.error }) : null,
+    p?.data?.text !== void 0 ? /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+      /* @__PURE__ */ jsx12(CodeView7, { label: `Start of ${f.filename}`, code: p.data.text, language: language(f.filename, f.contentType), lineNumbers: true, maxHeight: "md" }),
+      p.data.cut ? /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: `The first ${bytesText(64 * 1024)} of ${bytesText(f.length)}.` }) : null
+    ] }) : p?.data?.binary ? /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Binary content: download it to open it." }) : null,
+    /* @__PURE__ */ jsx12(Collapsible7, { title: "Download", description: d.destination === "download" ? "The save dialog" : "To a path", defaultOpen: true, children: /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+      /* @__PURE__ */ jsx12(
         RadioGroup5,
         {
           label: "Save to",
@@ -6775,23 +6812,23 @@ function Selected2({ t }) {
           onChange: (v) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, destination: v } }))
         }
       ),
-      d.destination === "path" ? /* @__PURE__ */ jsxs11(Box10, { gap: "xs", children: [
-        /* @__PURE__ */ jsx11(Input9, { label: "Path", value: d.path, placeholder: `~/Downloads (or ~/Downloads/${f.filename.split("/").pop()})`, onChange: (v) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, path: v } })) }),
-        /* @__PURE__ */ jsx11(Checkbox7, { label: "Replace an existing file", checked: d.overwrite, onChange: (overwrite) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, overwrite } })) })
+      d.destination === "path" ? /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+        /* @__PURE__ */ jsx12(Input9, { label: "Path", value: d.path, placeholder: `~/Downloads (or ~/Downloads/${f.filename.split("/").pop()})`, onChange: (v) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, path: v } })) }),
+        /* @__PURE__ */ jsx12(Checkbox7, { label: "Replace an existing file", checked: d.overwrite, onChange: (overwrite) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, overwrite } })) })
       ] }) : null,
-      /* @__PURE__ */ jsx11(Row11, { gap: "xs", children: /* @__PURE__ */ jsx11(Button10, { icon: "download", disabled: running, onPress: aguard(t.id, () => downloadFile(t.id)), children: running ? "Reading…" : d.destination === "download" ? "Prepare the download" : "Download" }) }),
-      /* @__PURE__ */ jsx11(JobProgress, { box: d.job, what: "download", onCancel: aguard(t.id, () => cancelGridJob(t.id, "download")), onSave: aguard(t.id, () => saveFile(t.id)) })
+      /* @__PURE__ */ jsx12(Row12, { gap: "xs", children: /* @__PURE__ */ jsx12(Button10, { icon: "download", disabled: running, onPress: aguard(t.id, () => downloadFile(t.id)), children: running ? "Reading…" : d.destination === "download" ? "Prepare the download" : "Download" }) }),
+      /* @__PURE__ */ jsx12(JobProgress, { box: d.job, what: "download", onCancel: aguard(t.id, () => cancelGridJob(t.id, "download")), onSave: aguard(t.id, () => saveFile(t.id)) })
     ] }) }),
-    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx11(Box10, { grow: true, children: /* @__PURE__ */ jsx11(Input9, { label: "Name", value: t.rename, onChange: (v) => changeAdmin(t.id, "gridfs", () => ({ rename: v })), onSubmit: () => void aguard(t.id, () => renameSelected(t.id))() }) }),
-      /* @__PURE__ */ jsx11(Button10, { icon: "edit", disabled: !t.rename.trim() || t.rename.trim() === f.filename, onPress: aguard(t.id, () => renameSelected(t.id)), children: "Rename" }),
-      /* @__PURE__ */ jsx11(IconButton10, { icon: "delete", label: `Delete ${f.filename}`, variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "gridfs", (x) => ({ confirmDelete: x.selected })) })
+    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx12(Box10, { grow: true, children: /* @__PURE__ */ jsx12(Input9, { label: "Name", value: t.rename, onChange: (v) => changeAdmin(t.id, "gridfs", () => ({ rename: v })), onSubmit: () => void aguard(t.id, () => renameSelected(t.id))() }) }),
+      /* @__PURE__ */ jsx12(Button10, { icon: "edit", disabled: !t.rename.trim() || t.rename.trim() === f.filename, onPress: aguard(t.id, () => renameSelected(t.id)), children: "Rename" }),
+      /* @__PURE__ */ jsx12(IconButton10, { icon: "delete", label: `Delete ${f.filename}`, variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "gridfs", (x) => ({ confirmDelete: x.selected })) })
     ] }),
-    t.confirmDelete === t.selected ? /* @__PURE__ */ jsx11(Callout11, { tone: "danger", icon: "warning", title: `Delete ${f.filename}?`, children: /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
-      /* @__PURE__ */ jsx11(Text11, { children: `Its file document and its ${numberText(Math.ceil(f.length / Math.max(1, f.chunkSize)))} chunks are deleted from ${t.db}.${t.bucket}.files and .chunks.` }),
-      /* @__PURE__ */ jsxs11(Row11, { gap: "xs", children: [
-        /* @__PURE__ */ jsx11(Button10, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => deleteSelected(t.id)), children: "Delete file" }),
-        /* @__PURE__ */ jsx11(Button10, { variant: "ghost", onPress: () => changeAdmin(t.id, "gridfs", () => ({ confirmDelete: void 0 })), children: "Cancel" })
+    t.confirmDelete === t.selected ? /* @__PURE__ */ jsx12(Callout11, { tone: "danger", icon: "warning", title: `Delete ${f.filename}?`, children: /* @__PURE__ */ jsxs12(Box10, { gap: "sm", children: [
+      /* @__PURE__ */ jsx12(Text12, { children: `Its file document and its ${numberText(Math.ceil(f.length / Math.max(1, f.chunkSize)))} chunks are deleted from ${t.db}.${t.bucket}.files and .chunks.` }),
+      /* @__PURE__ */ jsxs12(Row12, { gap: "xs", children: [
+        /* @__PURE__ */ jsx12(Button10, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => deleteSelected(t.id)), children: "Delete file" }),
+        /* @__PURE__ */ jsx12(Button10, { variant: "ghost", onPress: () => changeAdmin(t.id, "gridfs", () => ({ confirmDelete: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null
   ] });
@@ -6800,8 +6837,8 @@ function Upload({ t }) {
   const u = t.upload;
   const set15 = (change2) => changeAdmin(t.id, "gridfs", (x) => ({ upload: { ...x.upload, ...change2 } }));
   const running = jobRunning(u.job);
-  return /* @__PURE__ */ jsx11(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set15({ open }), children: /* @__PURE__ */ jsxs11(Box10, { gap: "xs", children: [
-    /* @__PURE__ */ jsx11(
+  return /* @__PURE__ */ jsx12(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set15({ open }), children: /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+    /* @__PURE__ */ jsx12(
       RadioGroup5,
       {
         label: "Source",
@@ -6814,39 +6851,39 @@ function Upload({ t }) {
         onChange: (v) => set15({ sourceKind: v })
       }
     ),
-    u.sourceKind === "path" ? /* @__PURE__ */ jsx11(Input9, { label: "Path", value: u.path, placeholder: "~/Documents/report.pdf", onChange: (v) => set15({ path: v }) }) : /* @__PURE__ */ jsx11(Textarea4, { label: "Text", rows: 5, value: u.text, onChange: (v) => set15({ text: v }) }),
-    /* @__PURE__ */ jsxs11(Box10, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx11(Input9, { label: "File name", value: u.filename, placeholder: u.sourceKind === "path" ? "As on disk" : "notes.txt", onChange: (v) => set15({ filename: v }) }),
-      /* @__PURE__ */ jsx11(Input9, { label: "Content type", value: u.contentType, placeholder: "text/plain", onChange: (v) => set15({ contentType: v }) })
+    u.sourceKind === "path" ? /* @__PURE__ */ jsx12(Input9, { label: "Path", value: u.path, placeholder: "~/Documents/report.pdf", onChange: (v) => set15({ path: v }) }) : /* @__PURE__ */ jsx12(Textarea4, { label: "Text", rows: 5, value: u.text, onChange: (v) => set15({ text: v }) }),
+    /* @__PURE__ */ jsxs12(Box10, { columns: 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx12(Input9, { label: "File name", value: u.filename, placeholder: u.sourceKind === "path" ? "As on disk" : "notes.txt", onChange: (v) => set15({ filename: v }) }),
+      /* @__PURE__ */ jsx12(Input9, { label: "Content type", value: u.contentType, placeholder: "text/plain", onChange: (v) => set15({ contentType: v }) })
     ] }),
-    /* @__PURE__ */ jsx11(Input9, { label: "Metadata", value: u.metadata, placeholder: "{ owner: 'me' }", invalid: Boolean(u.error), onChange: (v) => set15({ metadata: v, error: void 0 }) }),
-    u.error ? /* @__PURE__ */ jsx11(Text11, { size: "xs", tone: "danger", children: u.error }) : null,
-    /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: "The content type is kept in metadata.contentType, as current drivers do." }),
-    /* @__PURE__ */ jsx11(Row11, { gap: "xs", children: /* @__PURE__ */ jsx11(Button10, { variant: "solid", tone: "accent", icon: "upload", disabled: running, onPress: aguard(t.id, () => uploadFile(t.id)), children: running ? "Uploading…" : "Upload" }) }),
-    /* @__PURE__ */ jsx11(JobProgress, { box: u.job?.state?.status === "done" ? void 0 : u.job, what: "upload", onCancel: aguard(t.id, () => cancelGridJob(t.id, "upload")) })
+    /* @__PURE__ */ jsx12(Input9, { label: "Metadata", value: u.metadata, placeholder: "{ owner: 'me' }", invalid: Boolean(u.error), onChange: (v) => set15({ metadata: v, error: void 0 }) }),
+    u.error ? /* @__PURE__ */ jsx12(Text12, { size: "xs", tone: "danger", children: u.error }) : null,
+    /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "The content type is kept in metadata.contentType, as current drivers do." }),
+    /* @__PURE__ */ jsx12(Row12, { gap: "xs", children: /* @__PURE__ */ jsx12(Button10, { variant: "solid", tone: "accent", icon: "upload", disabled: running, onPress: aguard(t.id, () => uploadFile(t.id)), children: running ? "Uploading…" : "Upload" }) }),
+    /* @__PURE__ */ jsx12(JobProgress, { box: u.job?.state?.status === "done" ? void 0 : u.job, what: "upload", onCancel: aguard(t.id, () => cancelGridJob(t.id, "upload")) })
   ] }) });
 }
 function GridfsTabView({ id }) {
-  const t = read14(adminTabs)[id];
+  const t = read15(adminTabs)[id];
   if (!t || t.kind !== "gridfs") return null;
   const files4 = t.files ?? [];
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs11(Box10, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx11(Text11, { weight: "semibold", truncate: true, children: `GridFS ${t.db}.${t.bucket}` }),
-        /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, truncate: true, children: connectionName(t.connectionId) })
+  return /* @__PURE__ */ jsxs12(Box10, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs12(Box10, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx12(Text12, { weight: "semibold", truncate: true, children: `GridFS ${t.db}.${t.bucket}` }),
+        /* @__PURE__ */ jsx12(PlaceLine, { places: [{ connectionId: t.connectionId, writes: true }] })
       ] }),
-      /* @__PURE__ */ jsx11(IconButton10, { icon: "close", label: `Close the ${t.bucket} files`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx12(IconButton10, { icon: "close", label: `Close the ${t.bucket} files`, variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx11(Box10, { grow: true, children: /* @__PURE__ */ jsx11(Input9, { label: "Name contains", type: "search", value: t.filter, placeholder: "invoice", onChange: (v) => changeAdmin(t.id, "gridfs", () => ({ filter: v })), onSubmit: () => void aguard(t.id, () => loadFiles(t.id))() }) }),
-      /* @__PURE__ */ jsx11(IconButton10, { icon: "refresh", label: "Refresh the files", variant: "ghost", onPress: aguard(t.id, () => loadFiles(t.id)) })
+    /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx12(Box10, { grow: true, children: /* @__PURE__ */ jsx12(Input9, { label: "Name contains", type: "search", value: t.filter, placeholder: "invoice", onChange: (v) => changeAdmin(t.id, "gridfs", () => ({ filter: v })), onSubmit: () => void aguard(t.id, () => loadFiles(t.id))() }) }),
+      /* @__PURE__ */ jsx12(IconButton10, { icon: "refresh", label: "Refresh the files", variant: "ghost", onPress: aguard(t.id, () => loadFiles(t.id)) })
     ] }),
-    /* @__PURE__ */ jsx11(NoticeBar, { id: t.id, notice: t.notice }),
-    t.error ? /* @__PURE__ */ jsx11(Callout11, { tone: "danger", icon: "error", title: "Could not list the files", children: t.error }) : null,
-    !t.files && t.loading ? /* @__PURE__ */ jsx11(Skeleton8, { lines: 5, label: "Listing files" }) : null,
-    t.files ? /* @__PURE__ */ jsxs11(Box10, { gap: "xs", children: [
-      /* @__PURE__ */ jsx11(
+    /* @__PURE__ */ jsx12(NoticeBar, { id: t.id, notice: t.notice }),
+    t.error ? /* @__PURE__ */ jsx12(Callout11, { tone: "danger", icon: "error", title: "Could not list the files", children: t.error }) : null,
+    !t.files && t.loading ? /* @__PURE__ */ jsx12(Skeleton8, { lines: 5, label: "Listing files" }) : null,
+    t.files ? /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+      /* @__PURE__ */ jsx12(
         Table10,
         {
           label: "Files",
@@ -6867,10 +6904,10 @@ function GridfsTabView({ id }) {
           onSelectionChange: ({ keys }) => void aguard(t.id, () => selectFile(t.id, keys[0]))()
         }
       ),
-      /* @__PURE__ */ jsx11(Text11, { size: "xs", muted: true, children: `${numberText(files4.length)} of ${numberText(t.total)} file${t.total === 1 ? "" : "s"}` })
+      /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: `${numberText(files4.length)} of ${numberText(t.total)} file${t.total === 1 ? "" : "s"}` })
     ] }) : null,
-    /* @__PURE__ */ jsx11(Selected2, { t }),
-    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx11(Upload, { t })
+    /* @__PURE__ */ jsx12(Selected2, { t }),
+    isReadOnly(t.connectionId) ? null : /* @__PURE__ */ jsx12(Upload, { t })
   ] });
 }
 
@@ -6885,15 +6922,15 @@ import {
   IconButton as IconButton11,
   Input as Input10,
   RadioGroup as RadioGroup6,
-  read as read15,
-  Row as Row12,
+  read as read16,
+  Row as Row13,
   Select as Select7,
   Table as Table11,
-  Text as Text12,
+  Text as Text13,
   Textarea as Textarea5,
   Toolbar as Toolbar9
 } from "orca";
-import { jsx as jsx12, jsxs as jsxs12 } from "orca/jsx-runtime";
+import { jsx as jsx13, jsxs as jsxs13 } from "orca/jsx-runtime";
 var FORMATS2 = [
   { value: "auto", label: "Automatic" },
   { value: "json", label: "JSON or mongoexport" },
@@ -6910,8 +6947,8 @@ function Columns({ t }) {
   const cols = t.columns;
   if (!cols) return null;
   const sel = cols.find((c) => c.name === t.columnSelected);
-  return /* @__PURE__ */ jsxs12(Box11, { gap: "xs", children: [
-    /* @__PURE__ */ jsx12(
+  return /* @__PURE__ */ jsxs13(Box11, { gap: "xs", children: [
+    /* @__PURE__ */ jsx13(
       Table11,
       {
         label: "Columns",
@@ -6928,17 +6965,17 @@ function Columns({ t }) {
         onSelectionChange: ({ keys }) => changeAdmin(t.id, "import", () => ({ columnSelected: keys[0] }))
       }
     ),
-    sel ? /* @__PURE__ */ jsxs12(Box11, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Input10, { label: `Field for "${sel.name}"`, value: sel.field, placeholder: "name or address.city", onChange: (v) => setColumn(t.id, sel.name, { field: v }) }),
-      /* @__PURE__ */ jsx12(Select7, { label: "Type", value: sel.type, options: CSV_TYPES, onChange: (v) => setColumn(t.id, sel.name, { type: v }) })
-    ] }) : /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Select a column to change its field or type. A dotted field (address.city) makes a sub-document." })
+    sel ? /* @__PURE__ */ jsxs13(Box11, { columns: 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx13(Input10, { label: `Field for "${sel.name}"`, value: sel.field, placeholder: "name or address.city", onChange: (v) => setColumn(t.id, sel.name, { field: v }) }),
+      /* @__PURE__ */ jsx13(Select7, { label: "Type", value: sel.type, options: CSV_TYPES, onChange: (v) => setColumn(t.id, sel.name, { type: v }) })
+    ] }) : /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: "Select a column to change its field or type. A dotted field (address.city) makes a sub-document." })
   ] });
 }
 function Preview({ t }) {
   const p = t.preview;
   if (!p) return null;
-  return /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
-    p.folder ? /* @__PURE__ */ jsx12(
+  return /* @__PURE__ */ jsxs13(Box11, { gap: "sm", children: [
+    p.folder ? /* @__PURE__ */ jsx13(
       Table11,
       {
         label: "Collections in the folder",
@@ -6952,14 +6989,14 @@ function Preview({ t }) {
         maxHeight: "sm"
       }
     ) : null,
-    p.notes.map((n2) => /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: n2 }, n2)),
-    p.errors.length ? /* @__PURE__ */ jsx12(Callout12, { tone: "warning", icon: "warning", title: `${p.errors.length} record${p.errors.length === 1 ? "" : "s"} could not be read`, children: /* @__PURE__ */ jsx12(Box11, { gap: "xs", children: p.errors.slice(0, 5).map((e) => /* @__PURE__ */ jsx12(Text12, { size: "sm", children: e.message }, `${e.record}:${e.message}`)) }) }) : null,
-    /* @__PURE__ */ jsx12(Columns, { t }),
-    p.docs.length ? /* @__PURE__ */ jsx12(CodeView8, { label: "First documents", code: p.docs.map((d) => toShell(d)).join("\n"), language: "javascript", maxHeight: "md" }) : null
+    p.notes.map((n2) => /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: n2 }, n2)),
+    p.errors.length ? /* @__PURE__ */ jsx13(Callout12, { tone: "warning", icon: "warning", title: `${p.errors.length} record${p.errors.length === 1 ? "" : "s"} could not be read`, children: /* @__PURE__ */ jsx13(Box11, { gap: "xs", children: p.errors.slice(0, 5).map((e) => /* @__PURE__ */ jsx13(Text13, { size: "sm", children: e.message }, `${e.record}:${e.message}`)) }) }) : null,
+    /* @__PURE__ */ jsx13(Columns, { t }),
+    p.docs.length ? /* @__PURE__ */ jsx13(CodeView8, { label: "First documents", code: p.docs.map((d) => toShell(d)).join("\n"), language: "javascript", maxHeight: "md" }) : null
   ] });
 }
 function ImportTabView({ id }) {
-  const t = read15(adminTabs)[id];
+  const t = read16(adminTabs)[id];
   if (!t || t.kind !== "import") return null;
   const p = t.preview;
   const folder = Boolean(p?.folder);
@@ -6968,19 +7005,19 @@ function ImportTabView({ id }) {
   const running = jobRunning(t.job);
   const problems = importProblems(t);
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs12(Box11, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx12(Text12, { weight: "semibold", truncate: true, children: "Import" }),
-        /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, truncate: true, children: targetLabel(t) })
+  return /* @__PURE__ */ jsxs13(Box11, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs13(Box11, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx13(Text13, { weight: "semibold", truncate: true, children: "Import" }),
+        /* @__PURE__ */ jsx13(PlaceLine, { places: importPlaces(t) })
       ] }),
-      /* @__PURE__ */ jsx12(IconButton11, { icon: "close", label: "Close the import", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
+      /* @__PURE__ */ jsx13(IconButton11, { icon: "close", label: "Close the import", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs12(Box11, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Input10, { label: "Database", value: t.db, onChange: (v) => setImport(t.id, { db: v }) }),
-      /* @__PURE__ */ jsx12(Input10, { label: "Collection", value: t.collection, placeholder: folder ? "One per file" : "Name", disabled: folder, onChange: (v) => setImport(t.id, { collection: v }) })
+    /* @__PURE__ */ jsxs13(Box11, { columns: 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx13(Input10, { label: "Database", value: t.db, onChange: (v) => setImport(t.id, { db: v }) }),
+      /* @__PURE__ */ jsx13(Input10, { label: "Collection", value: t.collection, placeholder: folder ? "One per file" : "Name", disabled: folder, onChange: (v) => setImport(t.id, { collection: v }) })
     ] }),
-    /* @__PURE__ */ jsx12(
+    /* @__PURE__ */ jsx13(
       RadioGroup6,
       {
         label: "Source",
@@ -6993,80 +7030,80 @@ function ImportTabView({ id }) {
         onChange: (v) => setImport(t.id, { sourceKind: v, preview: void 0 }, true)
       }
     ),
-    t.sourceKind === "paste" ? /* @__PURE__ */ jsx12(Textarea5, { label: "Documents", labelHidden: true, rows: 8, value: t.text, placeholder: '[{ "name": "Ada" }, { "name": "Grace" }]\nor one JSON document per line, or CSV with a header row', onChange: (v) => setImport(t.id, { text: v }, true) }) : /* @__PURE__ */ jsxs12(Box11, { gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Input10, { label: "Path", value: t.path, placeholder: "~/exports/orders.json, orders.csv, dump/shop/orders.bson or the dump/shop folder", onChange: (v) => setImport(t.id, { path: v }, true), onSubmit: () => void aguard(t.id, () => previewImport(t.id))() }),
-      /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Read by Mongo Studio on this computer. .gz files (mongodump --gzip) are read too." })
+    t.sourceKind === "paste" ? /* @__PURE__ */ jsx13(Textarea5, { label: "Documents", labelHidden: true, rows: 8, value: t.text, placeholder: '[{ "name": "Ada" }, { "name": "Grace" }]\nor one JSON document per line, or CSV with a header row', onChange: (v) => setImport(t.id, { text: v }, true) }) : /* @__PURE__ */ jsxs13(Box11, { gap: "xs", children: [
+      /* @__PURE__ */ jsx13(Input10, { label: "Path", value: t.path, placeholder: "~/exports/orders.json, orders.csv, dump/shop/orders.bson or the dump/shop folder", onChange: (v) => setImport(t.id, { path: v }, true), onSubmit: () => void aguard(t.id, () => previewImport(t.id))() }),
+      /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: "Read by Mongo Studio on this computer. .gz files (mongodump --gzip) are read too." })
     ] }),
-    /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx12(Select7, { label: "Format", value: t.format, options: FORMATS2, onChange: (v) => setImport(t.id, { format: v }, true) }),
-      csvLike ? /* @__PURE__ */ jsx12(Select7, { label: "Delimiter", value: t.csv.delimiter, options: DELIMITERS, onChange: (v) => setImport(t.id, { csv: { ...t.csv, delimiter: v } }, true) }) : null
+    /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx13(Select7, { label: "Format", value: t.format, options: FORMATS2, onChange: (v) => setImport(t.id, { format: v }, true) }),
+      csvLike ? /* @__PURE__ */ jsx13(Select7, { label: "Delimiter", value: t.csv.delimiter, options: DELIMITERS, onChange: (v) => setImport(t.id, { csv: { ...t.csv, delimiter: v } }, true) }) : null
     ] }),
-    csvLike ? /* @__PURE__ */ jsxs12(Box11, { gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Checkbox8, { label: "The first row names the columns", description: "Names like age.int32() also give the type, as mongoimport reads them", checked: t.csv.header, onChange: (header) => setImport(t.id, { csv: { ...t.csv, header } }, true) }),
-      /* @__PURE__ */ jsx12(Checkbox8, { label: "Leave out empty cells", checked: t.csv.ignoreEmpty, onChange: (ignoreEmpty) => setImport(t.id, { csv: { ...t.csv, ignoreEmpty } }) })
+    csvLike ? /* @__PURE__ */ jsxs13(Box11, { gap: "xs", children: [
+      /* @__PURE__ */ jsx13(Checkbox8, { label: "The first row names the columns", description: "Names like age.int32() also give the type, as mongoimport reads them", checked: t.csv.header, onChange: (header) => setImport(t.id, { csv: { ...t.csv, header } }, true) }),
+      /* @__PURE__ */ jsx13(Checkbox8, { label: "Leave out empty cells", checked: t.csv.ignoreEmpty, onChange: (ignoreEmpty) => setImport(t.id, { csv: { ...t.csv, ignoreEmpty } }) })
     ] }) : null,
-    /* @__PURE__ */ jsxs12(Toolbar9, { label: "Preview actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Button11, { icon: "search", disabled: t.previewing || running, onPress: aguard(t.id, () => previewImport(t.id)), children: t.previewing ? "Reading…" : p ? "Preview again" : "Preview" }),
-      p && t.stale ? /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Changed since the preview." }) : null,
-      p?.bytes ? /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: bytesText(p.bytes) }) : null
+    /* @__PURE__ */ jsxs13(Toolbar9, { label: "Preview actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx13(Button11, { icon: "search", disabled: t.previewing || running, onPress: aguard(t.id, () => previewImport(t.id)), children: t.previewing ? "Reading…" : p ? "Preview again" : "Preview" }),
+      p && t.stale ? /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: "Changed since the preview." }) : null,
+      p?.bytes ? /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: bytesText(p.bytes) }) : null
     ] }),
-    t.previewError ? /* @__PURE__ */ jsx12(Callout12, { tone: "danger", icon: "error", title: "Could not read the source", children: t.previewError }) : null,
-    /* @__PURE__ */ jsx12(Preview, { t }),
-    /* @__PURE__ */ jsx12(Collapsible8, { title: "How to write", description: MODES.find((m) => m.value === t.mode)?.label ?? "", children: /* @__PURE__ */ jsxs12(Box11, { gap: "xs", children: [
-      /* @__PURE__ */ jsx12(RadioGroup6, { label: "Documents", value: t.mode, options: MODES, onChange: (v) => setImport(t.id, { mode: v }) }),
-      /* @__PURE__ */ jsx12(Checkbox8, { label: folder ? "Drop each collection first" : "Drop the collection first", description: "Its documents and indexes are deleted before the import", checked: t.drop, onChange: (drop) => setImport(t.id, { drop }) }),
-      /* @__PURE__ */ jsx12(Checkbox8, { label: "Stop at the first error", checked: t.stopOnError, onChange: (stopOnError) => setImport(t.id, { stopOnError }) }),
-      fmt3 === "bson" ? /* @__PURE__ */ jsx12(Checkbox8, { label: "Create the indexes of the .metadata.json", description: "Read next to each .bson file, as mongorestore does", checked: t.indexes, onChange: (indexes) => setImport(t.id, { indexes }) }) : null
+    t.previewError ? /* @__PURE__ */ jsx13(Callout12, { tone: "danger", icon: "error", title: "Could not read the source", children: t.previewError }) : null,
+    /* @__PURE__ */ jsx13(Preview, { t }),
+    /* @__PURE__ */ jsx13(Collapsible8, { title: "How to write", description: MODES.find((m) => m.value === t.mode)?.label ?? "", children: /* @__PURE__ */ jsxs13(Box11, { gap: "xs", children: [
+      /* @__PURE__ */ jsx13(RadioGroup6, { label: "Documents", value: t.mode, options: MODES, onChange: (v) => setImport(t.id, { mode: v }) }),
+      /* @__PURE__ */ jsx13(Checkbox8, { label: folder ? "Drop each collection first" : "Drop the collection first", description: "Its documents and indexes are deleted before the import", checked: t.drop, onChange: (drop) => setImport(t.id, { drop }) }),
+      /* @__PURE__ */ jsx13(Checkbox8, { label: "Stop at the first error", checked: t.stopOnError, onChange: (stopOnError) => setImport(t.id, { stopOnError }) }),
+      fmt3 === "bson" ? /* @__PURE__ */ jsx13(Checkbox8, { label: "Create the indexes of the .metadata.json", description: "Read next to each .bson file, as mongorestore does", checked: t.indexes, onChange: (indexes) => setImport(t.id, { indexes }) }) : null
     ] }) }),
-    /* @__PURE__ */ jsx12(NoticeBar, { id: t.id, notice: t.notice }),
-    t.confirmDrop ? /* @__PURE__ */ jsx12(Callout12, { tone: "danger", icon: "warning", title: `Drop ${t.db}.${t.collection}?`, children: /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
-      /* @__PURE__ */ jsx12(Text12, { children: `On ${connectionName(t.connectionId)}: its ${t.confirmDrop.count === null ? "" : `${numberText(t.confirmDrop.count)} `}documents and its indexes are deleted, then the import writes into it.` }),
-      /* @__PURE__ */ jsxs12(Row12, { gap: "xs", children: [
-        /* @__PURE__ */ jsx12(Button11, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => startImport(t.id, true)), children: "Drop and import" }),
-        /* @__PURE__ */ jsx12(Button11, { variant: "ghost", onPress: () => changeAdmin(t.id, "import", () => ({ confirmDrop: void 0 })), children: "Cancel" })
+    /* @__PURE__ */ jsx13(NoticeBar, { id: t.id, notice: t.notice }),
+    t.confirmDrop ? /* @__PURE__ */ jsx13(Callout12, { tone: "danger", icon: "warning", title: `Drop ${t.db}.${t.collection}?`, children: /* @__PURE__ */ jsxs13(Box11, { gap: "sm", children: [
+      /* @__PURE__ */ jsx13(Text13, { children: `On ${connectionName(t.connectionId)}: its ${t.confirmDrop.count === null ? "" : `${numberText(t.confirmDrop.count)} `}documents and its indexes are deleted, then the import writes into it.` }),
+      /* @__PURE__ */ jsxs13(Row13, { gap: "xs", children: [
+        /* @__PURE__ */ jsx13(Button11, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => startImport(t.id, true)), children: "Drop and import" }),
+        /* @__PURE__ */ jsx13(Button11, { variant: "ghost", onPress: () => changeAdmin(t.id, "import", () => ({ confirmDrop: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    problems.length && p ? /* @__PURE__ */ jsx12(Text12, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
-    ro ? /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: `${connectionName(t.connectionId)} is read only: the source can be previewed, but nothing is imported into it.` }) : /* @__PURE__ */ jsxs12(Row12, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx12(Button11, { variant: "solid", tone: "accent", icon: "upload", disabled: running || Boolean(t.confirmDrop), onPress: aguard(t.id, () => startImport(t.id)), children: running ? "Importing…" : "Import" }),
-      t.job?.state?.status === "done" && !folder && t.collection ? /* @__PURE__ */ jsx12(Button11, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.connectionId, db: t.db, collection: t.collection }, "coll")), children: "Open the collection" }) : null
+    problems.length && p ? /* @__PURE__ */ jsx13(Text13, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
+    ro ? /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: `${connectionName(t.connectionId)} is read only: the source can be previewed, but nothing is imported into it.` }) : /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "center", children: [
+      /* @__PURE__ */ jsx13(Button11, { variant: "solid", tone: "accent", icon: "upload", disabled: running || Boolean(t.confirmDrop), onPress: aguard(t.id, () => startImport(t.id)), children: running ? "Importing…" : "Import" }),
+      t.job?.state?.status === "done" && !folder && t.collection ? /* @__PURE__ */ jsx13(Button11, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.connectionId, db: t.db, collection: t.collection }, "coll")), children: "Open the collection" }) : null
     ] }),
-    /* @__PURE__ */ jsx12(JobProgress, { box: t.job, what: "import", onCancel: aguard(t.id, () => cancelImport(t.id)) }),
-    ro ? null : t.sourceKind === "path" ? /* @__PURE__ */ jsx12(TaskSaver, { tabId: t.id, task: t.task, taskName: t.taskName, placeholder: t.title, kinds: [{ kind: "import", label: "Save the import as a task" }] }) : /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "An import from a file or folder path can be saved as a task; pasted text can't." })
+    /* @__PURE__ */ jsx13(JobProgress, { box: t.job, what: "import", onCancel: aguard(t.id, () => cancelImport(t.id)) }),
+    ro ? null : t.sourceKind === "path" ? /* @__PURE__ */ jsx13(TaskSaver, { tabId: t.id, task: t.task, taskName: t.taskName, placeholder: t.title, kinds: [{ kind: "import", label: "Save the import as a task" }] }) : /* @__PURE__ */ jsx13(Text13, { size: "xs", muted: true, children: "An import from a file or folder path can be saved as a task; pasted text can't." })
   ] });
 }
 
 // src/panel/admin-view.tsx
-import { jsx as jsx13 } from "orca/jsx-runtime";
+import { jsx as jsx14 } from "orca/jsx-runtime";
 var ADMIN_ICONS = { manage: "settings", database: "layers", users: "agent", server: "gauge", schema: "bar-chart-3", import: "upload", export: "download", compare: "branch", gridfs: "package" };
 function AdminTabView({ id }) {
-  const t = read16(adminTabs)[id];
+  const t = read17(adminTabs)[id];
   if (!t) return null;
   switch (t.kind) {
     case "manage":
-      return /* @__PURE__ */ jsx13(ManageTabView, { id });
+      return /* @__PURE__ */ jsx14(ManageTabView, { id });
     case "database":
-      return /* @__PURE__ */ jsx13(DatabaseTabView, { id });
+      return /* @__PURE__ */ jsx14(DatabaseTabView, { id });
     case "users":
-      return /* @__PURE__ */ jsx13(UsersTabView, { id });
+      return /* @__PURE__ */ jsx14(UsersTabView, { id });
     case "server":
-      return /* @__PURE__ */ jsx13(ServerTabView, { id });
+      return /* @__PURE__ */ jsx14(ServerTabView, { id });
     case "schema":
-      return /* @__PURE__ */ jsx13(SchemaTabView, { id });
+      return /* @__PURE__ */ jsx14(SchemaTabView, { id });
     case "import":
-      return /* @__PURE__ */ jsx13(ImportTabView, { id });
+      return /* @__PURE__ */ jsx14(ImportTabView, { id });
     case "export":
-      return /* @__PURE__ */ jsx13(ExportTabView, { id });
+      return /* @__PURE__ */ jsx14(ExportTabView, { id });
     case "compare":
-      return /* @__PURE__ */ jsx13(CompareTabView, { id });
+      return /* @__PURE__ */ jsx14(CompareTabView, { id });
     case "gridfs":
-      return /* @__PURE__ */ jsx13(GridfsTabView, { id });
+      return /* @__PURE__ */ jsx14(GridfsTabView, { id });
   }
 }
 
 // src/panel/aggregate-view.tsx
 import {
-  Badge as Badge5,
+  Badge as Badge6,
   Box as Box15,
   Button as Button15,
   Callout as Callout15,
@@ -7075,19 +7112,19 @@ import {
   Collapsible as Collapsible11,
   IconButton as IconButton14,
   Input as Input11,
-  read as read21,
-  Row as Row16,
+  read as read22,
+  Row as Row17,
   Select as Select11,
   Skeleton as Skeleton11,
   Switch as Switch3,
   Table as Table13,
-  Text as Text16,
+  Text as Text17,
   Textarea as Textarea6,
   Toolbar as Toolbar13
 } from "orca";
 
 // src/panel/aggregate-state.ts
-import { plugin as plugin14, read as read17, set as set6, update as update7 } from "orca";
+import { plugin as plugin14, read as read18, set as set6, update as update7 } from "orca";
 var PREVIEW_SIZES = [5, 10, 20, 50, 100];
 function aggTabId(ns) {
   return tabIdFor(ns).replace(/^coll-/, "agg-");
@@ -7131,7 +7168,7 @@ async function openAggregation(ns, kind, stages, from) {
 async function openAggregationForNode(nodeKey2) {
   const target = nodeTarget(nodeKey2);
   if (!target.connectionId || !target.db || !target.collection) return;
-  const meta = read17(nodeIndex)[nodeKey2];
+  const meta = read18(nodeIndex)[nodeKey2];
   await openAggregation({ connectionId: target.connectionId, db: target.db, collection: target.collection }, meta?.kind ?? target.kind);
 }
 function indexOf(a, stageId2) {
@@ -7400,7 +7437,7 @@ function aggTitle(t) {
 }
 
 // src/panel/explain-view.tsx
-import { Box as Box12, Button as Button12, Callout as Callout13, CodeView as CodeView9, Collapsible as Collapsible9, KeyValue as KeyValue9, Row as Row13, Select as Select8, Skeleton as Skeleton9, Text as Text13, Toolbar as Toolbar10, Tree as Tree2 } from "orca";
+import { Box as Box12, Button as Button12, Callout as Callout13, CodeView as CodeView9, Collapsible as Collapsible9, KeyValue as KeyValue9, Row as Row14, Select as Select8, Skeleton as Skeleton9, Text as Text14, Toolbar as Toolbar10, Tree as Tree2 } from "orca";
 
 // src/shared/explain.ts
 var VERBOSITY_OPTIONS = [
@@ -7445,10 +7482,10 @@ function findNode(stages, key) {
 }
 
 // src/panel/explain-state.ts
-import { atom as atom6, plugin as plugin15, read as read18, set as set7 } from "orca";
+import { atom as atom6, plugin as plugin15, read as read19, set as set7 } from "orca";
 var explainVerbosity = atom6("mongo-studio.explainVerbosity", "executionStats", { persist: "plugin" });
 function explainOf(id) {
-  return tab(id)?.explain ?? { open: false, verbosity: read18(explainVerbosity), loading: false, mode: "visual", expanded: [], token: 0 };
+  return tab(id)?.explain ?? { open: false, verbosity: read19(explainVerbosity), loading: false, mode: "visual", expanded: [], token: 0 };
 }
 function changeExplain(id, values) {
   change(id, (t) => ({ explain: { ...t.explain ?? explainOf(id), ...values } }));
@@ -7507,7 +7544,7 @@ function guard(tabId, run) {
 }
 
 // src/panel/explain-view.tsx
-import { jsx as jsx14, jsxs as jsxs13 } from "orca/jsx-runtime";
+import { jsx as jsx15, jsxs as jsxs14 } from "orca/jsx-runtime";
 var fmt2 = (n2) => n2.toLocaleString("en-US");
 function planText(s) {
   if (s.indexes.length) return { label: "Plan", value: `${s.indexes.length === 1 ? "Index" : "Indexes"} ${s.indexes.join(", ")}${s.collectionScan ? ", and a collection scan" : ""}`, tone: s.collectionScan ? "warning" : "success" };
@@ -7544,10 +7581,10 @@ function NodeDetails({ n: n2 }) {
   if (n2.docsExamined !== void 0) items.push({ label: "Documents examined", value: fmt2(n2.docsExamined) });
   if (n2.timeMs !== void 0) items.push({ label: "Time (estimate)", value: `${fmt2(n2.timeMs)} ms` });
   for (const a of n2.attrs) items.push({ label: a.label, value: a.value, code: true });
-  return /* @__PURE__ */ jsxs13(Box12, { gap: "xs", children: [
-    /* @__PURE__ */ jsx14(Text13, { weight: "semibold", children: n2.stage }),
-    n2.warning ? /* @__PURE__ */ jsx14(Text13, { size: "xs", tone: "warning", children: n2.warning }) : null,
-    items.length ? /* @__PURE__ */ jsx14(KeyValue9, { label: `${n2.stage} details`, items }) : /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: "No more details for this stage." })
+  return /* @__PURE__ */ jsxs14(Box12, { gap: "xs", children: [
+    /* @__PURE__ */ jsx15(Text14, { weight: "semibold", children: n2.stage }),
+    n2.warning ? /* @__PURE__ */ jsx15(Text14, { size: "xs", tone: "warning", children: n2.warning }) : null,
+    items.length ? /* @__PURE__ */ jsx15(KeyValue9, { label: `${n2.stage} details`, items }) : /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "No more details for this stage." })
   ] });
 }
 function Visual({ t }) {
@@ -7555,11 +7592,11 @@ function Visual({ t }) {
   const s = ex.result.summary;
   const selected2 = ex.selected ? findNode(s.stages, ex.selected) : void 0;
   const expanded2 = new Set(ex.expanded);
-  return /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
-    s.warnings.map((w, i) => /* @__PURE__ */ jsx14(Callout13, { tone: "warning", icon: "warning", children: w }, `w${i}`)),
-    !s.hasStats ? /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: "Plan only: the server chose a plan without running it. Explain with executionStats to see what each stage returned and examined." }) : null,
-    /* @__PURE__ */ jsx14(KeyValue9, { label: "Explain summary", items: summaryItems(s) }),
-    s.stages.length ? /* @__PURE__ */ jsx14(
+  return /* @__PURE__ */ jsxs14(Box12, { gap: "sm", children: [
+    s.warnings.map((w, i) => /* @__PURE__ */ jsx15(Callout13, { tone: "warning", icon: "warning", children: w }, `w${i}`)),
+    !s.hasStats ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "Plan only: the server chose a plan without running it. Explain with executionStats to see what each stage returned and examined." }) : null,
+    /* @__PURE__ */ jsx15(KeyValue9, { label: "Explain summary", items: summaryItems(s) }),
+    s.stages.length ? /* @__PURE__ */ jsx15(
       Tree2,
       {
         label: "Plan stages",
@@ -7570,8 +7607,8 @@ function Visual({ t }) {
         onToggle: ({ key, expanded: open }) => toggleNode2(t.id, key, open),
         onSelect: ({ key }) => changeExplain(t.id, { selected: key })
       }
-    ) : /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: "The answer has no plan stages to show. The raw view has all of it." }),
-    selected2 ? /* @__PURE__ */ jsx14(NodeDetails, { n: selected2 }) : s.stages.length ? /* @__PURE__ */ jsxs13(Text13, { size: "xs", muted: true, children: [
+    ) : /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "The answer has no plan stages to show. The raw view has all of it." }),
+    selected2 ? /* @__PURE__ */ jsx15(NodeDetails, { n: selected2 }) : s.stages.length ? /* @__PURE__ */ jsxs14(Text14, { size: "xs", muted: true, children: [
       s.kind === "aggregate" ? "Stages run top to bottom. " : "Each stage reads from the ones under it. ",
       "Select a stage to see its details."
     ] }) : null
@@ -7581,44 +7618,44 @@ function ExplainSection({ t }) {
   const ex = explainOf(t.id);
   const r = ex.result;
   const what = t.agg ? "the pipeline" : "the query";
-  return /* @__PURE__ */ jsx14(Collapsible9, { title: "Explain plan", description: r ? `${r.summary.indexes.length ? `Index ${r.summary.indexes.join(", ")}` : r.summary.collectionScan ? "Collection scan" : "Plan"} · ${r.verbosity}` : `How the server runs ${what}`, open: ex.open, onChange: (open) => changeExplain(t.id, { open }), children: /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx14(Select8, { label: "Verbosity", value: ex.verbosity, options: VERBOSITY_OPTIONS, onChange: (v) => setVerbosity(t.id, v) }),
-      /* @__PURE__ */ jsx14(Button12, { icon: "gauge", disabled: ex.loading, onPress: guard(t.id, () => runExplain(t.id)), children: ex.loading ? "Explaining…" : r ? "Explain again" : "Explain" })
+  return /* @__PURE__ */ jsx15(Collapsible9, { title: "Explain plan", description: r ? `${r.summary.indexes.length ? `Index ${r.summary.indexes.join(", ")}` : r.summary.collectionScan ? "Collection scan" : "Plan"} · ${r.verbosity}` : `How the server runs ${what}`, open: ex.open, onChange: (open) => changeExplain(t.id, { open }), children: /* @__PURE__ */ jsxs14(Box12, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx15(Select8, { label: "Verbosity", value: ex.verbosity, options: VERBOSITY_OPTIONS, onChange: (v) => setVerbosity(t.id, v) }),
+      /* @__PURE__ */ jsx15(Button12, { icon: "gauge", disabled: ex.loading, onPress: guard(t.id, () => runExplain(t.id)), children: ex.loading ? "Explaining…" : r ? "Explain again" : "Explain" })
     ] }),
-    ex.verbosity !== "queryPlanner" ? /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: `executionStats and allPlansExecution run ${what} on the server to measure it.` }) : null,
-    ex.error ? /* @__PURE__ */ jsx14(Callout13, { tone: "danger", icon: "error", title: "Could not explain", children: ex.error }) : null,
-    ex.loading && !r ? /* @__PURE__ */ jsx14(Skeleton9, { lines: 5, label: "Explaining" }) : null,
-    r ? /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
-      /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-        /* @__PURE__ */ jsx14(Toolbar10, { label: "Show the plan as", gap: "xs", children: ["visual", "raw"].map((m) => /* @__PURE__ */ jsx14(Button12, { size: "sm", variant: ex.mode === m ? "solid" : "ghost", tone: ex.mode === m ? "accent" : "neutral", onPress: () => changeExplain(t.id, { mode: m }), children: m === "visual" ? "Visual" : "Raw" }, m)) }),
-        /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: `${fmt2(r.ms)} ms` })
+    ex.verbosity !== "queryPlanner" ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `executionStats and allPlansExecution run ${what} on the server to measure it.` }) : null,
+    ex.error ? /* @__PURE__ */ jsx15(Callout13, { tone: "danger", icon: "error", title: "Could not explain", children: ex.error }) : null,
+    ex.loading && !r ? /* @__PURE__ */ jsx15(Skeleton9, { lines: 5, label: "Explaining" }) : null,
+    r ? /* @__PURE__ */ jsxs14(Box12, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+        /* @__PURE__ */ jsx15(Toolbar10, { label: "Show the plan as", gap: "xs", children: ["visual", "raw"].map((m) => /* @__PURE__ */ jsx15(Button12, { size: "sm", variant: ex.mode === m ? "solid" : "ghost", tone: ex.mode === m ? "accent" : "neutral", onPress: () => changeExplain(t.id, { mode: m }), children: m === "visual" ? "Visual" : "Raw" }, m)) }),
+        /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `${fmt2(r.ms)} ms` })
       ] }),
-      r.note ? /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: r.note }) : null,
-      ex.mode === "visual" ? /* @__PURE__ */ jsx14(Visual, { t }) : /* @__PURE__ */ jsx14(CodeView9, { label: "Explain output", code: r.raw, language: "json", lineNumbers: true, maxHeight: "lg" }),
-      ex.mode === "raw" && r.rawCut ? /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: "The answer is too long to show whole; the visual view covers all of it." }) : null
+      r.note ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: r.note }) : null,
+      ex.mode === "visual" ? /* @__PURE__ */ jsx15(Visual, { t }) : /* @__PURE__ */ jsx15(CodeView9, { label: "Explain output", code: r.raw, language: "json", lineNumbers: true, maxHeight: "lg" }),
+      ex.mode === "raw" && r.rawCut ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "The answer is too long to show whole; the visual view covers all of it." }) : null
     ] }) : null
   ] }) });
 }
 
 // src/panel/results-view.tsx
 import {
-  Badge as Badge3,
+  Badge as Badge4,
   Box as Box13,
   Button as Button13,
   CodeView as CodeView10,
   EmptyState as EmptyState2,
   IconButton as IconButton12,
-  Row as Row14,
+  Row as Row15,
   Select as Select9,
   Skeleton as Skeleton10,
   Switch as Switch2,
   Table as Table12,
-  Text as Text14,
+  Text as Text15,
   Toolbar as Toolbar11,
   Tree as Tree3
 } from "orca";
-import { Fragment, jsx as jsx15, jsxs as jsxs14 } from "orca/jsx-runtime";
+import { Fragment, jsx as jsx16, jsxs as jsxs15 } from "orca/jsx-runtime";
 var MAX_COLUMNS = 32;
 function countText2(t) {
   const p = t.page;
@@ -7636,15 +7673,15 @@ function Pager({ t }) {
   const p = t.page;
   const c = t.count;
   const total = c && c !== "counting" && c.count !== null ? c.count : void 0;
-  return /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-    /* @__PURE__ */ jsxs14(Toolbar11, { label: "Pages", gap: "xs", children: [
-      /* @__PURE__ */ jsx15(IconButton12, { icon: "collapse", label: "First page", size: "sm", variant: "ghost", disabled: !p || p.offset === 0 || t.loading, onPress: guard(t.id, () => goToPage(t.id, 0)) }),
-      /* @__PURE__ */ jsx15(IconButton12, { icon: "remove", label: "Previous page", size: "sm", variant: "ghost", disabled: !p || p.offset === 0 || t.loading, onPress: guard(t.id, () => previousPage(t.id)) }),
-      /* @__PURE__ */ jsx15(IconButton12, { icon: "next", label: "Next page", size: "sm", variant: "ghost", disabled: !p?.hasMore || t.loading, onPress: guard(t.id, () => nextPage(t.id)) }),
-      /* @__PURE__ */ jsx15(IconButton12, { icon: "refresh", label: "Count again", size: "sm", variant: "ghost", disabled: !(t.spec || t.agg?.ran) || c === "counting", onPress: guard(t.id, () => recount(t.id)) })
+  return /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+    /* @__PURE__ */ jsxs15(Toolbar11, { label: "Pages", gap: "xs", children: [
+      /* @__PURE__ */ jsx16(IconButton12, { icon: "collapse", label: "First page", size: "sm", variant: "ghost", disabled: !p || p.offset === 0 || t.loading, onPress: guard(t.id, () => goToPage(t.id, 0)) }),
+      /* @__PURE__ */ jsx16(IconButton12, { icon: "remove", label: "Previous page", size: "sm", variant: "ghost", disabled: !p || p.offset === 0 || t.loading, onPress: guard(t.id, () => previousPage(t.id)) }),
+      /* @__PURE__ */ jsx16(IconButton12, { icon: "next", label: "Next page", size: "sm", variant: "ghost", disabled: !p?.hasMore || t.loading, onPress: guard(t.id, () => nextPage(t.id)) }),
+      /* @__PURE__ */ jsx16(IconButton12, { icon: "refresh", label: "Count again", size: "sm", variant: "ghost", disabled: !(t.spec || t.agg?.ran) || c === "counting", onPress: guard(t.id, () => recount(t.id)) })
     ] }),
-    /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: total === void 0, children: countText2(t) }),
-    /* @__PURE__ */ jsx15(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZE_OPTIONS.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
+    /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: total === void 0, children: countText2(t) }),
+    /* @__PURE__ */ jsx16(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZE_OPTIONS.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
   ] });
 }
 function topKeys(docs2) {
@@ -7709,8 +7746,8 @@ function ResultTable({ t }) {
   const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1;
   const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt], direction: sorted.direction } : void 0;
   const objectColumns = topKeys(docs2).filter((k) => k !== "" && k.length <= 1e3 && docs2.some((d) => d[k] !== void 0 && bsonType(d[k]) === "object"));
-  return /* @__PURE__ */ jsxs14(Box13, { gap: "xs", children: [
-    /* @__PURE__ */ jsx15(
+  return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
+    /* @__PURE__ */ jsx16(
       Table12,
       {
         label: "Documents",
@@ -7737,8 +7774,8 @@ function ResultTable({ t }) {
         }
       }
     ),
-    total > shown.length ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.` }) : null,
-    objectColumns.length ? /* @__PURE__ */ jsx15(
+    total > shown.length ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: `Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.` }) : null,
+    objectColumns.length ? /* @__PURE__ */ jsx16(
       Select9,
       {
         label: "Show a sub-document as columns",
@@ -7780,7 +7817,7 @@ function ResultTree({ t }) {
     else item.hasChildren = true;
     return item;
   });
-  return /* @__PURE__ */ jsx15(
+  return /* @__PURE__ */ jsx16(
     Tree3,
     {
       label: "Documents",
@@ -7801,31 +7838,31 @@ function ResultTree({ t }) {
 }
 function ResultJson({ t }) {
   const docs2 = t.page?.docs ?? [];
-  return /* @__PURE__ */ jsxs14(Box13, { gap: "xs", children: [
-    /* @__PURE__ */ jsx15(Switch2, { label: "Relaxed Extended JSON", checked: t.relaxed, onChange: (relaxed) => change(t.id, () => ({ relaxed })) }),
-    /* @__PURE__ */ jsx15(CodeView10, { label: "Documents as Extended JSON", code: toJsonText(docs2, t.relaxed), language: "json", lineNumbers: true, maxHeight: "lg" })
+  return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
+    /* @__PURE__ */ jsx16(Switch2, { label: "Relaxed Extended JSON", checked: t.relaxed, onChange: (relaxed) => change(t.id, () => ({ relaxed })) }),
+    /* @__PURE__ */ jsx16(CodeView10, { label: "Documents as Extended JSON", code: toJsonText(docs2, t.relaxed), language: "json", lineNumbers: true, maxHeight: "lg" })
   ] });
 }
 function OpenButtons({ t, doc }) {
   if (!doc || !("_id" in doc) || !canOpenDocuments(t)) return null;
-  return /* @__PURE__ */ jsxs14(Fragment, { children: [
-    /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "expand", variant: "ghost", onPress: guard(t.id, () => openDocument(t.id, doc._id)), children: "Open" }),
-    /* @__PURE__ */ jsx15(IconButton12, { icon: "file-text", label: "Open in a tab", size: "sm", variant: "ghost", onPress: guard(t.id, () => openDocumentTab(t.id, doc._id)) })
+  return /* @__PURE__ */ jsxs15(Fragment, { children: [
+    /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "expand", variant: "ghost", onPress: guard(t.id, () => openDocument(t.id, doc._id)), children: "Open" }),
+    /* @__PURE__ */ jsx16(IconButton12, { icon: "file-text", label: "Open in a tab", size: "sm", variant: "ghost", onPress: guard(t.id, () => openDocumentTab(t.id, doc._id)) })
   ] });
 }
 function TableActions({ t }) {
   const docs2 = selectedDocs(t);
-  if (docs2.length === 0) return /* @__PURE__ */ jsx15(Text14, { muted: true, size: "xs", children: t.readOnly ? canOpenDocuments(t) ? "Select a row to open it. Enter on a row opens it." : "Select a row to look at it in the Tree view." : "Select rows to open, edit, clone or delete. Enter on a row edits it." });
+  if (docs2.length === 0) return /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: t.readOnly ? canOpenDocuments(t) ? "Select a row to open it. Enter on a row opens it." : "Select a row to look at it in the Tree view." : "Select rows to open, edit, clone or delete. Enter on a row edits it." });
   const one = docs2.length === 1 ? docs2[0] : void 0;
   const hasId = docs2.every((d) => "_id" in d);
-  const copy = hasId && !t.shell ? /* @__PURE__ */ jsx15(IconButton12, { icon: "copy", label: `Copy ${docs2.length === 1 ? "this document" : `these ${docs2.length} documents`}, to paste into another collection`, size: "sm", variant: "ghost", onPress: () => {
+  const copy = hasId && !t.shell ? /* @__PURE__ */ jsx16(IconButton12, { icon: "copy", label: `Copy ${docs2.length === 1 ? "this document" : `these ${docs2.length} documents`}, to paste into another collection`, size: "sm", variant: "ghost", onPress: () => {
     copyToClipboard({ kind: "documents", ns: t.ns, ids: docs2.map((d) => d._id) });
     say2(t.id, "neutral", `Copied ${docs2.length} document${docs2.length === 1 ? "" : "s"}. Select a collection or database in the tree and press Paste.`);
   } }) : null;
   if (t.readOnly) {
-    return /* @__PURE__ */ jsxs14(Toolbar11, { label: "Row actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx15(OpenButtons, { t, doc: one }),
-      one ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
+    return /* @__PURE__ */ jsxs15(Toolbar11, { label: "Row actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
+      one ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
         const key = treeKey(t.page.docs.indexOf(one), []);
         setResultView(t.id, "tree", { treeExpanded: [key], treeSelected: key });
       }, children: "Show in Tree" }) : null,
@@ -7833,58 +7870,58 @@ function TableActions({ t }) {
     ] });
   }
   const fields = one ? Object.keys(one).filter((k) => k !== "_id" && k !== "" && k.length <= 1e3) : [];
-  return /* @__PURE__ */ jsxs14(Box13, { gap: "xs", children: [
-    /* @__PURE__ */ jsxs14(Toolbar11, { label: "Row actions", gap: "xs", children: [
-      one && hasId ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, one._id)), children: "Edit document" }) : null,
-      /* @__PURE__ */ jsx15(OpenButtons, { t, doc: one }),
-      one && hasId ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, one._id)), children: "Clone" }) : null,
-      hasId ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDelete(t.id), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
+  return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
+    /* @__PURE__ */ jsxs15(Toolbar11, { label: "Row actions", gap: "xs", children: [
+      one && hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, one._id)), children: "Edit document" }) : null,
+      /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
+      one && hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, one._id)), children: "Clone" }) : null,
+      hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDelete(t.id), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
       copy
     ] }),
-    one && hasId ? /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "end", wrap: true, children: [
-      /* @__PURE__ */ jsx15(Select9, { label: "Edit a field", value: "", placeholder: "Choose a field to edit…", options: fields.map((f) => ({ value: f, label: f })), onChange: (f) => void guard(t.id, () => editField(t.id, one._id, [f]))() }),
-      /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, one._id), children: "Add field" })
+    one && hasId ? /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "end", wrap: true, children: [
+      /* @__PURE__ */ jsx16(Select9, { label: "Edit a field", value: "", placeholder: "Choose a field to edit…", options: fields.map((f) => ({ value: f, label: f })), onChange: (f) => void guard(t.id, () => editField(t.id, one._id, [f]))() }),
+      /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, one._id), children: "Add field" })
     ] }) : null,
-    !hasId ? /* @__PURE__ */ jsx15(Text14, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null
+    !hasId ? /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null
   ] });
 }
 function TreeActions({ t }) {
-  if (!t.treeSelected) return /* @__PURE__ */ jsx15(Text14, { muted: true, size: "xs", children: t.readOnly ? "Select a field to add it to the Query Builder." : "Select a field to edit it or add it to the query. Enter edits." });
+  if (!t.treeSelected) return /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: t.readOnly ? "Select a field to add it to the Query Builder." : "Select a field to edit it or add it to the query. Enter edits." });
   const { row, path } = parseTreeKey(t.treeSelected);
   const doc = t.page?.docs[row];
   if (!doc) return null;
   const value = path.length ? valueAt(doc, path) : void 0;
   const canEdit = !t.readOnly && "_id" in doc;
-  return /* @__PURE__ */ jsxs14(Toolbar11, { label: "Field actions", gap: "xs", children: [
-    canEdit && path.length && path[0] !== "_id" ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editField(t.id, doc._id, path)), children: "Edit field" }) : null,
-    canEdit && !path.length ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, doc._id)), children: "Edit document" }) : null,
-    canEdit && !path.length ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, doc._id), children: "Add field" }) : null,
-    !path.length ? /* @__PURE__ */ jsx15(OpenButtons, { t, doc }) : null,
-    path.length && !path.some((p) => typeof p === "number") ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "filter", variant: "ghost", onPress: () => addToQuery(t.id, path, value), children: "Add to query" }) : null,
-    value !== void 0 ? /* @__PURE__ */ jsx15(Badge3, { children: BSON_TYPE_LABELS[bsonType(value)] }) : null
+  return /* @__PURE__ */ jsxs15(Toolbar11, { label: "Field actions", gap: "xs", children: [
+    canEdit && path.length && path[0] !== "_id" ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editField(t.id, doc._id, path)), children: "Edit field" }) : null,
+    canEdit && !path.length ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, doc._id)), children: "Edit document" }) : null,
+    canEdit && !path.length ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, doc._id), children: "Add field" }) : null,
+    !path.length ? /* @__PURE__ */ jsx16(OpenButtons, { t, doc }) : null,
+    path.length && !path.some((p) => typeof p === "number") ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "filter", variant: "ghost", onPress: () => addToQuery(t.id, path, value), children: "Add to query" }) : null,
+    value !== void 0 ? /* @__PURE__ */ jsx16(Badge4, { children: BSON_TYPE_LABELS[bsonType(value)] }) : null
   ] });
 }
 var VIEWS = Object.entries(RESULT_VIEWS).map(([value, label]) => ({ value, label }));
 function Results2({ t }) {
-  if (!t.page && t.loading) return /* @__PURE__ */ jsx15(Skeleton10, { lines: 6, label: "Running the query" });
+  if (!t.page && t.loading) return /* @__PURE__ */ jsx16(Skeleton10, { lines: 6, label: "Running the query" });
   if (!t.page) return null;
   const p = t.page;
-  return /* @__PURE__ */ jsxs14(Box13, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs14(Row14, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-      /* @__PURE__ */ jsx15(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx15(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => setResultView(t.id, v.value), children: v.label }, v.value)) }),
-      /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `${p.ms.toLocaleString("en-US")} ms` })
+  return /* @__PURE__ */ jsxs15(Box13, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+      /* @__PURE__ */ jsx16(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx16(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => setResultView(t.id, v.value), children: v.label }, v.value)) }),
+      /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: `${p.ms.toLocaleString("en-US")} ms` })
     ] }),
-    /* @__PURE__ */ jsx15(Pager, { t }),
-    p.stoppedForSize ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "This page holds fewer documents than the page size, to stay under the size Orca lets a panel receive. Next page goes on from here." }) : null,
-    p.truncated.length ? /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: `${p.truncated.length} document${p.truncated.length === 1 ? " has" : "s have"} long values cut short here. Editing loads the whole document.` }) : null,
-    p.docs.length === 0 && !t.loading ? /* @__PURE__ */ jsx15(EmptyState2, { icon: "search", title: "No documents", description: p.offset > 0 ? "There are no more results." : "Nothing matches this query." }) : t.resultView === "table" ? /* @__PURE__ */ jsx15(ResultTable, { t }) : t.resultView === "tree" ? /* @__PURE__ */ jsx15(ResultTree, { t }) : /* @__PURE__ */ jsx15(ResultJson, { t }),
-    p.docs.length && t.resultView === "table" ? /* @__PURE__ */ jsx15(TableActions, { t }) : null,
-    p.docs.length && t.resultView === "tree" ? /* @__PURE__ */ jsx15(TreeActions, { t }) : null
+    /* @__PURE__ */ jsx16(Pager, { t }),
+    p.stoppedForSize ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: "This page holds fewer documents than the page size, to stay under the size Orca lets a panel receive. Next page goes on from here." }) : null,
+    p.truncated.length ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: `${p.truncated.length} document${p.truncated.length === 1 ? " has" : "s have"} long values cut short here. Editing loads the whole document.` }) : null,
+    p.docs.length === 0 && !t.loading ? /* @__PURE__ */ jsx16(EmptyState2, { icon: "search", title: "No documents", description: p.offset > 0 ? "There are no more results." : "Nothing matches this query." }) : t.resultView === "table" ? /* @__PURE__ */ jsx16(ResultTable, { t }) : t.resultView === "tree" ? /* @__PURE__ */ jsx16(ResultTree, { t }) : /* @__PURE__ */ jsx16(ResultJson, { t }),
+    p.docs.length && t.resultView === "table" ? /* @__PURE__ */ jsx16(TableActions, { t }) : null,
+    p.docs.length && t.resultView === "tree" ? /* @__PURE__ */ jsx16(TreeActions, { t }) : null
   ] });
 }
 
 // src/panel/shell-view.tsx
-import { Badge as Badge4, Box as Box14, Button as Button14, Callout as Callout14, CodeView as CodeView11, Collapsible as Collapsible10, IconButton as IconButton13, read as read20, RelativeTime as RelativeTime3, Row as Row15, Select as Select10, set as set9, Text as Text15, Toolbar as Toolbar12 } from "orca";
+import { Badge as Badge5, Box as Box14, Button as Button14, Callout as Callout14, CodeView as CodeView11, Collapsible as Collapsible10, IconButton as IconButton13, read as read21, RelativeTime as RelativeTime3, Row as Row16, Select as Select10, set as set9, Text as Text16, Toolbar as Toolbar12 } from "orca";
 
 // src/shared/operation.ts
 var IDENT2 = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -9077,7 +9114,7 @@ function generateCode(op, lang) {
 }
 
 // src/panel/shell-state.ts
-import { atom as atom7, plugin as plugin16, read as read19, set as set8, update as update8 } from "orca";
+import { atom as atom7, plugin as plugin16, read as read20, set as set8, update as update8 } from "orca";
 var SHELL_TAB = "shell";
 var shellRun = atom7(null);
 var codeLanguage = atom7("mongo-studio.codeLanguage", "node", { persist: "plugin" });
@@ -9096,7 +9133,7 @@ async function showRun(run, focus) {
   if (focus) set8(view, SHELL_TAB);
 }
 async function selectResult(index) {
-  const run = read19(shellRun);
+  const run = read20(shellRun);
   const info = run?.results[index];
   if (!run || !info) return;
   const previous = tab(SHELL_TAB);
@@ -9104,7 +9141,7 @@ async function selectResult(index) {
   const t = {
     ...newTab(SHELL_TAB, ns, "coll", "Shell"),
     readOnly: true,
-    pageSize: previous?.pageSize ?? read19(defaultPageSize),
+    pageSize: previous?.pageSize ?? read20(defaultPageSize),
     resultView: previous?.resultView ?? startResultView(),
     relaxed: previous?.relaxed ?? true,
     shell: { runId: run.runId, index },
@@ -9121,12 +9158,12 @@ function closeShell() {
     delete next[SHELL_TAB];
     return next;
   });
-  if (read19(view) === SHELL_TAB) set8(view, "tree");
+  if (read20(view) === SHELL_TAB) set8(view, "tree");
 }
 async function loadLatestRun() {
   try {
     const { run } = await plugin16.request("shell.latest");
-    if (run && !read19(shellRun)) await showRun(run, false);
+    if (run && !read20(shellRun)) await showRun(run, false);
   } catch {
   }
 }
@@ -9142,7 +9179,7 @@ function queryTextOf(op) {
   };
 }
 async function openAsQuery(info) {
-  const run = read19(shellRun);
+  const run = read20(shellRun);
   if (!run || info.op?.kind !== "find") return;
   try {
     await openNamespace({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
@@ -9154,7 +9191,7 @@ async function openAsQuery(info) {
   }
 }
 async function openAsPipeline(info) {
-  const run = read19(shellRun);
+  const run = read20(shellRun);
   if (!run || info.op?.kind !== "aggregate") return;
   const { stages, error } = stagesFromPipeline(info.op.pipeline);
   if (!stages) throw new Error(error);
@@ -9162,12 +9199,12 @@ async function openAsPipeline(info) {
 }
 
 // src/panel/shell-view.tsx
-import { jsx as jsx16, jsxs as jsxs15 } from "orca/jsx-runtime";
+import { jsx as jsx17, jsxs as jsxs16 } from "orca/jsx-runtime";
 function CodeSection({ op, description, emptyText: emptyText2 }) {
-  const lang = read20(codeLanguage);
-  return /* @__PURE__ */ jsx16(Collapsible10, { title: "Code", description, children: /* @__PURE__ */ jsxs15(Box14, { gap: "xs", children: [
-    /* @__PURE__ */ jsx16(Select10, { label: "Language", value: lang, options: CODE_LANGUAGES, onChange: (v) => set9(codeLanguage, v) }),
-    op ? /* @__PURE__ */ jsx16(CodeView11, { code: generateCode(op, lang), label: `${lang} code`, maxHeight: "md" }) : /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: emptyText2 ?? "Run a query first: its code appears here." })
+  const lang = read21(codeLanguage);
+  return /* @__PURE__ */ jsx17(Collapsible10, { title: "Code", description, children: /* @__PURE__ */ jsxs16(Box14, { gap: "xs", children: [
+    /* @__PURE__ */ jsx17(Select10, { label: "Language", value: lang, options: CODE_LANGUAGES, onChange: (v) => set9(codeLanguage, v) }),
+    op ? /* @__PURE__ */ jsx17(CodeView11, { code: generateCode(op, lang), label: `${lang} code`, maxHeight: "md" }) : /* @__PURE__ */ jsx17(Text16, { muted: true, size: "xs", children: emptyText2 ?? "Run a query first: its code appears here." })
   ] }) });
 }
 function tabOperation(t) {
@@ -9176,44 +9213,44 @@ function tabOperation(t) {
   return { kind: "find", db: t.ns.db, collection: t.ns.collection, ...spec };
 }
 function ShellTab() {
-  const run = read20(shellRun);
-  const t = read20(collTabs)[SHELL_TAB];
+  const run = read21(shellRun);
+  const t = read21(collTabs)[SHELL_TAB];
   if (!run || !t?.shell) return null;
   const info = run.results[t.shell.index];
-  return /* @__PURE__ */ jsxs15(Box14, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs15(Box14, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx16(Text15, { weight: "semibold", truncate: true, children: "Shell results" }),
-        /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "center", children: [
-          /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, truncate: true, children: `${run.connectionName} › ${run.db} ·` }),
-          /* @__PURE__ */ jsx16(RelativeTime3, { at: run.at, muted: true })
+  return /* @__PURE__ */ jsxs16(Box14, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs16(Box14, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx17(Text16, { weight: "semibold", truncate: true, children: "Shell results" }),
+        /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", children: [
+          /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, truncate: true, children: `${run.connectionName} › ${run.db} ·` }),
+          /* @__PURE__ */ jsx17(RelativeTime3, { at: run.at, muted: true })
         ] })
       ] }),
-      /* @__PURE__ */ jsx16(IconButton13, { icon: "close", label: "Close the shell results", variant: "ghost", size: "sm", onPress: closeShell })
+      /* @__PURE__ */ jsx17(IconButton13, { icon: "close", label: "Close the shell results", variant: "ghost", size: "sm", onPress: closeShell })
     ] }),
-    run.results.length > 1 ? /* @__PURE__ */ jsx16(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
-    info ? /* @__PURE__ */ jsxs15(Toolbar12, { label: "Result actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx16(Badge4, { tone: "neutral", children: info.op ? `${info.op.kind} on ${info.op.db}.${info.op.collection}` : info.kind === "cursor" ? "cursor" : "documents" }),
-      info.op?.kind === "find" ? /* @__PURE__ */ jsx16(Button14, { size: "sm", icon: "open-external", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsQuery(info)), children: "Open as query" }) : null,
-      info.op?.kind === "aggregate" ? /* @__PURE__ */ jsx16(Button14, { size: "sm", icon: "layers", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsPipeline(info)), children: "Open in the aggregation editor" }) : null
+    run.results.length > 1 ? /* @__PURE__ */ jsx17(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
+    info ? /* @__PURE__ */ jsxs16(Toolbar12, { label: "Result actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx17(Badge5, { tone: "neutral", children: info.op ? `${info.op.kind} on ${info.op.db}.${info.op.collection}` : info.kind === "cursor" ? "cursor" : "documents" }),
+      info.op?.kind === "find" ? /* @__PURE__ */ jsx17(Button14, { size: "sm", icon: "open-external", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsQuery(info)), children: "Open as query" }) : null,
+      info.op?.kind === "aggregate" ? /* @__PURE__ */ jsx17(Button14, { size: "sm", icon: "layers", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsPipeline(info)), children: "Open in the aggregation editor" }) : null
     ] }) : null,
-    t.notice ? /* @__PURE__ */ jsx16(Callout14, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : "info", children: /* @__PURE__ */ jsxs15(Row15, { justify: "between", align: "center", children: [
-      /* @__PURE__ */ jsx16(Text15, { children: t.notice.text }),
-      /* @__PURE__ */ jsx16(IconButton13, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(SHELL_TAB, () => ({ notice: void 0 })) })
+    t.notice ? /* @__PURE__ */ jsx17(Callout14, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : "info", children: /* @__PURE__ */ jsxs16(Row16, { justify: "between", align: "center", children: [
+      /* @__PURE__ */ jsx17(Text16, { children: t.notice.text }),
+      /* @__PURE__ */ jsx17(IconButton13, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(SHELL_TAB, () => ({ notice: void 0 })) })
     ] }) }) : null,
-    t.error ? /* @__PURE__ */ jsx16(Callout14, { tone: "danger", icon: "error", title: "Could not read the results", children: t.error }) : null,
-    /* @__PURE__ */ jsx16(Results2, { t }),
-    info?.op ? /* @__PURE__ */ jsx16(CodeSection, { op: info.op, description: "This result's find or aggregate as driver code." }) : null
+    t.error ? /* @__PURE__ */ jsx17(Callout14, { tone: "danger", icon: "error", title: "Could not read the results", children: t.error }) : null,
+    /* @__PURE__ */ jsx17(Results2, { t }),
+    info?.op ? /* @__PURE__ */ jsx17(CodeSection, { op: info.op, description: "This result's find or aggregate as driver code." }) : null
   ] });
 }
 
 // src/panel/aggregate-view.tsx
-import { jsx as jsx17, jsxs as jsxs16 } from "orca/jsx-runtime";
+import { jsx as jsx18, jsxs as jsxs17 } from "orca/jsx-runtime";
 function StageList({ t, a }) {
   const at = a.stages.findIndex((s) => s.id === a.selected);
   const sel = a.stages[at];
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "xs", children: [
-    /* @__PURE__ */ jsx17(
+  return /* @__PURE__ */ jsxs17(Box15, { gap: "xs", children: [
+    /* @__PURE__ */ jsx18(
       Table13,
       {
         label: "Stages",
@@ -9235,14 +9272,14 @@ function StageList({ t, a }) {
         }
       }
     ),
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "end", wrap: true, children: [
-      /* @__PURE__ */ jsx17(Select11, { label: "Add a stage", labelHidden: true, value: "", placeholder: sel ? `Add a stage after ${at + 1}…` : "Add a stage…", options: STAGE_OPTIONS, onChange: (op) => void guard(t.id, () => addStage(t.id, op))() }),
-      sel ? /* @__PURE__ */ jsxs16(Toolbar13, { label: "Stage actions", gap: "xs", children: [
-        /* @__PURE__ */ jsx17(Button15, { size: "sm", variant: "ghost", disabled: at === 0, onPress: guard(t.id, () => moveStage(t.id, sel.id, -1)), children: "Up" }),
-        /* @__PURE__ */ jsx17(Button15, { size: "sm", variant: "ghost", disabled: at === a.stages.length - 1, onPress: guard(t.id, () => moveStage(t.id, sel.id, 1)), children: "Down" }),
-        /* @__PURE__ */ jsx17(IconButton14, { icon: sel.enabled ? "pause" : "play", label: sel.enabled ? "Turn the stage off" : "Turn the stage on", size: "sm", variant: "ghost", onPress: guard(t.id, () => toggleStage(t.id, sel.id)) }),
-        /* @__PURE__ */ jsx17(IconButton14, { icon: "copy", label: "Duplicate the stage", size: "sm", variant: "ghost", onPress: guard(t.id, () => duplicateStage(t.id, sel.id)) }),
-        /* @__PURE__ */ jsx17(IconButton14, { icon: "delete", label: "Remove the stage", size: "sm", variant: "ghost", tone: "danger", onPress: guard(t.id, () => removeStage(t.id, sel.id)) })
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "end", wrap: true, children: [
+      /* @__PURE__ */ jsx18(Select11, { label: "Add a stage", labelHidden: true, value: "", placeholder: sel ? `Add a stage after ${at + 1}…` : "Add a stage…", options: STAGE_OPTIONS, onChange: (op) => void guard(t.id, () => addStage(t.id, op))() }),
+      sel ? /* @__PURE__ */ jsxs17(Toolbar13, { label: "Stage actions", gap: "xs", children: [
+        /* @__PURE__ */ jsx18(Button15, { size: "sm", variant: "ghost", disabled: at === 0, onPress: guard(t.id, () => moveStage(t.id, sel.id, -1)), children: "Up" }),
+        /* @__PURE__ */ jsx18(Button15, { size: "sm", variant: "ghost", disabled: at === a.stages.length - 1, onPress: guard(t.id, () => moveStage(t.id, sel.id, 1)), children: "Down" }),
+        /* @__PURE__ */ jsx18(IconButton14, { icon: sel.enabled ? "pause" : "play", label: sel.enabled ? "Turn the stage off" : "Turn the stage on", size: "sm", variant: "ghost", onPress: guard(t.id, () => toggleStage(t.id, sel.id)) }),
+        /* @__PURE__ */ jsx18(IconButton14, { icon: "copy", label: "Duplicate the stage", size: "sm", variant: "ghost", onPress: guard(t.id, () => duplicateStage(t.id, sel.id)) }),
+        /* @__PURE__ */ jsx18(IconButton14, { icon: "delete", label: "Remove the stage", size: "sm", variant: "ghost", tone: "danger", onPress: guard(t.id, () => removeStage(t.id, sel.id)) })
       ] }) : null
     ] })
   ] });
@@ -9261,23 +9298,23 @@ function Preview2({ t, a }) {
   const r = p.result;
   const side = a.previewSide === "output" && r?.output ? "output" : "input";
   const docs2 = r ? side === "output" ? r.output : r.input : void 0;
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "xs", children: [
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-      /* @__PURE__ */ jsxs16(Toolbar13, { label: "Preview", gap: "xs", children: [
-        ["input", "output"].map((s) => /* @__PURE__ */ jsx17(Button15, { size: "sm", disabled: s === "output" && Boolean(r) && !r.output, variant: side === s ? "solid" : "ghost", tone: side === s ? "accent" : "neutral", onPress: () => changeAgg(t.id, () => ({ previewSide: s })), children: s === "input" ? "Input" : "Output" }, s)),
-        /* @__PURE__ */ jsx17(IconButton14, { icon: "refresh", label: "Preview again", size: "sm", variant: "ghost", disabled: p.loading, onPress: guard(t.id, () => refreshPreview(t.id)) })
+  return /* @__PURE__ */ jsxs17(Box15, { gap: "xs", children: [
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+      /* @__PURE__ */ jsxs17(Toolbar13, { label: "Preview", gap: "xs", children: [
+        ["input", "output"].map((s) => /* @__PURE__ */ jsx18(Button15, { size: "sm", disabled: s === "output" && Boolean(r) && !r.output, variant: side === s ? "solid" : "ghost", tone: side === s ? "accent" : "neutral", onPress: () => changeAgg(t.id, () => ({ previewSide: s })), children: s === "input" ? "Input" : "Output" }, s)),
+        /* @__PURE__ */ jsx18(IconButton14, { icon: "refresh", label: "Preview again", size: "sm", variant: "ghost", disabled: p.loading, onPress: guard(t.id, () => refreshPreview(t.id)) })
       ] }),
-      /* @__PURE__ */ jsx17(Select11, { label: "Preview size", labelHidden: true, value: String(a.previewSize), options: PREVIEW_SIZES.map((n2) => ({ value: String(n2), label: `${n2} documents` })), onChange: (v) => void guard(t.id, () => setPreviewSize(t.id, Number(v)))() })
+      /* @__PURE__ */ jsx18(Select11, { label: "Preview size", labelHidden: true, value: String(a.previewSize), options: PREVIEW_SIZES.map((n2) => ({ value: String(n2), label: `${n2} documents` })), onChange: (v) => void guard(t.id, () => setPreviewSize(t.id, Number(v)))() })
     ] }),
-    p.note ? /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: p.note }) : null,
-    p.error ? /* @__PURE__ */ jsx17(Callout15, { tone: "danger", icon: "error", title: "No preview", children: p.error }) : null,
-    p.loading && !r ? /* @__PURE__ */ jsx17(Skeleton11, { lines: 4, label: "Reading the preview" }) : null,
-    docs2 ? /* @__PURE__ */ jsxs16(Box15, { gap: "xs", children: [
-      /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", children: [
-        /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: countLine(docs2, side === "output" ? "Output" : "Input") }),
-        /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: p.loading ? "Updating…" : `${r.ms.toLocaleString("en-US")} ms` })
+    p.note ? /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: p.note }) : null,
+    p.error ? /* @__PURE__ */ jsx18(Callout15, { tone: "danger", icon: "error", title: "No preview", children: p.error }) : null,
+    p.loading && !r ? /* @__PURE__ */ jsx18(Skeleton11, { lines: 4, label: "Reading the preview" }) : null,
+    docs2 ? /* @__PURE__ */ jsxs17(Box15, { gap: "xs", children: [
+      /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", children: [
+        /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: countLine(docs2, side === "output" ? "Output" : "Input") }),
+        /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: p.loading ? "Updating…" : `${r.ms.toLocaleString("en-US")} ms` })
       ] }),
-      /* @__PURE__ */ jsx17(CodeView12, { label: side === "output" ? "Stage output" : "Stage input", code: docsText(docs2), language: "javascript", maxHeight: "md" })
+      /* @__PURE__ */ jsx18(CodeView12, { label: side === "output" ? "Stage output" : "Stage input", code: docsText(docs2), language: "javascript", maxHeight: "md" })
     ] }) : null
   ] });
 }
@@ -9288,49 +9325,49 @@ function StageEditor({ t, a }) {
   const error = a.errors[s.id];
   const info = STAGE_TEMPLATES.find((x) => x.op === s.op)?.info;
   const options4 = STAGE_OPTIONS.some((o) => o.value === s.op) ? STAGE_OPTIONS : [...STAGE_OPTIONS, { value: s.op, label: s.op }];
-  return /* @__PURE__ */ jsx17(Card4, { title: `Stage ${at + 1}: ${s.op}`, ...s.enabled ? {} : { description: "Off: the pipeline runs without it." }, children: /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-    /* @__PURE__ */ jsx17(Select11, { label: "Stage", value: s.op, options: options4, onChange: (op) => setStageOp(t.id, s.id, op) }),
-    info ? /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: info }) : null,
-    /* @__PURE__ */ jsx17(Textarea6, { label: "Value", rows: 8, value: s.body, invalid: Boolean(error), placeholder: "{ field: 'value' }", onChange: (v) => setStageBody(t.id, s.id, v), onSubmit: () => void guard(t.id, () => refreshPreview(t.id))() }),
-    error ? /* @__PURE__ */ jsx17(Text16, { size: "xs", tone: "danger", children: error }) : /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: "Shell syntax. Ctrl+Enter updates the preview." }),
-    /* @__PURE__ */ jsx17(Row16, { gap: "xs", children: /* @__PURE__ */ jsx17(Button15, { size: "sm", icon: "refresh", onPress: guard(t.id, () => refreshPreview(t.id)), children: "Update preview" }) }),
-    /* @__PURE__ */ jsx17(Preview2, { t, a })
+  return /* @__PURE__ */ jsx18(Card4, { title: `Stage ${at + 1}: ${s.op}`, ...s.enabled ? {} : { description: "Off: the pipeline runs without it." }, children: /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+    /* @__PURE__ */ jsx18(Select11, { label: "Stage", value: s.op, options: options4, onChange: (op) => setStageOp(t.id, s.id, op) }),
+    info ? /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: info }) : null,
+    /* @__PURE__ */ jsx18(Textarea6, { label: "Value", rows: 8, value: s.body, invalid: Boolean(error), placeholder: "{ field: 'value' }", onChange: (v) => setStageBody(t.id, s.id, v), onSubmit: () => void guard(t.id, () => refreshPreview(t.id))() }),
+    error ? /* @__PURE__ */ jsx18(Text17, { size: "xs", tone: "danger", children: error }) : /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: "Shell syntax. Ctrl+Enter updates the preview." }),
+    /* @__PURE__ */ jsx18(Row17, { gap: "xs", children: /* @__PURE__ */ jsx18(Button15, { size: "sm", icon: "refresh", onPress: guard(t.id, () => refreshPreview(t.id)), children: "Update preview" }) }),
+    /* @__PURE__ */ jsx18(Preview2, { t, a })
   ] }) });
 }
 function TextEditor({ t, a }) {
   const off = a.stages.filter((s) => !s.enabled).length;
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "xs", children: [
-    /* @__PURE__ */ jsx17(Textarea6, { label: "Pipeline", rows: 16, value: a.text, invalid: Boolean(a.textError), onChange: (v) => setPipelineText(t.id, v), onSubmit: () => void guard(t.id, () => applyText(t.id))() }),
-    a.textError ? /* @__PURE__ */ jsx17(Text16, { size: "xs", tone: "danger", children: a.textError }) : /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: "An array of stages in shell syntax. Ctrl+Enter applies it." }),
-    off ? /* @__PURE__ */ jsx17(Text16, { size: "xs", tone: "warning", children: `${off} stage${off === 1 ? " is" : "s are"} off and left out of the text; applying it removes ${off === 1 ? "it" : "them"}.` }) : null,
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", children: [
-      /* @__PURE__ */ jsx17(Button15, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: guard(t.id, () => applyText(t.id)), children: "Apply" }),
-      /* @__PURE__ */ jsx17(Button15, { size: "sm", variant: "ghost", onPress: () => leaveText(t.id), children: "Cancel" })
+  return /* @__PURE__ */ jsxs17(Box15, { gap: "xs", children: [
+    /* @__PURE__ */ jsx18(Textarea6, { label: "Pipeline", rows: 16, value: a.text, invalid: Boolean(a.textError), onChange: (v) => setPipelineText(t.id, v), onSubmit: () => void guard(t.id, () => applyText(t.id))() }),
+    a.textError ? /* @__PURE__ */ jsx18(Text17, { size: "xs", tone: "danger", children: a.textError }) : /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: "An array of stages in shell syntax. Ctrl+Enter applies it." }),
+    off ? /* @__PURE__ */ jsx18(Text17, { size: "xs", tone: "warning", children: `${off} stage${off === 1 ? " is" : "s are"} off and left out of the text; applying it removes ${off === 1 ? "it" : "them"}.` }) : null,
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", children: [
+      /* @__PURE__ */ jsx18(Button15, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: guard(t.id, () => applyText(t.id)), children: "Apply" }),
+      /* @__PURE__ */ jsx18(Button15, { size: "sm", variant: "ghost", onPress: () => leaveText(t.id), children: "Cancel" })
     ] })
   ] });
 }
 function CreateView({ t, a }) {
-  return /* @__PURE__ */ jsx17(Collapsible11, { title: "Create a view", description: `A read-only view on ${t.ns.collection} from this pipeline`, open: a.viewOpen, onChange: (open) => changeAgg(t.id, () => ({ viewOpen: open })), children: /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx17(Input11, { label: "View name", placeholder: "shipped_orders", value: a.viewName, onChange: (v) => changeAgg(t.id, () => ({ viewName: v })), onSubmit: () => void guard(t.id, () => createViewFromPipeline(t.id))() }),
-      /* @__PURE__ */ jsx17(Button15, { icon: "add", disabled: !a.viewName.trim(), onPress: guard(t.id, () => createViewFromPipeline(t.id)), children: "Create view" })
+  return /* @__PURE__ */ jsx18(Collapsible11, { title: "Create a view", description: `A read-only view on ${t.ns.collection} from this pipeline`, open: a.viewOpen, onChange: (open) => changeAgg(t.id, () => ({ viewOpen: open })), children: /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx18(Input11, { label: "View name", placeholder: "shipped_orders", value: a.viewName, onChange: (v) => changeAgg(t.id, () => ({ viewName: v })), onSubmit: () => void guard(t.id, () => createViewFromPipeline(t.id))() }),
+      /* @__PURE__ */ jsx18(Button15, { icon: "add", disabled: !a.viewName.trim(), onPress: guard(t.id, () => createViewFromPipeline(t.id)), children: "Create view" })
     ] }),
-    /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, children: `The view is created in ${t.ns.db} with the stages that are on. It runs the pipeline each time it is read.` }),
-    a.created ? /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx17(Text16, { size: "sm", children: `${t.ns.db}.${a.created} is ready.` }),
-      /* @__PURE__ */ jsx17(Button15, { size: "sm", icon: "open-external", onPress: guard(t.id, () => openCreatedView(t.id)), children: "Open the view" })
+    /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: `The view is created in ${t.ns.db} with the stages that are on. It runs the pipeline each time it is read.` }),
+    a.created ? /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", children: [
+      /* @__PURE__ */ jsx18(Text17, { size: "sm", children: `${t.ns.db}.${a.created} is ready.` }),
+      /* @__PURE__ */ jsx18(Button15, { size: "sm", icon: "open-external", onPress: guard(t.id, () => openCreatedView(t.id)), children: "Open the view" })
     ] }) : null
   ] }) });
 }
 function Saved({ t, a }) {
   const saved = a.saved ?? [];
   const sel = saved.find((s) => `p:${s.name}` === a.savedSelected);
-  return /* @__PURE__ */ jsx17(Collapsible11, { title: "Saved pipelines", description: `${saved.length} saved`, children: /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx17(Input11, { label: "Save this pipeline as", placeholder: "Name", value: a.saveName, onChange: (v) => changeAgg(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => savePipeline(t.id))() }),
-      /* @__PURE__ */ jsx17(Button15, { icon: "star", disabled: !a.saveName.trim(), onPress: guard(t.id, () => savePipeline(t.id)), children: "Save" })
+  return /* @__PURE__ */ jsx18(Collapsible11, { title: "Saved pipelines", description: `${saved.length} saved`, children: /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx18(Input11, { label: "Save this pipeline as", placeholder: "Name", value: a.saveName, onChange: (v) => changeAgg(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => savePipeline(t.id))() }),
+      /* @__PURE__ */ jsx18(Button15, { icon: "star", disabled: !a.saveName.trim(), onPress: guard(t.id, () => savePipeline(t.id)), children: "Save" })
     ] }),
-    /* @__PURE__ */ jsx17(
+    /* @__PURE__ */ jsx18(
       Table13,
       {
         label: "Saved pipelines",
@@ -9348,66 +9385,67 @@ function Saved({ t, a }) {
         onRowAction: ({ key }) => void guard(t.id, () => loadSavedPipeline(t.id, key.slice(2)))()
       }
     ),
-    /* @__PURE__ */ jsxs16(Toolbar13, { label: "Saved pipeline actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx17(Button15, { size: "sm", icon: "download", disabled: !sel, onPress: guard(t.id, () => loadSavedPipeline(t.id, sel.name)), children: "Load" }),
-      /* @__PURE__ */ jsx17(Button15, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", disabled: !sel, onPress: guard(t.id, () => deleteSavedPipeline(t.id, sel.name)), children: "Delete" })
+    /* @__PURE__ */ jsxs17(Toolbar13, { label: "Saved pipeline actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx18(Button15, { size: "sm", icon: "download", disabled: !sel, onPress: guard(t.id, () => loadSavedPipeline(t.id, sel.name)), children: "Load" }),
+      /* @__PURE__ */ jsx18(Button15, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", disabled: !sel, onPress: guard(t.id, () => deleteSavedPipeline(t.id, sel.name)), children: "Delete" })
     ] })
   ] }) });
 }
 function AggregationTab({ id }) {
-  const t = read21(collTabs)[id];
+  const t = read22(collTabs)[id];
   const a = t?.agg;
   if (!t || !a) return null;
   const on = a.stages.filter((s) => s.enabled).length;
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs16(Box15, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx17(Text16, { weight: "semibold", truncate: true, children: aggTitle(t) }),
-        /* @__PURE__ */ jsxs16(Row16, { gap: "xs", children: [
-          /* @__PURE__ */ jsx17(Badge5, { tone: "neutral", children: `${on} of ${a.stages.length} stage${a.stages.length === 1 ? "" : "s"} on` }),
-          t.kind === "view" ? /* @__PURE__ */ jsx17(Badge5, { tone: "warning", children: "On a view" }) : null
+  return /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs17(Box15, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx18(Text17, { weight: "semibold", truncate: true, children: aggTitle(t) }),
+        /* @__PURE__ */ jsx18(PlaceLine, { places: [{ connectionId: t.ns.connectionId, writes: true }] }),
+        /* @__PURE__ */ jsxs17(Row17, { gap: "xs", children: [
+          /* @__PURE__ */ jsx18(Badge6, { tone: "neutral", children: `${on} of ${a.stages.length} stage${a.stages.length === 1 ? "" : "s"} on` }),
+          t.kind === "view" ? /* @__PURE__ */ jsx18(Badge6, { tone: "warning", children: "On a view" }) : null
         ] })
       ] }),
-      /* @__PURE__ */ jsx17(IconButton14, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) })
+      /* @__PURE__ */ jsx18(IconButton14, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs16(Toolbar13, { label: "Pipeline actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx17(Button15, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: guard(t.id, () => runPipeline(t.id)), children: t.loading ? "Running…" : "Run" }),
-      /* @__PURE__ */ jsx17(Button15, { icon: "gauge", variant: "ghost", onPress: guard(t.id, async () => {
+    /* @__PURE__ */ jsxs17(Toolbar13, { label: "Pipeline actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx18(Button15, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: guard(t.id, () => runPipeline(t.id)), children: t.loading ? "Running…" : "Run" }),
+      /* @__PURE__ */ jsx18(Button15, { icon: "gauge", variant: "ghost", onPress: guard(t.id, async () => {
         changeExplain(t.id, { open: true });
         await runExplain(t.id);
       }), children: "Explain" }),
-      a.textMode ? null : /* @__PURE__ */ jsx17(Button15, { icon: "code", variant: "ghost", onPress: () => editAsText(t.id), children: "Edit as text" }),
-      a.textMode ? null : /* @__PURE__ */ jsx17(IconButton14, { icon: "download", label: "Export the results: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportPipeline(t.id)) })
+      a.textMode ? null : /* @__PURE__ */ jsx18(Button15, { icon: "code", variant: "ghost", onPress: () => editAsText(t.id), children: "Edit as text" }),
+      a.textMode ? null : /* @__PURE__ */ jsx18(IconButton14, { icon: "download", label: "Export the results: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportPipeline(t.id)) })
     ] }),
-    /* @__PURE__ */ jsx17(Switch3, { label: "Allow disk use (for big $group and $sort stages)", checked: a.allowDiskUse, onChange: (v) => void guard(t.id, () => setAllowDiskUse(t.id, v))() }),
-    a.confirmWrite ? /* @__PURE__ */ jsx17(Callout15, { tone: "danger", icon: "warning", title: `Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`, children: /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-      /* @__PURE__ */ jsx17(Text16, { children: `${a.confirmWrite.stage === "$out" ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}${a.confirmWrite.exists === false ? " It does not exist yet." : typeof a.confirmWrite.count === "number" ? ` It holds ${a.confirmWrite.count.toLocaleString("en-US")} document${a.confirmWrite.count === 1 ? "" : "s"} now${a.confirmWrite.stage === "$out" ? ", all replaced" : ""}.` : ""}` }),
-      /* @__PURE__ */ jsxs16(Row16, { gap: "xs", children: [
-        /* @__PURE__ */ jsx17(Button15, { variant: "solid", tone: "danger", onPress: guard(t.id, () => runPipeline(t.id, true)), children: "Run and write" }),
-        /* @__PURE__ */ jsx17(Button15, { variant: "ghost", onPress: () => cancelWrite(t.id), children: "Cancel" })
+    /* @__PURE__ */ jsx18(Switch3, { label: "Allow disk use (for big $group and $sort stages)", checked: a.allowDiskUse, onChange: (v) => void guard(t.id, () => setAllowDiskUse(t.id, v))() }),
+    a.confirmWrite ? /* @__PURE__ */ jsx18(Callout15, { tone: "danger", icon: "warning", title: `Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`, children: /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+      /* @__PURE__ */ jsx18(Text17, { children: `${a.confirmWrite.stage === "$out" ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}${a.confirmWrite.exists === false ? " It does not exist yet." : typeof a.confirmWrite.count === "number" ? ` It holds ${a.confirmWrite.count.toLocaleString("en-US")} document${a.confirmWrite.count === 1 ? "" : "s"} now${a.confirmWrite.stage === "$out" ? ", all replaced" : ""}.` : ""}` }),
+      /* @__PURE__ */ jsxs17(Row17, { gap: "xs", children: [
+        /* @__PURE__ */ jsx18(Button15, { variant: "solid", tone: "danger", onPress: guard(t.id, () => runPipeline(t.id, true)), children: "Run and write" }),
+        /* @__PURE__ */ jsx18(Button15, { variant: "ghost", onPress: () => cancelWrite(t.id), children: "Cancel" })
       ] })
     ] }) }) : null,
-    t.notice ? /* @__PURE__ */ jsx17(Callout15, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : t.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs16(Row16, { justify: "between", align: "center", children: [
-      /* @__PURE__ */ jsx17(Text16, { children: t.notice.text }),
-      /* @__PURE__ */ jsx17(IconButton14, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(t.id, () => ({ notice: void 0 })) })
+    t.notice ? /* @__PURE__ */ jsx18(Callout15, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : t.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs17(Row17, { justify: "between", align: "center", children: [
+      /* @__PURE__ */ jsx18(Text17, { children: t.notice.text }),
+      /* @__PURE__ */ jsx18(IconButton14, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(t.id, () => ({ notice: void 0 })) })
     ] }) }) : null,
-    a.textMode ? /* @__PURE__ */ jsx17(TextEditor, { t, a }) : /* @__PURE__ */ jsxs16(Box15, { gap: "sm", children: [
-      /* @__PURE__ */ jsx17(StageList, { t, a }),
-      /* @__PURE__ */ jsx17(StageEditor, { t, a })
+    a.textMode ? /* @__PURE__ */ jsx18(TextEditor, { t, a }) : /* @__PURE__ */ jsxs17(Box15, { gap: "sm", children: [
+      /* @__PURE__ */ jsx18(StageList, { t, a }),
+      /* @__PURE__ */ jsx18(StageEditor, { t, a })
     ] }),
-    t.error ? /* @__PURE__ */ jsx17(Callout15, { tone: "danger", icon: "error", title: "The pipeline failed", children: t.error }) : null,
-    t.page || t.loading ? /* @__PURE__ */ jsx17(Text16, { weight: "semibold", children: "Results" }) : null,
-    /* @__PURE__ */ jsx17(Results2, { t }),
-    /* @__PURE__ */ jsx17(ExplainSection, { t }),
-    /* @__PURE__ */ jsx17(CreateView, { t, a }),
-    /* @__PURE__ */ jsx17(Saved, { t, a }),
-    /* @__PURE__ */ jsx17(CodeSection, { op: aggOperation(t), description: "The stages that are on, as driver code.", emptyText: "A stage does not parse yet: fix it to see its code." })
+    t.error ? /* @__PURE__ */ jsx18(Callout15, { tone: "danger", icon: "error", title: "The pipeline failed", children: t.error }) : null,
+    t.page || t.loading ? /* @__PURE__ */ jsx18(Text17, { weight: "semibold", children: "Results" }) : null,
+    /* @__PURE__ */ jsx18(Results2, { t }),
+    /* @__PURE__ */ jsx18(ExplainSection, { t }),
+    /* @__PURE__ */ jsx18(CreateView, { t, a }),
+    /* @__PURE__ */ jsx18(Saved, { t, a }),
+    /* @__PURE__ */ jsx18(CodeSection, { op: aggOperation(t), description: "The stages that are on, as driver code.", emptyText: "A stage does not parse yet: fix it to see its code." })
   ] });
 }
 
 // src/panel/collection-view.tsx
 import {
-  Badge as Badge7,
+  Badge as Badge8,
   Box as Box18,
   Button as Button18,
   Callout as Callout18,
@@ -9415,17 +9453,17 @@ import {
   Field as Field2,
   IconButton as IconButton16,
   Input as Input13,
-  read as read22,
-  Row as Row19,
+  read as read23,
+  Row as Row20,
   Select as Select13,
   Table as Table14,
-  Text as Text19,
+  Text as Text20,
   Toolbar as Toolbar15
 } from "orca";
 
 // src/panel/document-view.tsx
-import { Badge as Badge6, Box as Box16, Button as Button16, Callout as Callout16, CodeView as CodeView13, EmptyState as EmptyState3, IconButton as IconButton15, Row as Row17, Skeleton as Skeleton12, Switch as Switch4, Text as Text17, Toolbar as Toolbar14, Tree as Tree4 } from "orca";
-import { jsx as jsx18, jsxs as jsxs17 } from "orca/jsx-runtime";
+import { Badge as Badge7, Box as Box16, Button as Button16, Callout as Callout16, CodeView as CodeView13, EmptyState as EmptyState3, IconButton as IconButton15, Row as Row18, Skeleton as Skeleton12, Switch as Switch4, Text as Text18, Toolbar as Toolbar14, Tree as Tree4 } from "orca";
+import { jsx as jsx19, jsxs as jsxs18 } from "orca/jsx-runtime";
 var VIEWS2 = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value, label }));
 function entries(v) {
   return Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
@@ -9451,8 +9489,8 @@ function DocTree({ t, f, doc }) {
   const selected2 = f.selected ? parseTreeKey(f.selected).path : void 0;
   const value = selected2?.length ? valueAt(doc, selected2) : void 0;
   const canEdit = !t.readOnly && selected2?.length && selected2[0] !== "_id";
-  return /* @__PURE__ */ jsxs17(Box16, { gap: "xs", children: [
-    /* @__PURE__ */ jsx18(
+  return /* @__PURE__ */ jsxs18(Box16, { gap: "xs", children: [
+    /* @__PURE__ */ jsx19(
       Tree4,
       {
         label: "Fields",
@@ -9468,18 +9506,18 @@ function DocTree({ t, f, doc }) {
         }
       }
     ),
-    selected2?.length ? /* @__PURE__ */ jsxs17(Toolbar14, { label: "Field actions", gap: "xs", children: [
-      canEdit ? /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "edit", onPress: guard(t.id, () => editField(t.id, f.id, selected2)), children: "Edit field" }) : null,
-      value !== void 0 ? /* @__PURE__ */ jsx18(Badge6, { children: BSON_TYPE_LABELS[bsonType(value)] }) : null
-    ] }) : /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, children: t.readOnly ? "Select a field to see its type." : "Select a field to edit it. Enter edits." })
+    selected2?.length ? /* @__PURE__ */ jsxs18(Toolbar14, { label: "Field actions", gap: "xs", children: [
+      canEdit ? /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "edit", onPress: guard(t.id, () => editField(t.id, f.id, selected2)), children: "Edit field" }) : null,
+      value !== void 0 ? /* @__PURE__ */ jsx19(Badge7, { children: BSON_TYPE_LABELS[bsonType(value)] }) : null
+    ] }) : /* @__PURE__ */ jsx19(Text18, { size: "xs", muted: true, children: t.readOnly ? "Select a field to see its type." : "Select a field to edit it. Enter edits." })
   ] });
 }
 function DocBody({ t, f, doc }) {
-  if (f.view === "tree") return /* @__PURE__ */ jsx18(DocTree, { t, f, doc });
-  if (f.view === "shell") return /* @__PURE__ */ jsx18(CodeView13, { label: "Document in shell syntax", code: toShell(doc), language: "javascript", lineNumbers: true, maxHeight: "lg" });
-  return /* @__PURE__ */ jsxs17(Box16, { gap: "xs", children: [
-    /* @__PURE__ */ jsx18(Switch4, { label: "Relaxed Extended JSON", checked: f.relaxed, onChange: (relaxed) => setFocus(t.id, { relaxed }) }),
-    /* @__PURE__ */ jsx18(CodeView13, { label: "Document as Extended JSON", code: toJsonText(doc, f.relaxed), language: "json", lineNumbers: true, maxHeight: "lg" })
+  if (f.view === "tree") return /* @__PURE__ */ jsx19(DocTree, { t, f, doc });
+  if (f.view === "shell") return /* @__PURE__ */ jsx19(CodeView13, { label: "Document in shell syntax", code: toShell(doc), language: "javascript", lineNumbers: true, maxHeight: "lg" });
+  return /* @__PURE__ */ jsxs18(Box16, { gap: "xs", children: [
+    /* @__PURE__ */ jsx19(Switch4, { label: "Relaxed Extended JSON", checked: f.relaxed, onChange: (relaxed) => setFocus(t.id, { relaxed }) }),
+    /* @__PURE__ */ jsx19(CodeView13, { label: "Document as Extended JSON", code: toJsonText(doc, f.relaxed), language: "json", lineNumbers: true, maxHeight: "lg" })
   ] });
 }
 function DocumentView({ t }) {
@@ -9487,37 +9525,37 @@ function DocumentView({ t }) {
   if (!f) return null;
   const inTab = Boolean(t.docTab);
   const doc = f.doc;
-  return /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs17(Box16, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx18(Text17, { weight: "semibold", truncate: true, children: toShellInline(f.id) }),
-        /* @__PURE__ */ jsx18(Text17, { size: "xs", muted: true, truncate: true, children: `${nsLabel(t.ns)}${doc ? ` · ${Object.keys(doc).length} fields` : ""}` })
+  return /* @__PURE__ */ jsxs18(Box16, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs18(Box16, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx19(Text18, { weight: "semibold", truncate: true, children: toShellInline(f.id) }),
+        /* @__PURE__ */ jsx19(PlaceLine, { places: [{ ...t.ns, writes: true }], ...doc ? { detail: `${Object.keys(doc).length} fields` } : {} })
       ] }),
-      /* @__PURE__ */ jsxs17(Toolbar14, { label: "Open document", gap: "xs", children: [
-        /* @__PURE__ */ jsx18(IconButton15, { icon: "refresh", label: "Read the document again", variant: "ghost", size: "sm", disabled: f.loading || f.deleted, onPress: guard(t.id, () => loadFocus(t.id)) }),
-        !inTab ? /* @__PURE__ */ jsx18(IconButton15, { icon: "file-text", label: "Open in a tab", variant: "ghost", size: "sm", disabled: f.deleted, onPress: guard(t.id, () => openDocumentTab(t.id, f.id)) }) : null,
-        inTab ? /* @__PURE__ */ jsx18(IconButton15, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) }) : /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "close", variant: "ghost", onPress: () => closeDocument(t.id), children: "Back to results" })
+      /* @__PURE__ */ jsxs18(Toolbar14, { label: "Open document", gap: "xs", children: [
+        /* @__PURE__ */ jsx19(IconButton15, { icon: "refresh", label: "Read the document again", variant: "ghost", size: "sm", disabled: f.loading || f.deleted, onPress: guard(t.id, () => loadFocus(t.id)) }),
+        !inTab ? /* @__PURE__ */ jsx19(IconButton15, { icon: "file-text", label: "Open in a tab", variant: "ghost", size: "sm", disabled: f.deleted, onPress: guard(t.id, () => openDocumentTab(t.id, f.id)) }) : null,
+        inTab ? /* @__PURE__ */ jsx19(IconButton15, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) }) : /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "close", variant: "ghost", onPress: () => closeDocument(t.id), children: "Back to results" })
       ] })
     ] }),
-    f.deleted ? /* @__PURE__ */ jsx18(EmptyState3, { icon: "delete", title: "Document deleted", description: `${toShellInline(f.id)} is no longer in ${nsLabel(t.ns)}.` }) : f.error ? /* @__PURE__ */ jsx18(Callout16, { tone: "danger", icon: "error", title: "Could not read the document", children: f.error }) : !doc ? /* @__PURE__ */ jsx18(Skeleton12, { lines: 8, label: "Reading the document" }) : /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
-      /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
-        /* @__PURE__ */ jsx18(Toolbar14, { label: "Show the document as", gap: "xs", children: VIEWS2.map((v) => /* @__PURE__ */ jsx18(Button16, { size: "sm", variant: f.view === v.value ? "solid" : "ghost", tone: f.view === v.value ? "accent" : "neutral", onPress: () => setDocView(t.id, v.value), children: v.label }, v.value)) }),
-        t.readOnly ? /* @__PURE__ */ jsx18(Badge6, { tone: "warning", children: "Read only" }) : null
+    f.deleted ? /* @__PURE__ */ jsx19(EmptyState3, { icon: "delete", title: "Document deleted", description: `${toShellInline(f.id)} is no longer in ${nsLabel(t.ns)}.` }) : f.error ? /* @__PURE__ */ jsx19(Callout16, { tone: "danger", icon: "error", title: "Could not read the document", children: f.error }) : !doc ? /* @__PURE__ */ jsx19(Skeleton12, { lines: 8, label: "Reading the document" }) : /* @__PURE__ */ jsxs18(Box16, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
+        /* @__PURE__ */ jsx19(Toolbar14, { label: "Show the document as", gap: "xs", children: VIEWS2.map((v) => /* @__PURE__ */ jsx19(Button16, { size: "sm", variant: f.view === v.value ? "solid" : "ghost", tone: f.view === v.value ? "accent" : "neutral", onPress: () => setDocView(t.id, v.value), children: v.label }, v.value)) }),
+        t.readOnly ? /* @__PURE__ */ jsx19(Badge7, { tone: "warning", children: "Read only" }) : null
       ] }),
-      /* @__PURE__ */ jsx18(DocBody, { t, f, doc }),
-      !t.readOnly ? /* @__PURE__ */ jsxs17(Toolbar14, { label: "Document actions", gap: "xs", children: [
-        /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, f.id)), children: "Edit document" }),
-        /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, f.id), children: "Add field" }),
-        /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, f.id)), children: "Clone" }),
-        /* @__PURE__ */ jsx18(Button16, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDeleteFocused(t.id), children: "Delete" })
+      /* @__PURE__ */ jsx19(DocBody, { t, f, doc }),
+      !t.readOnly ? /* @__PURE__ */ jsxs18(Toolbar14, { label: "Document actions", gap: "xs", children: [
+        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, f.id)), children: "Edit document" }),
+        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, f.id), children: "Add field" }),
+        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, f.id)), children: "Clone" }),
+        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDeleteFocused(t.id), children: "Delete" })
       ] }) : null
     ] })
   ] });
 }
 
 // src/panel/editors-view.tsx
-import { Box as Box17, Button as Button17, Callout as Callout17, Card as Card5, Input as Input12, RadioGroup as RadioGroup7, Row as Row18, Select as Select12, Text as Text18, Textarea as Textarea7 } from "orca";
-import { jsx as jsx19, jsxs as jsxs18 } from "orca/jsx-runtime";
+import { Box as Box17, Button as Button17, Callout as Callout17, Card as Card5, Input as Input12, RadioGroup as RadioGroup7, Row as Row19, Select as Select12, Text as Text19, Textarea as Textarea7 } from "orca";
+import { jsx as jsx20, jsxs as jsxs19 } from "orca/jsx-runtime";
 function ValueInputs({ t, draft }) {
   const set15 = (values) => setDraft(t.id, { ...draft, ...values });
   const result = valueFromDraft(draft);
@@ -9526,31 +9564,31 @@ function ValueInputs({ t, draft }) {
     case "null":
     case "minKey":
     case "maxKey":
-      return /* @__PURE__ */ jsx19(Text18, { muted: true, size: "sm", children: `This type has no value to enter.` });
+      return /* @__PURE__ */ jsx20(Text19, { muted: true, size: "sm", children: `This type has no value to enter.` });
     case "bool":
-      return /* @__PURE__ */ jsx19(RadioGroup7, { label: "Value", orientation: "horizontal", value: draft.text === "true" ? "true" : "false", options: [{ value: "true", label: "true" }, { value: "false", label: "false" }], onChange: (text) => set15({ text }) });
+      return /* @__PURE__ */ jsx20(RadioGroup7, { label: "Value", orientation: "horizontal", value: draft.text === "true" ? "true" : "false", options: [{ value: "true", label: "true" }, { value: "false", label: "false" }], onChange: (text) => set15({ text }) });
     case "object":
     case "array":
     case "javascript":
-      return /* @__PURE__ */ jsx19(Textarea7, { label: draft.type === "javascript" ? "Code" : "Value", rows: 8, value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
+      return /* @__PURE__ */ jsx20(Textarea7, { label: draft.type === "javascript" ? "Code" : "Value", rows: 8, value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
     case "binData":
-      return /* @__PURE__ */ jsxs18(Box17, { gap: "xs", children: [
-        /* @__PURE__ */ jsx19(Input12, { label: "Subtype (0 to 255)", value: draft.subtype, onChange: (subtype) => set15({ subtype }) }),
-        /* @__PURE__ */ jsx19(Textarea7, { label: "Data (base64)", rows: 3, value: draft.text, invalid, onChange: (text) => set15({ text }) })
+      return /* @__PURE__ */ jsxs19(Box17, { gap: "xs", children: [
+        /* @__PURE__ */ jsx20(Input12, { label: "Subtype (0 to 255)", value: draft.subtype, onChange: (subtype) => set15({ subtype }) }),
+        /* @__PURE__ */ jsx20(Textarea7, { label: "Data (base64)", rows: 3, value: draft.text, invalid, onChange: (text) => set15({ text }) })
       ] });
     case "regex":
-      return /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx19(Input12, { label: "Pattern", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() }),
-        /* @__PURE__ */ jsx19(Input12, { label: "Flags", value: draft.flags, placeholder: "i, m, s, x, u", onChange: (flags) => set15({ flags }) })
+      return /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
+        /* @__PURE__ */ jsx20(Input12, { label: "Pattern", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() }),
+        /* @__PURE__ */ jsx20(Input12, { label: "Flags", value: draft.flags, placeholder: "i, m, s, x, u", onChange: (flags) => set15({ flags }) })
       ] });
     case "timestamp":
-      return /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx19(Input12, { label: "Seconds (t)", value: draft.t, onChange: (v) => set15({ t: v }) }),
-        /* @__PURE__ */ jsx19(Input12, { label: "Increment (i)", value: draft.i, onChange: (i) => set15({ i }) })
+      return /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
+        /* @__PURE__ */ jsx20(Input12, { label: "Seconds (t)", value: draft.t, onChange: (v) => set15({ t: v }) }),
+        /* @__PURE__ */ jsx20(Input12, { label: "Increment (i)", value: draft.i, onChange: (i) => set15({ i }) })
       ] });
     default: {
       const labels = { date: "Date (UTC)", objectId: "ObjectId (24 hex digits)", uuid: "UUID" };
-      return /* @__PURE__ */ jsx19(Input12, { label: labels[draft.type] ?? "Value", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
+      return /* @__PURE__ */ jsx20(Input12, { label: labels[draft.type] ?? "Value", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
     }
   }
 }
@@ -9559,9 +9597,9 @@ function FieldEditorCard({ t, e }) {
   const unchanged = !e.adding && result.ok && e.original !== void 0 && JSON.stringify(result.value) === JSON.stringify(e.original);
   const originalType = e.original === void 0 ? void 0 : bsonType(e.original);
   const title = e.adding ? "Add a field" : `Edit ${pathText(e.path)}`;
-  return /* @__PURE__ */ jsx19(Card5, { title, description: `Document ${toShellInline(e.id)} in ${nsLabel(t.ns)}`, children: /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-    e.adding ? /* @__PURE__ */ jsx19(Input12, { label: "Field name", placeholder: "name, or a.b for a nested field", value: e.newName ?? "", onChange: (v) => setNewFieldName(t.id, v) }) : null,
-    /* @__PURE__ */ jsx19(
+  return /* @__PURE__ */ jsx20(Card5, { title, description: `Document ${toShellInline(e.id)} in ${nsLabel(t.ns)}`, children: /* @__PURE__ */ jsxs19(Box17, { gap: "sm", children: [
+    e.adding ? /* @__PURE__ */ jsx20(Input12, { label: "Field name", placeholder: "name, or a.b for a nested field", value: e.newName ?? "", onChange: (v) => setNewFieldName(t.id, v) }) : null,
+    /* @__PURE__ */ jsx20(
       Select12,
       {
         label: "Type",
@@ -9570,15 +9608,15 @@ function FieldEditorCard({ t, e }) {
         onChange: (type) => setDraft(t.id, changeType(e.draft, type))
       }
     ),
-    originalType && originalType !== e.draft.type && !(originalType === "truncated") ? /* @__PURE__ */ jsx19(Text18, { size: "xs", tone: "warning", children: `Saving changes the type from ${BSON_TYPE_LABELS[originalType]} to ${EDIT_TYPES.find((o) => o.value === e.draft.type).label}.` }) : null,
-    /* @__PURE__ */ jsx19(ValueInputs, { t, draft: e.draft }),
-    draftHint(e.draft) ? /* @__PURE__ */ jsx19(Text18, { size: "xs", muted: true, children: draftHint(e.draft) }) : null,
-    !result.ok && (e.draft.text !== "" || e.error) ? /* @__PURE__ */ jsx19(Text18, { size: "xs", tone: "danger", children: result.error }) : null,
-    e.error ? /* @__PURE__ */ jsx19(Callout17, { tone: "danger", icon: "error", children: e.error }) : null,
-    /* @__PURE__ */ jsxs18(Row18, { gap: "xs", wrap: true, children: [
-      /* @__PURE__ */ jsx19(Button17, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving || unchanged, onPress: guard(t.id, () => saveField(t.id)), children: e.saving ? "Saving…" : "Save field" }),
-      /* @__PURE__ */ jsx19(Button17, { variant: "ghost", onPress: () => closeEditor(t.id), children: "Cancel" }),
-      !e.adding ? /* @__PURE__ */ jsx19(Button17, { variant: "ghost", tone: "danger", icon: "delete", disabled: e.saving, onPress: guard(t.id, () => removeField(t.id)), children: "Remove field" }) : null
+    originalType && originalType !== e.draft.type && !(originalType === "truncated") ? /* @__PURE__ */ jsx20(Text19, { size: "xs", tone: "warning", children: `Saving changes the type from ${BSON_TYPE_LABELS[originalType]} to ${EDIT_TYPES.find((o) => o.value === e.draft.type).label}.` }) : null,
+    /* @__PURE__ */ jsx20(ValueInputs, { t, draft: e.draft }),
+    draftHint(e.draft) ? /* @__PURE__ */ jsx20(Text19, { size: "xs", muted: true, children: draftHint(e.draft) }) : null,
+    !result.ok && (e.draft.text !== "" || e.error) ? /* @__PURE__ */ jsx20(Text19, { size: "xs", tone: "danger", children: result.error }) : null,
+    e.error ? /* @__PURE__ */ jsx20(Callout17, { tone: "danger", icon: "error", children: e.error }) : null,
+    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", wrap: true, children: [
+      /* @__PURE__ */ jsx20(Button17, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving || unchanged, onPress: guard(t.id, () => saveField(t.id)), children: e.saving ? "Saving…" : "Save field" }),
+      /* @__PURE__ */ jsx20(Button17, { variant: "ghost", onPress: () => closeEditor(t.id), children: "Cancel" }),
+      !e.adding ? /* @__PURE__ */ jsx20(Button17, { variant: "ghost", tone: "danger", icon: "delete", disabled: e.saving, onPress: guard(t.id, () => removeField(t.id)), children: "Remove field" }) : null
     ] })
   ] }) });
 }
@@ -9587,8 +9625,8 @@ function DocEditorCard({ t, e }) {
   const problemText = problem ? typeof problem === "string" ? problem : problem.message : null;
   const title = e.mode === "edit" ? "Edit document" : e.mode === "clone" ? "Clone document" : "Insert document";
   const description = e.mode === "edit" ? `Replaces ${toShellInline(e.id)} in ${nsLabel(t.ns)}` : e.mode === "clone" ? `A copy without its _id, inserted into ${nsLabel(t.ns)}` : `Into ${nsLabel(t.ns)}. Leave _id out to have one made.`;
-  return /* @__PURE__ */ jsx19(Card5, { title, description, children: /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-    /* @__PURE__ */ jsx19(
+  return /* @__PURE__ */ jsx20(Card5, { title, description, children: /* @__PURE__ */ jsxs19(Box17, { gap: "sm", children: [
+    /* @__PURE__ */ jsx20(
       Select12,
       {
         label: "Syntax",
@@ -9600,49 +9638,49 @@ function DocEditorCard({ t, e }) {
         onChange: (v) => setDocSyntax(t.id, v)
       }
     ),
-    /* @__PURE__ */ jsx19(Textarea7, { label: "Document", rows: 18, value: e.text, invalid: Boolean(problemText), onChange: (v) => setDocText(t.id, v), onSubmit: () => void guard(t.id, () => saveDocument(t.id))() }),
-    problemText ? /* @__PURE__ */ jsx19(Text18, { size: "xs", tone: "danger", children: problemText }) : /* @__PURE__ */ jsx19(Text18, { size: "xs", muted: true, children: "Ctrl+Enter saves." }),
-    e.error ? /* @__PURE__ */ jsx19(Callout17, { tone: "danger", icon: "error", children: e.error }) : null,
-    /* @__PURE__ */ jsxs18(Row18, { gap: "xs", children: [
-      /* @__PURE__ */ jsx19(Button17, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving || Boolean(problemText), onPress: guard(t.id, () => saveDocument(t.id)), children: e.saving ? "Saving…" : e.mode === "edit" ? "Save document" : "Insert" }),
-      /* @__PURE__ */ jsx19(Button17, { variant: "ghost", onPress: () => closeEditor(t.id), children: "Cancel" })
+    /* @__PURE__ */ jsx20(Textarea7, { label: "Document", rows: 18, value: e.text, invalid: Boolean(problemText), onChange: (v) => setDocText(t.id, v), onSubmit: () => void guard(t.id, () => saveDocument(t.id))() }),
+    problemText ? /* @__PURE__ */ jsx20(Text19, { size: "xs", tone: "danger", children: problemText }) : /* @__PURE__ */ jsx20(Text19, { size: "xs", muted: true, children: "Ctrl+Enter saves." }),
+    e.error ? /* @__PURE__ */ jsx20(Callout17, { tone: "danger", icon: "error", children: e.error }) : null,
+    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", children: [
+      /* @__PURE__ */ jsx20(Button17, { variant: "solid", tone: "accent", icon: "check", disabled: e.saving || Boolean(problemText), onPress: guard(t.id, () => saveDocument(t.id)), children: e.saving ? "Saving…" : e.mode === "edit" ? "Save document" : "Insert" }),
+      /* @__PURE__ */ jsx20(Button17, { variant: "ghost", onPress: () => closeEditor(t.id), children: "Cancel" })
     ] })
   ] }) });
 }
 function Editors({ t }) {
   const pending = t.confirmDelete;
-  return /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-    pending ? /* @__PURE__ */ jsx19(Callout17, { tone: "danger", icon: "warning", title: `Delete ${pending.ids.length.toLocaleString("en-US")} document${pending.ids.length === 1 ? "" : "s"} from ${nsLabel(t.ns)}?`, children: /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-      /* @__PURE__ */ jsx19(Text18, { children: `This removes ${pending.ids.length === 1 ? `the document ${toShellInline(pending.ids[0])}` : `the ${pending.ids.length} selected documents`}. It can't be undone.` }),
-      /* @__PURE__ */ jsxs18(Row18, { gap: "xs", children: [
-        /* @__PURE__ */ jsx19(Button17, { variant: "solid", tone: "danger", onPress: guard(t.id, () => confirmDeletion(t.id)), children: pending.ids.length === 1 ? "Delete document" : `Delete ${pending.ids.length} documents` }),
-        /* @__PURE__ */ jsx19(Button17, { variant: "ghost", onPress: () => change(t.id, () => ({ confirmDelete: void 0 })), children: "Cancel" })
+  return /* @__PURE__ */ jsxs19(Box17, { gap: "sm", children: [
+    pending ? /* @__PURE__ */ jsx20(Callout17, { tone: "danger", icon: "warning", title: `Delete ${pending.ids.length.toLocaleString("en-US")} document${pending.ids.length === 1 ? "" : "s"} from ${nsLabel(t.ns)}?`, children: /* @__PURE__ */ jsxs19(Box17, { gap: "sm", children: [
+      /* @__PURE__ */ jsx20(Text19, { children: `This removes ${pending.ids.length === 1 ? `the document ${toShellInline(pending.ids[0])}` : `the ${pending.ids.length} selected documents`}. It can't be undone.` }),
+      /* @__PURE__ */ jsxs19(Row19, { gap: "xs", children: [
+        /* @__PURE__ */ jsx20(Button17, { variant: "solid", tone: "danger", onPress: guard(t.id, () => confirmDeletion(t.id)), children: pending.ids.length === 1 ? "Delete document" : `Delete ${pending.ids.length} documents` }),
+        /* @__PURE__ */ jsx20(Button17, { variant: "ghost", onPress: () => change(t.id, () => ({ confirmDelete: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
-    t.editor?.kind === "field" ? /* @__PURE__ */ jsx19(FieldEditorCard, { t, e: t.editor }) : null,
-    t.editor?.kind === "doc" ? /* @__PURE__ */ jsx19(DocEditorCard, { t, e: t.editor }) : null
+    t.editor?.kind === "field" ? /* @__PURE__ */ jsx20(FieldEditorCard, { t, e: t.editor }) : null,
+    t.editor?.kind === "doc" ? /* @__PURE__ */ jsx20(DocEditorCard, { t, e: t.editor }) : null
   ] });
 }
 
 // src/panel/collection-view.tsx
-import { jsx as jsx20, jsxs as jsxs19 } from "orca/jsx-runtime";
+import { jsx as jsx21, jsxs as jsxs20 } from "orca/jsx-runtime";
 function QueryInput({ t, field, label, placeholder }) {
   const error = t.fieldErrors[field];
-  return /* @__PURE__ */ jsx20(Field2, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx20(Input13, { label, labelHidden: true, placeholder, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }) });
+  return /* @__PURE__ */ jsx21(Field2, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx21(Input13, { label, labelHidden: true, placeholder, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }) });
 }
 function QueryBar({ t }) {
   const extras = [t.text.collation && "collation", t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(", ");
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "xs", children: [
-    /* @__PURE__ */ jsx20(QueryInput, { t, field: "filter", label: "Filter", placeholder: "{ status: 'shipped', total: { $gt: 100 } }" }),
-    /* @__PURE__ */ jsxs19(Box18, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx20(QueryInput, { t, field: "projection", label: "Projection", placeholder: "{ name: 1, _id: 0 }" }),
-      /* @__PURE__ */ jsx20(QueryInput, { t, field: "sort", label: "Sort", placeholder: "{ createdAt: -1 }" })
+  return /* @__PURE__ */ jsxs20(Box18, { gap: "xs", children: [
+    /* @__PURE__ */ jsx21(QueryInput, { t, field: "filter", label: "Filter", placeholder: "{ status: 'shipped', total: { $gt: 100 } }" }),
+    /* @__PURE__ */ jsxs20(Box18, { columns: 2, gap: "xs", children: [
+      /* @__PURE__ */ jsx21(QueryInput, { t, field: "projection", label: "Projection", placeholder: "{ name: 1, _id: 0 }" }),
+      /* @__PURE__ */ jsx21(QueryInput, { t, field: "sort", label: "Sort", placeholder: "{ createdAt: -1 }" })
     ] }),
-    /* @__PURE__ */ jsx20(Collapsible12, { title: "Collation, skip and limit", ...extras ? { description: extras } : {}, open: t.optionsOpen, onChange: (open) => change(t.id, () => ({ optionsOpen: open })), children: /* @__PURE__ */ jsxs19(Box18, { gap: "xs", children: [
-      /* @__PURE__ */ jsx20(QueryInput, { t, field: "collation", label: "Collation", placeholder: "{ locale: 'fr', strength: 2 }" }),
-      /* @__PURE__ */ jsxs19(Box18, { columns: 2, gap: "xs", children: [
-        /* @__PURE__ */ jsx20(QueryInput, { t, field: "skip", label: "Skip", placeholder: "0" }),
-        /* @__PURE__ */ jsx20(QueryInput, { t, field: "limit", label: "Limit", placeholder: "0 (none)" })
+    /* @__PURE__ */ jsx21(Collapsible12, { title: "Collation, skip and limit", ...extras ? { description: extras } : {}, open: t.optionsOpen, onChange: (open) => change(t.id, () => ({ optionsOpen: open })), children: /* @__PURE__ */ jsxs20(Box18, { gap: "xs", children: [
+      /* @__PURE__ */ jsx21(QueryInput, { t, field: "collation", label: "Collation", placeholder: "{ locale: 'fr', strength: 2 }" }),
+      /* @__PURE__ */ jsxs20(Box18, { columns: 2, gap: "xs", children: [
+        /* @__PURE__ */ jsx21(QueryInput, { t, field: "skip", label: "Skip", placeholder: "0" }),
+        /* @__PURE__ */ jsx21(QueryInput, { t, field: "limit", label: "Limit", placeholder: "0 (none)" })
       ] })
     ] }) })
   ] });
@@ -9651,22 +9689,22 @@ function ConditionRow({ t, c, fields }) {
   const set15 = (values) => setBuilder(t.id, updateCondition(t.builder, c.id, values));
   const problem = t.builderProblems.find((p) => p.id === c.id);
   const known = fields.includes(c.field);
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "xs", padding: "xs", border: problem ? "danger" : true, radius: "sm", children: [
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
-      known || c.field === "" && fields.length ? /* @__PURE__ */ jsx20(Select13, { label: "Field", value: c.field, placeholder: "Field…", options: [...fields.map((f) => ({ value: f, label: f })), { value: "\0other", label: "Another field…" }], onChange: (v) => set15({ field: v === "\0other" ? " " : v }) }) : /* @__PURE__ */ jsx20(Input13, { label: "Field", value: c.field.trim(), placeholder: "a.b.c", onChange: (v) => set15({ field: v }) }),
-      /* @__PURE__ */ jsx20(IconButton16, { icon: "close", label: "Remove condition", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, c.id)) })
+  return /* @__PURE__ */ jsxs20(Box18, { gap: "xs", padding: "xs", border: problem ? "danger" : true, radius: "sm", children: [
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "end", children: [
+      known || c.field === "" && fields.length ? /* @__PURE__ */ jsx21(Select13, { label: "Field", value: c.field, placeholder: "Field…", options: [...fields.map((f) => ({ value: f, label: f })), { value: "\0other", label: "Another field…" }], onChange: (v) => set15({ field: v === "\0other" ? " " : v }) }) : /* @__PURE__ */ jsx21(Input13, { label: "Field", value: c.field.trim(), placeholder: "a.b.c", onChange: (v) => set15({ field: v }) }),
+      /* @__PURE__ */ jsx21(IconButton16, { icon: "close", label: "Remove condition", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, c.id)) })
     ] }),
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx20(Select13, { label: "Operator", value: c.op, options: OPERATORS.map((o) => ({ value: o.value, label: o.label })), onChange: (v) => set15({ op: v }) }),
-      needsValue(c.op) ? /* @__PURE__ */ jsx20(Input13, { label: "Value", value: c.value, placeholder: c.op === "in" || c.op === "nin" ? "['a', 'b']" : c.op === "regex" ? "/^abc/i" : "'text', 42, ObjectId('…')", invalid: Boolean(problem), onChange: (v) => set15({ value: v }), onSubmit: () => void guard(t.id, () => applyBuilder(t.id))() }) : null
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx21(Select13, { label: "Operator", value: c.op, options: OPERATORS.map((o) => ({ value: o.value, label: o.label })), onChange: (v) => set15({ op: v }) }),
+      needsValue(c.op) ? /* @__PURE__ */ jsx21(Input13, { label: "Value", value: c.value, placeholder: c.op === "in" || c.op === "nin" ? "['a', 'b']" : c.op === "regex" ? "/^abc/i" : "'text', 42, ObjectId('…')", invalid: Boolean(problem), onChange: (v) => set15({ value: v }), onSubmit: () => void guard(t.id, () => applyBuilder(t.id))() }) : null
     ] }),
-    problem ? /* @__PURE__ */ jsx20(Text19, { size: "xs", tone: "danger", children: problem.message }) : null
+    problem ? /* @__PURE__ */ jsx21(Text20, { size: "xs", tone: "danger", children: problem.message }) : null
   ] });
 }
 function GroupBlock({ t, g, fields, depth }) {
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "xs", ...depth > 0 ? { padding: "xs", border: true, radius: "md", background: "muted" } : {}, children: [
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", justify: "between", children: [
-      /* @__PURE__ */ jsx20(
+  return /* @__PURE__ */ jsxs20(Box18, { gap: "xs", ...depth > 0 ? { padding: "xs", border: true, radius: "md", background: "muted" } : {}, children: [
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "end", justify: "between", children: [
+      /* @__PURE__ */ jsx21(
         Select13,
         {
           label: depth === 0 ? "Match" : "Group",
@@ -9678,25 +9716,25 @@ function GroupBlock({ t, g, fields, depth }) {
           onChange: (v) => setBuilder(t.id, mapGroup(t.builder, g.id, (x) => ({ ...x, join: v })))
         }
       ),
-      depth > 0 ? /* @__PURE__ */ jsx20(IconButton16, { icon: "close", label: "Remove group", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, g.id)) }) : null
+      depth > 0 ? /* @__PURE__ */ jsx21(IconButton16, { icon: "close", label: "Remove group", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, g.id)) }) : null
     ] }),
-    g.items.map((item) => item.kind === "cond" ? /* @__PURE__ */ jsx20(ConditionRow, { t, c: item, fields }, item.id) : /* @__PURE__ */ jsx20(GroupBlock, { t, g: item, fields, depth: depth + 1 }, item.id)),
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", children: [
-      /* @__PURE__ */ jsx20(Button18, { size: "sm", icon: "add", variant: "ghost", onPress: () => setBuilder(t.id, mapGroup(t.builder, g.id, (x) => ({ ...x, items: [...x.items, newCondition(fields.find((f) => f !== "_id") ?? "")] }))), children: "Condition" }),
-      depth < 3 ? /* @__PURE__ */ jsx20(Button18, { size: "sm", icon: "add", variant: "ghost", onPress: () => setBuilder(t.id, mapGroup(t.builder, g.id, (x) => ({ ...x, items: [...x.items, { ...emptyGroup(x.join === "and" ? "or" : "and"), items: [newCondition(fields.find((f) => f !== "_id") ?? "")] }] }))), children: "Group" }) : null
+    g.items.map((item) => item.kind === "cond" ? /* @__PURE__ */ jsx21(ConditionRow, { t, c: item, fields }, item.id) : /* @__PURE__ */ jsx21(GroupBlock, { t, g: item, fields, depth: depth + 1 }, item.id)),
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", children: [
+      /* @__PURE__ */ jsx21(Button18, { size: "sm", icon: "add", variant: "ghost", onPress: () => setBuilder(t.id, mapGroup(t.builder, g.id, (x) => ({ ...x, items: [...x.items, newCondition(fields.find((f) => f !== "_id") ?? "")] }))), children: "Condition" }),
+      depth < 3 ? /* @__PURE__ */ jsx21(Button18, { size: "sm", icon: "add", variant: "ghost", onPress: () => setBuilder(t.id, mapGroup(t.builder, g.id, (x) => ({ ...x, items: [...x.items, { ...emptyGroup(x.join === "and" ? "or" : "and"), items: [newCondition(fields.find((f) => f !== "_id") ?? "")] }] }))), children: "Group" }) : null
     ] })
   ] });
 }
 function Builder({ t }) {
   const n2 = countConditions(t.builder);
   const fields = sampledFields(t);
-  return /* @__PURE__ */ jsx20(Collapsible12, { title: "Query Builder", description: n2 ? `${n2} condition${n2 === 1 ? "" : "s"}` : "Build a filter from fields and operators", open: t.builderOpen, onChange: (open) => change(t.id, () => ({ builderOpen: open })), children: /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
-    /* @__PURE__ */ jsx20(GroupBlock, { t, g: t.builder, fields, depth: 0 }),
-    fields.length === 0 ? /* @__PURE__ */ jsx20(Text19, { size: "xs", muted: true, children: "Run a query to list the fields of its results here." }) : null,
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", wrap: true, children: [
-      /* @__PURE__ */ jsx20(Button18, { size: "sm", variant: "solid", tone: "accent", icon: "play", disabled: n2 === 0, onPress: guard(t.id, () => applyBuilder(t.id)), children: "Apply to filter and run" }),
-      /* @__PURE__ */ jsx20(Button18, { size: "sm", variant: "ghost", icon: "download", onPress: () => loadBuilderFromFilter(t.id), children: "Load from filter" }),
-      n2 ? /* @__PURE__ */ jsx20(Button18, { size: "sm", variant: "ghost", icon: "delete", onPress: () => setBuilder(t.id, emptyGroup()), children: "Clear" }) : null
+  return /* @__PURE__ */ jsx21(Collapsible12, { title: "Query Builder", description: n2 ? `${n2} condition${n2 === 1 ? "" : "s"}` : "Build a filter from fields and operators", open: t.builderOpen, onChange: (open) => change(t.id, () => ({ builderOpen: open })), children: /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
+    /* @__PURE__ */ jsx21(GroupBlock, { t, g: t.builder, fields, depth: 0 }),
+    fields.length === 0 ? /* @__PURE__ */ jsx21(Text20, { size: "xs", muted: true, children: "Run a query to list the fields of its results here." }) : null,
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", wrap: true, children: [
+      /* @__PURE__ */ jsx21(Button18, { size: "sm", variant: "solid", tone: "accent", icon: "play", disabled: n2 === 0, onPress: guard(t.id, () => applyBuilder(t.id)), children: "Apply to filter and run" }),
+      /* @__PURE__ */ jsx21(Button18, { size: "sm", variant: "ghost", icon: "download", onPress: () => loadBuilderFromFilter(t.id), children: "Load from filter" }),
+      n2 ? /* @__PURE__ */ jsx21(Button18, { size: "sm", variant: "ghost", icon: "delete", onPress: () => setBuilder(t.id, emptyGroup()), children: "Clear" }) : null
     ] })
   ] }) });
 }
@@ -9715,12 +9753,12 @@ function Library({ t }) {
   const sel = t.librarySelected;
   const selSaved = sel?.startsWith("s:") ? saved.find((s) => `s:${s.name}` === sel) : void 0;
   const selHistory = sel?.startsWith("h:") ? history[Number(sel.slice(2))] : void 0;
-  return /* @__PURE__ */ jsx20(Collapsible12, { title: "History and saved queries", description: `${saved.length} saved · ${history.length} recent`, children: /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx20(Input13, { label: "Save this query as", placeholder: "Name", value: t.saveName, onChange: (v) => change(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => saveQuery(t.id))() }),
-      /* @__PURE__ */ jsx20(Button18, { icon: "star", disabled: !t.saveName.trim(), onPress: guard(t.id, () => saveQuery(t.id)), children: "Save" })
+  return /* @__PURE__ */ jsx21(Collapsible12, { title: "History and saved queries", description: `${saved.length} saved · ${history.length} recent`, children: /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "end", children: [
+      /* @__PURE__ */ jsx21(Input13, { label: "Save this query as", placeholder: "Name", value: t.saveName, onChange: (v) => change(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => saveQuery(t.id))() }),
+      /* @__PURE__ */ jsx21(Button18, { icon: "star", disabled: !t.saveName.trim(), onPress: guard(t.id, () => saveQuery(t.id)), children: "Save" })
     ] }),
-    /* @__PURE__ */ jsx20(
+    /* @__PURE__ */ jsx21(
       Table14,
       {
         label: "Saved queries",
@@ -9740,7 +9778,7 @@ function Library({ t }) {
         }
       }
     ),
-    /* @__PURE__ */ jsx20(
+    /* @__PURE__ */ jsx21(
       Table14,
       {
         label: "Recent queries",
@@ -9760,10 +9798,10 @@ function Library({ t }) {
         }
       }
     ),
-    /* @__PURE__ */ jsxs19(Toolbar15, { label: "Query library actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx20(Button18, { size: "sm", icon: "play", disabled: !selSaved && !selHistory, onPress: guard(t.id, () => useQuery(t.id, (selSaved ?? selHistory).query)), children: "Run selected" }),
-      selSaved ? /* @__PURE__ */ jsx20(Button18, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard(t.id, () => deleteSaved(t.id, selSaved.name)), children: "Delete saved query" }) : null,
-      /* @__PURE__ */ jsx20(Button18, { size: "sm", icon: "remove", variant: "ghost", disabled: history.length === 0, onPress: guard(t.id, () => clearHistory(t.id)), children: "Clear history" })
+    /* @__PURE__ */ jsxs20(Toolbar15, { label: "Query library actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx21(Button18, { size: "sm", icon: "play", disabled: !selSaved && !selHistory, onPress: guard(t.id, () => useQuery(t.id, (selSaved ?? selHistory).query)), children: "Run selected" }),
+      selSaved ? /* @__PURE__ */ jsx21(Button18, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard(t.id, () => deleteSaved(t.id, selSaved.name)), children: "Delete saved query" }) : null,
+      /* @__PURE__ */ jsx21(Button18, { size: "sm", icon: "remove", variant: "ghost", disabled: history.length === 0, onPress: guard(t.id, () => clearHistory(t.id)), children: "Clear history" })
     ] })
   ] }) });
 }
@@ -9777,52 +9815,53 @@ function exportQuery(t) {
 }
 function Notice({ t }) {
   if (!t.notice) return null;
-  return /* @__PURE__ */ jsx20(Callout18, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : t.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs19(Row19, { justify: "between", align: "center", children: [
-    /* @__PURE__ */ jsx20(Text19, { children: t.notice.text }),
-    /* @__PURE__ */ jsx20(IconButton16, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(t.id, () => ({ notice: void 0 })) })
+  return /* @__PURE__ */ jsx21(Callout18, { tone: t.notice.tone, icon: t.notice.tone === "danger" ? "error" : t.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs20(Row20, { justify: "between", align: "center", children: [
+    /* @__PURE__ */ jsx21(Text20, { children: t.notice.text }),
+    /* @__PURE__ */ jsx21(IconButton16, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => change(t.id, () => ({ notice: void 0 })) })
   ] }) });
 }
 var KIND_LABEL = { view: "View · read only", timeseries: "Time-series" };
 function CollectionTab({ id }) {
-  const raw = read22(collTabs)[id];
+  const raw = read23(collTabs)[id];
   if (!raw) return null;
-  const t = !raw.readOnly && read22(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw;
+  const t = !raw.readOnly && read23(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw;
   if (t.focus) {
-    return /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
-      /* @__PURE__ */ jsx20(Notice, { t }),
-      /* @__PURE__ */ jsx20(DocumentView, { t }),
-      /* @__PURE__ */ jsx20(Editors, { t })
+    return /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
+      /* @__PURE__ */ jsx21(Notice, { t }),
+      /* @__PURE__ */ jsx21(DocumentView, { t }),
+      /* @__PURE__ */ jsx21(Editors, { t })
     ] });
   }
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsxs19(Box18, { gap: "none", grow: true, children: [
-        /* @__PURE__ */ jsx20(Text19, { weight: "semibold", truncate: true, children: nsLabel(t.ns) }),
-        KIND_LABEL[t.kind] ? /* @__PURE__ */ jsx20(Row19, { gap: "xs", children: /* @__PURE__ */ jsx20(Badge7, { tone: t.kind === "view" ? "warning" : "neutral", children: KIND_LABEL[t.kind] }) }) : null
+  return /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs20(Box18, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx21(Text20, { weight: "semibold", truncate: true, children: nsLabel(t.ns) }),
+        /* @__PURE__ */ jsx21(PlaceLine, { places: [{ connectionId: t.ns.connectionId, writes: t.kind !== "view" }] }),
+        KIND_LABEL[t.kind] ? /* @__PURE__ */ jsx21(Row20, { gap: "xs", children: /* @__PURE__ */ jsx21(Badge8, { tone: t.kind === "view" ? "warning" : "neutral", children: KIND_LABEL[t.kind] }) }) : null
       ] }),
-      /* @__PURE__ */ jsx20(IconButton16, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) })
+      /* @__PURE__ */ jsx21(IconButton16, { icon: "close", label: `Close ${t.title}`, variant: "ghost", size: "sm", onPress: () => closeTab(t.id) })
     ] }),
-    /* @__PURE__ */ jsx20(QueryBar, { t }),
-    /* @__PURE__ */ jsxs19(Toolbar15, { label: "Query actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx20(Button18, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: guard(t.id, () => runQuery(t.id)), children: t.loading ? "Running…" : "Run" }),
-      /* @__PURE__ */ jsx20(IconButton16, { icon: "refresh", label: "Reset the query", variant: "ghost", onPress: guard(t.id, () => resetQuery(t.id)) }),
-      /* @__PURE__ */ jsx20(IconButton16, { icon: "gauge", label: "Explain the query", variant: "ghost", onPress: guard(t.id, () => runExplain(t.id)) }),
-      /* @__PURE__ */ jsx20(IconButton16, { icon: "layers", label: "Open in the aggregation editor", variant: "ghost", onPress: guard(t.id, () => openAsAggregation(t)) }),
-      t.shell ? null : /* @__PURE__ */ jsx20(IconButton16, { icon: "settings", label: "Manage: indexes, validation, rename, drop", variant: "ghost", onPress: guard(t.id, () => openManage(t.ns, t.kind)) }),
-      t.shell ? null : /* @__PURE__ */ jsx20(IconButton16, { icon: "bar-chart-3", label: "Schema of this collection", variant: "ghost", onPress: guard(t.id, () => openSchema(t.ns, t.kind)) }),
-      !t.readOnly ? /* @__PURE__ */ jsx20(Button18, { icon: "add", variant: "ghost", onPress: () => insertDocument(t.id), children: "Insert document" }) : null,
-      t.shell ? null : /* @__PURE__ */ jsx20(IconButton16, { icon: "download", label: "Export this query: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportQuery(t)) }),
-      t.shell || t.readOnly ? null : /* @__PURE__ */ jsx20(IconButton16, { icon: "upload", label: "Import into this collection", variant: "ghost", onPress: () => openImport(t.ns) }),
-      t.shell ? null : /* @__PURE__ */ jsx20(IconButton16, { icon: "branch", label: "Compare with another collection", variant: "ghost", onPress: () => openCompare(t.ns, t.kind) })
+    /* @__PURE__ */ jsx21(QueryBar, { t }),
+    /* @__PURE__ */ jsxs20(Toolbar15, { label: "Query actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx21(Button18, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: guard(t.id, () => runQuery(t.id)), children: t.loading ? "Running…" : "Run" }),
+      /* @__PURE__ */ jsx21(IconButton16, { icon: "refresh", label: "Reset the query", variant: "ghost", onPress: guard(t.id, () => resetQuery(t.id)) }),
+      /* @__PURE__ */ jsx21(IconButton16, { icon: "gauge", label: "Explain the query", variant: "ghost", onPress: guard(t.id, () => runExplain(t.id)) }),
+      /* @__PURE__ */ jsx21(IconButton16, { icon: "layers", label: "Open in the aggregation editor", variant: "ghost", onPress: guard(t.id, () => openAsAggregation(t)) }),
+      t.shell ? null : /* @__PURE__ */ jsx21(IconButton16, { icon: "settings", label: "Manage: indexes, validation, rename, drop", variant: "ghost", onPress: guard(t.id, () => openManage(t.ns, t.kind)) }),
+      t.shell ? null : /* @__PURE__ */ jsx21(IconButton16, { icon: "bar-chart-3", label: "Schema of this collection", variant: "ghost", onPress: guard(t.id, () => openSchema(t.ns, t.kind)) }),
+      !t.readOnly ? /* @__PURE__ */ jsx21(Button18, { icon: "add", variant: "ghost", onPress: () => insertDocument(t.id), children: "Insert document" }) : null,
+      t.shell ? null : /* @__PURE__ */ jsx21(IconButton16, { icon: "download", label: "Export this query: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportQuery(t)) }),
+      t.shell || t.readOnly ? null : /* @__PURE__ */ jsx21(IconButton16, { icon: "upload", label: "Import into this collection", variant: "ghost", onPress: () => openImport(t.ns) }),
+      t.shell ? null : /* @__PURE__ */ jsx21(IconButton16, { icon: "branch", label: "Compare with another collection", variant: "ghost", onPress: () => openCompare(t.ns, t.kind) })
     ] }),
-    /* @__PURE__ */ jsx20(Builder, { t }),
-    /* @__PURE__ */ jsx20(Notice, { t }),
-    t.error ? /* @__PURE__ */ jsx20(Callout18, { tone: "danger", icon: "error", title: "The query failed", children: t.error }) : null,
-    /* @__PURE__ */ jsx20(Results2, { t }),
-    /* @__PURE__ */ jsx20(Editors, { t }),
-    /* @__PURE__ */ jsx20(ExplainSection, { t }),
-    /* @__PURE__ */ jsx20(Library, { t }),
-    /* @__PURE__ */ jsx20(CodeSection, { op: tabOperation(t), description: "The query in the bar as driver code." })
+    /* @__PURE__ */ jsx21(Builder, { t }),
+    /* @__PURE__ */ jsx21(Notice, { t }),
+    t.error ? /* @__PURE__ */ jsx21(Callout18, { tone: "danger", icon: "error", title: "The query failed", children: t.error }) : null,
+    /* @__PURE__ */ jsx21(Results2, { t }),
+    /* @__PURE__ */ jsx21(Editors, { t }),
+    /* @__PURE__ */ jsx21(ExplainSection, { t }),
+    /* @__PURE__ */ jsx21(Library, { t }),
+    /* @__PURE__ */ jsx21(CodeSection, { op: tabOperation(t), description: "The query in the bar as driver code." })
   ] });
 }
 
@@ -9841,24 +9880,24 @@ import {
   List,
   ListItem,
   RadioGroup as RadioGroup8,
-  read as read23,
-  Row as Row20,
+  read as read24,
+  Row as Row21,
   Select as Select14,
   set as set10,
   Switch as Switch5,
-  Text as Text20,
+  Text as Text21,
   Textarea as Textarea8
 } from "orca";
-import { jsx as jsx21, jsxs as jsxs20 } from "orca/jsx-runtime";
+import { jsx as jsx22, jsxs as jsxs21 } from "orca/jsx-runtime";
 var MECHANISM_ORDER = ["none", "DEFAULT", "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-X509", "PLAIN", "MONGODB-AWS", "MONGODB-OIDC", "GSSAPI"];
 var READ_PREFS = ["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"];
 function errorFor(field) {
-  const found = read23(formErrors).filter((e) => e.field === field || e.field.startsWith(`${field}.`));
+  const found = read24(formErrors).filter((e) => e.field === field || e.field.startsWith(`${field}.`));
   return found.length ? found.map((e) => e.message).join(" ") : void 0;
 }
 function textInput(label, value, onChange, extra = {}) {
   const error = extra.field ? errorFor(extra.field) : void 0;
-  return /* @__PURE__ */ jsx21(
+  return /* @__PURE__ */ jsx22(
     Input14,
     {
       label,
@@ -9871,7 +9910,7 @@ function textInput(label, value, onChange, extra = {}) {
 }
 function numberInput(label, value, onChange, placeholder, field) {
   const error = errorFor(field);
-  return /* @__PURE__ */ jsx21(
+  return /* @__PURE__ */ jsx22(
     Input14,
     {
       label,
@@ -9886,13 +9925,13 @@ function numberInput(label, value, onChange, placeholder, field) {
   );
 }
 function secretInput(key, label, optional = false) {
-  const draft = read23(formSecrets)[key];
-  const saved = read23(formFlags)[key] ?? false;
+  const draft = read24(formSecrets)[key];
+  const saved = read24(formFlags)[key] ?? false;
   const cleared = draft === null;
   const placeholder = cleared ? "Will be forgotten when you save" : saved ? "Saved. Type to replace it." : optional ? "Optional" : "";
-  return /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
-    /* @__PURE__ */ jsx21(Input14, { label, type: "password", value: typeof draft === "string" ? draft : "", placeholder, onChange: (v) => setSecret(key, v) }),
-    saved && !cleared ? /* @__PURE__ */ jsxs20(Button19, { size: "xs", variant: "ghost", icon: "remove", onPress: () => setSecret(key, null), children: [
+  return /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
+    /* @__PURE__ */ jsx22(Input14, { label, type: "password", value: typeof draft === "string" ? draft : "", placeholder, onChange: (v) => setSecret(key, v) }),
+    saved && !cleared ? /* @__PURE__ */ jsxs21(Button19, { size: "xs", variant: "ghost", icon: "remove", onPress: () => setSecret(key, null), children: [
       "Forget saved ",
       label.toLowerCase()
     ] }) : null
@@ -9900,15 +9939,15 @@ function secretInput(key, label, optional = false) {
 }
 function pemInput(label, source3, secret, onSource, field, allowNone = true) {
   const error = errorFor(field);
-  const draft = read23(formSecrets)[secret];
-  const saved = read23(formFlags)[secret] ?? false;
+  const draft = read24(formSecrets)[secret];
+  const saved = read24(formFlags)[secret] ?? false;
   const options4 = [
     ...allowNone ? [{ value: "none", label: "None" }] : [],
     { value: "path", label: "File on this computer" },
     { value: "inline", label: "Paste the PEM text" }
   ];
-  return /* @__PURE__ */ jsx21(Field3, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
-    /* @__PURE__ */ jsx21(
+  return /* @__PURE__ */ jsx22(Field3, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
+    /* @__PURE__ */ jsx22(
       Select14,
       {
         label: `${label} source`,
@@ -9918,8 +9957,8 @@ function pemInput(label, source3, secret, onSource, field, allowNone = true) {
         onChange: (v) => onSource(v === "path" ? { kind: "path", path: source3.kind === "path" ? source3.path : "" } : v === "inline" ? { kind: "inline" } : { kind: "none" })
       }
     ),
-    source3.kind === "path" ? /* @__PURE__ */ jsx21(Input14, { label: `${label} path`, labelHidden: true, value: source3.path, placeholder: "/path/to/file.pem", onChange: (path) => onSource({ kind: "path", path }) }) : null,
-    source3.kind === "inline" ? /* @__PURE__ */ jsx21(
+    source3.kind === "path" ? /* @__PURE__ */ jsx22(Input14, { label: `${label} path`, labelHidden: true, value: source3.path, placeholder: "/path/to/file.pem", onChange: (path) => onSource({ kind: "path", path }) }) : null,
+    source3.kind === "inline" ? /* @__PURE__ */ jsx22(
       Textarea8,
       {
         label: `${label} PEM`,
@@ -9945,8 +9984,8 @@ function parseHosts(text) {
 function serverSection(def) {
   const t = def.topology;
   const first = def.hosts[0] ?? { host: "" };
-  return /* @__PURE__ */ jsx21(Collapsible13, { title: "Server", description: `${TOPOLOGY_LABELS[t]} · ${def.hosts.map(hostLabel).join(", ")}`, defaultOpen: true, children: /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(
+  return /* @__PURE__ */ jsx22(Collapsible13, { title: "Server", description: `${TOPOLOGY_LABELS[t]} · ${def.hosts.map(hostLabel).join(", ")}`, defaultOpen: true, children: /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+    /* @__PURE__ */ jsx22(
       Select14,
       {
         label: "Type",
@@ -9960,12 +9999,12 @@ function serverSection(def) {
         })
       }
     ),
-    t === "standalone" ? /* @__PURE__ */ jsxs20(Row20, { gap: "sm", align: "start", children: [
-      /* @__PURE__ */ jsx21(Box19, { grow: true, children: textInput("Host", first.host, (host) => edit((d) => d.hosts = [{ ...first, host }]), { field: "hosts" }) }),
-      /* @__PURE__ */ jsx21(Box19, { width: 110, children: numberInput("Port", first.port ?? null, (port) => edit((d) => d.hosts = port === null ? [{ host: first.host }] : [{ host: first.host, port }]), String(DEFAULT_PORT), "hosts") })
-    ] }) : t === "srv" ? textInput("Cluster host name", first.host, (host) => edit((d) => d.hosts = [{ host: host.replace(/^mongodb\+srv:\/\//, "") }]), { placeholder: "cluster0.abcde.mongodb.net", field: "hosts" }) : /* @__PURE__ */ jsx21(Field3, { label: "Hosts", description: "One host:port per line.", ...errorFor("hosts") ? { error: errorFor("hosts") } : {}, children: /* @__PURE__ */ jsx21(Textarea8, { label: "Hosts", labelHidden: true, rows: 3, defaultValue: hostsText(def.hosts), onChange: (v) => edit((d) => d.hosts = parseHosts(v)) }) }),
+    t === "standalone" ? /* @__PURE__ */ jsxs21(Row21, { gap: "sm", align: "start", children: [
+      /* @__PURE__ */ jsx22(Box19, { grow: true, children: textInput("Host", first.host, (host) => edit((d) => d.hosts = [{ ...first, host }]), { field: "hosts" }) }),
+      /* @__PURE__ */ jsx22(Box19, { width: 110, children: numberInput("Port", first.port ?? null, (port) => edit((d) => d.hosts = port === null ? [{ host: first.host }] : [{ host: first.host, port }]), String(DEFAULT_PORT), "hosts") })
+    ] }) : t === "srv" ? textInput("Cluster host name", first.host, (host) => edit((d) => d.hosts = [{ host: host.replace(/^mongodb\+srv:\/\//, "") }]), { placeholder: "cluster0.abcde.mongodb.net", field: "hosts" }) : /* @__PURE__ */ jsx22(Field3, { label: "Hosts", description: "One host:port per line.", ...errorFor("hosts") ? { error: errorFor("hosts") } : {}, children: /* @__PURE__ */ jsx22(Textarea8, { label: "Hosts", labelHidden: true, rows: 3, defaultValue: hostsText(def.hosts), onChange: (v) => edit((d) => d.hosts = parseHosts(v)) }) }),
     t === "replicaSet" ? textInput("Replica set name", def.replicaSet, (v) => edit((d) => d.replicaSet = v), { placeholder: "rs0", field: "replicaSet" }) : null,
-    t === "standalone" ? /* @__PURE__ */ jsx21(
+    t === "standalone" ? /* @__PURE__ */ jsx22(
       Checkbox9,
       {
         label: "Direct connection",
@@ -9974,14 +10013,14 @@ function serverSection(def) {
         onChange: (v) => edit((d) => d.options.directConnection = v)
       }
     ) : null,
-    errorFor("topology") ? /* @__PURE__ */ jsx21(Text20, { tone: "danger", size: "sm", children: errorFor("topology") }) : null
+    errorFor("topology") ? /* @__PURE__ */ jsx22(Text21, { tone: "danger", size: "sm", children: errorFor("topology") }) : null
   ] }) });
 }
 function authSection(def) {
   const a = def.auth;
   const m = a.mechanism;
-  return /* @__PURE__ */ jsx21(Collapsible13, { title: "Authentication", description: AUTH_LABELS[m], defaultOpen: m !== "none", children: /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(
+  return /* @__PURE__ */ jsx22(Collapsible13, { title: "Authentication", description: AUTH_LABELS[m], defaultOpen: m !== "none", children: /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+    /* @__PURE__ */ jsx22(
       Select14,
       {
         label: "Method",
@@ -9990,21 +10029,21 @@ function authSection(def) {
         onChange: (v) => edit((d) => d.auth.mechanism = v)
       }
     ),
-    usesPassword(m) ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+    usesPassword(m) ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       textInput("User name", a.username, (v) => edit((d) => d.auth.username = v), { field: "auth.username" }),
       secretInput("password", "Password"),
       textInput("Authentication database", a.authSource, (v) => edit((d) => d.auth.authSource = v), { placeholder: effectiveAuthSource({ ...a, authSource: "" }, def.options.defaultDatabase) })
     ] }) : null,
-    m === "MONGODB-X509" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+    m === "MONGODB-X509" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       textInput("Certificate subject", a.username, (v) => edit((d) => d.auth.username = v), { placeholder: "Optional: read from the certificate" }),
-      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "sm", children: "Set the client certificate under TLS." })
+      /* @__PURE__ */ jsx22(Text21, { muted: true, size: "sm", children: "Set the client certificate under TLS." })
     ] }) : null,
-    m === "GSSAPI" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+    m === "GSSAPI" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       textInput("Principal", a.username, (v) => edit((d) => d.auth.username = v), { placeholder: "alice@EXAMPLE.COM", field: "auth.username" }),
-      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "sm", children: "Mongo Studio signs in with the Kerberos ticket on this computer. Run kinit first if you have none." }),
+      /* @__PURE__ */ jsx22(Text21, { muted: true, size: "sm", children: "Mongo Studio signs in with the Kerberos ticket on this computer. Run kinit first if you have none." }),
       textInput("Service name", a.gssapiServiceName, (v) => edit((d) => d.auth.gssapiServiceName = v), { placeholder: "mongodb" }),
       textInput("Service realm", a.gssapiServiceRealm, (v) => edit((d) => d.auth.gssapiServiceRealm = v), { placeholder: "The principal's realm" }),
-      /* @__PURE__ */ jsx21(
+      /* @__PURE__ */ jsx22(
         Select14,
         {
           label: "Canonicalize host name",
@@ -10018,8 +10057,8 @@ function authSection(def) {
         }
       )
     ] }) : null,
-    m === "MONGODB-AWS" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-      /* @__PURE__ */ jsx21(
+    m === "MONGODB-AWS" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+      /* @__PURE__ */ jsx22(
         RadioGroup8,
         {
           label: "Credentials",
@@ -10031,14 +10070,14 @@ function authSection(def) {
           onChange: (v) => edit((d) => d.auth.awsSource = v === "keys" ? "keys" : "environment")
         }
       ),
-      a.awsSource === "keys" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+      a.awsSource === "keys" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
         textInput("Access key ID", a.username, (v) => edit((d) => d.auth.username = v), { field: "auth.username" }),
         secretInput("awsSecretAccessKey", "Secret access key"),
         secretInput("awsSessionToken", "Session token", true)
       ] }) : null
     ] }) : null,
-    m === "MONGODB-OIDC" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-      /* @__PURE__ */ jsx21(
+    m === "MONGODB-OIDC" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+      /* @__PURE__ */ jsx22(
         Select14,
         {
           label: "Sign-in",
@@ -10052,10 +10091,10 @@ function authSection(def) {
           onChange: (v) => edit((d) => d.auth.oidcFlow = v)
         }
       ),
-      a.oidcFlow === "browser" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+      a.oidcFlow === "browser" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
         textInput("User name", a.username, (v) => edit((d) => d.auth.username = v), { placeholder: "Optional: fills in the sign-in page" }),
         numberInput("Redirect port", a.oidcRedirectPort, (v) => edit((d) => d.auth.oidcRedirectPort = v ?? 27097), "27097", "auth.oidcRedirectPort"),
-        /* @__PURE__ */ jsxs20(Text20, { muted: true, size: "sm", children: [
+        /* @__PURE__ */ jsxs21(Text21, { muted: true, size: "sm", children: [
           "Your identity provider must allow http://localhost:",
           a.oidcRedirectPort,
           "/redirect as a redirect URI."
@@ -10067,29 +10106,29 @@ function authSection(def) {
 }
 function tlsSection(def) {
   const tls = def.tls;
-  return /* @__PURE__ */ jsx21(Collapsible13, { title: "TLS", description: tls.enabled ? "On" : "Off", defaultOpen: tls.enabled, children: /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(Switch5, { label: "Use TLS", checked: tls.enabled, onChange: (v) => edit((d) => d.tls.enabled = v) }),
-    errorFor("tls.enabled") ? /* @__PURE__ */ jsx21(Text20, { tone: "danger", size: "sm", children: errorFor("tls.enabled") }) : null,
-    tls.enabled ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+  return /* @__PURE__ */ jsx22(Collapsible13, { title: "TLS", description: tls.enabled ? "On" : "Off", defaultOpen: tls.enabled, children: /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+    /* @__PURE__ */ jsx22(Switch5, { label: "Use TLS", checked: tls.enabled, onChange: (v) => edit((d) => d.tls.enabled = v) }),
+    errorFor("tls.enabled") ? /* @__PURE__ */ jsx22(Text21, { tone: "danger", size: "sm", children: errorFor("tls.enabled") }) : null,
+    tls.enabled ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       pemInput("CA certificate", tls.ca, "tlsCaPem", (s) => edit((d) => d.tls.ca = s), "tls.ca"),
       pemInput("Client certificate and key", tls.clientCert, "tlsCertPem", (s) => edit((d) => d.tls.clientCert = s), "tls.clientCert"),
       tls.clientCert.kind !== "none" ? secretInput("tlsKeyPassword", "Key password", true) : null,
-      /* @__PURE__ */ jsx21(Checkbox9, { label: "Allow invalid host names", description: "Accept a certificate issued for another name.", checked: tls.allowInvalidHostnames, onChange: (v) => edit((d) => d.tls.allowInvalidHostnames = v) }),
-      /* @__PURE__ */ jsx21(Checkbox9, { label: "Allow invalid certificates", description: "Skip certificate checks. Only for local testing.", checked: tls.allowInvalidCertificates, onChange: (v) => edit((d) => d.tls.allowInvalidCertificates = v) })
+      /* @__PURE__ */ jsx22(Checkbox9, { label: "Allow invalid host names", description: "Accept a certificate issued for another name.", checked: tls.allowInvalidHostnames, onChange: (v) => edit((d) => d.tls.allowInvalidHostnames = v) }),
+      /* @__PURE__ */ jsx22(Checkbox9, { label: "Allow invalid certificates", description: "Skip certificate checks. Only for local testing.", checked: tls.allowInvalidCertificates, onChange: (v) => edit((d) => d.tls.allowInvalidCertificates = v) })
     ] }) : null
   ] }) });
 }
 function sshSection(def) {
   const s = def.ssh;
-  return /* @__PURE__ */ jsx21(Collapsible13, { title: "SSH tunnel", description: s.enabled ? `${s.username}@${s.host}` : "None", defaultOpen: s.enabled, children: /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(Switch5, { label: "Connect through an SSH server", checked: s.enabled, onChange: (v) => edit((d) => d.ssh.enabled = v) }),
-    s.enabled ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-      /* @__PURE__ */ jsxs20(Row20, { gap: "sm", align: "start", children: [
-        /* @__PURE__ */ jsx21(Box19, { grow: true, children: textInput("SSH host", s.host, (v) => edit((d) => d.ssh.host = v), { placeholder: "bastion.example.com", field: "ssh.host" }) }),
-        /* @__PURE__ */ jsx21(Box19, { width: 90, children: numberInput("Port", s.port, (v) => edit((d) => d.ssh.port = v ?? 22), "22", "ssh.port") })
+  return /* @__PURE__ */ jsx22(Collapsible13, { title: "SSH tunnel", description: s.enabled ? `${s.username}@${s.host}` : "None", defaultOpen: s.enabled, children: /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+    /* @__PURE__ */ jsx22(Switch5, { label: "Connect through an SSH server", checked: s.enabled, onChange: (v) => edit((d) => d.ssh.enabled = v) }),
+    s.enabled ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+      /* @__PURE__ */ jsxs21(Row21, { gap: "sm", align: "start", children: [
+        /* @__PURE__ */ jsx22(Box19, { grow: true, children: textInput("SSH host", s.host, (v) => edit((d) => d.ssh.host = v), { placeholder: "bastion.example.com", field: "ssh.host" }) }),
+        /* @__PURE__ */ jsx22(Box19, { width: 90, children: numberInput("Port", s.port, (v) => edit((d) => d.ssh.port = v ?? 22), "22", "ssh.port") })
       ] }),
       textInput("SSH user name", s.username, (v) => edit((d) => d.ssh.username = v), { field: "ssh.username" }),
-      /* @__PURE__ */ jsx21(
+      /* @__PURE__ */ jsx22(
         RadioGroup8,
         {
           label: "Sign in with",
@@ -10099,85 +10138,85 @@ function sshSection(def) {
           onChange: (v) => edit((d) => d.ssh.method = v === "privateKey" ? "privateKey" : "password")
         }
       ),
-      s.method === "password" ? secretInput("sshPassword", "SSH password") : /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+      s.method === "password" ? secretInput("sshPassword", "SSH password") : /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
         pemInput("Private key", s.privateKey, "sshPrivateKey", (k) => edit((d) => d.ssh.privateKey = k), "ssh.privateKey", false),
         secretInput("sshPassphrase", "Key passphrase", true)
       ] }),
-      s.knownHostKey ? /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
-        /* @__PURE__ */ jsx21(KeyValue10, { label: "SSH server", items: [{ label: "Trusted host key", value: `SHA256 ${s.knownHostKey.slice(0, 16)}…`, code: true }] }),
-        /* @__PURE__ */ jsx21(Button19, { size: "xs", variant: "ghost", icon: "remove", onPress: () => def.id && !read23(formIsNew) ? void forgetHostKey(def.id) : edit((d) => d.ssh.knownHostKey = ""), children: "Forget the trusted host key" })
-      ] }) : /* @__PURE__ */ jsx21(Text20, { muted: true, size: "sm", children: "The server's host key is trusted the first time you connect, and checked every time after." }),
-      def.hosts.length > 1 || def.topology === "srv" ? /* @__PURE__ */ jsx21(Callout19, { tone: "warning", icon: "info", children: "Through SSH, Mongo Studio connects to the first database host only." }) : null
+      s.knownHostKey ? /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
+        /* @__PURE__ */ jsx22(KeyValue10, { label: "SSH server", items: [{ label: "Trusted host key", value: `SHA256 ${s.knownHostKey.slice(0, 16)}…`, code: true }] }),
+        /* @__PURE__ */ jsx22(Button19, { size: "xs", variant: "ghost", icon: "remove", onPress: () => def.id && !read24(formIsNew) ? void forgetHostKey(def.id) : edit((d) => d.ssh.knownHostKey = ""), children: "Forget the trusted host key" })
+      ] }) : /* @__PURE__ */ jsx22(Text21, { muted: true, size: "sm", children: "The server's host key is trusted the first time you connect, and checked every time after." }),
+      def.hosts.length > 1 || def.topology === "srv" ? /* @__PURE__ */ jsx22(Callout19, { tone: "warning", icon: "info", children: "Through SSH, Mongo Studio connects to the first database host only." }) : null
     ] }) : null
   ] }) });
 }
 function advancedSection(def) {
   const o = def.options;
-  return /* @__PURE__ */ jsx21(Collapsible13, { title: "Advanced", description: `Read preference: ${o.readPreference}`, children: /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(Select14, { label: "Read preference", value: o.readPreference, options: READ_PREFS.map((r) => ({ value: r, label: r })), onChange: (v) => edit((d) => d.options.readPreference = v) }),
+  return /* @__PURE__ */ jsx22(Collapsible13, { title: "Advanced", description: `Read preference: ${o.readPreference}`, children: /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+    /* @__PURE__ */ jsx22(Select14, { label: "Read preference", value: o.readPreference, options: READ_PREFS.map((r) => ({ value: r, label: r })), onChange: (v) => edit((d) => d.options.readPreference = v) }),
     textInput("Default database", o.defaultDatabase, (v) => edit((d) => d.options.defaultDatabase = v), { placeholder: "None" }),
     textInput("App name", o.appName, (v) => edit((d) => d.options.appName = v), { placeholder: "Shown in the server logs and currentOp" }),
-    /* @__PURE__ */ jsxs20(Row20, { gap: "sm", wrap: true, children: [
-      /* @__PURE__ */ jsx21(Box19, { minWidth: 120, grow: true, children: numberInput("Connect timeout (ms)", o.connectTimeoutMS, (v) => edit((d) => d.options.connectTimeoutMS = v), "30000", "options.connectTimeoutMS") }),
-      /* @__PURE__ */ jsx21(Box19, { minWidth: 120, grow: true, children: numberInput("Server selection (ms)", o.serverSelectionTimeoutMS, (v) => edit((d) => d.options.serverSelectionTimeoutMS = v), "10000", "options.serverSelectionTimeoutMS") }),
-      /* @__PURE__ */ jsx21(Box19, { minWidth: 120, grow: true, children: numberInput("Socket timeout (ms)", o.socketTimeoutMS, (v) => edit((d) => d.options.socketTimeoutMS = v), "none", "options.socketTimeoutMS") })
+    /* @__PURE__ */ jsxs21(Row21, { gap: "sm", wrap: true, children: [
+      /* @__PURE__ */ jsx22(Box19, { minWidth: 120, grow: true, children: numberInput("Connect timeout (ms)", o.connectTimeoutMS, (v) => edit((d) => d.options.connectTimeoutMS = v), "30000", "options.connectTimeoutMS") }),
+      /* @__PURE__ */ jsx22(Box19, { minWidth: 120, grow: true, children: numberInput("Server selection (ms)", o.serverSelectionTimeoutMS, (v) => edit((d) => d.options.serverSelectionTimeoutMS = v), "10000", "options.serverSelectionTimeoutMS") }),
+      /* @__PURE__ */ jsx22(Box19, { minWidth: 120, grow: true, children: numberInput("Socket timeout (ms)", o.socketTimeoutMS, (v) => edit((d) => d.options.socketTimeoutMS = v), "none", "options.socketTimeoutMS") })
     ] }),
     textInput("More options", o.extra, (v) => edit((d) => d.options.extra = v), { placeholder: "w=majority&retryWrites=false" })
   ] }) });
 }
 var STEP_ICON = { ok: "check", warning: "warning", failed: "error", skipped: "remove" };
 function testResult() {
-  if (read23(testing)) {
-    return /* @__PURE__ */ jsx21(Callout19, { tone: "neutral", icon: "activity", children: "Testing… DNS, network, TLS and sign-in are checked in turn." });
+  if (read24(testing)) {
+    return /* @__PURE__ */ jsx22(Callout19, { tone: "neutral", icon: "activity", children: "Testing… DNS, network, TLS and sign-in are checked in turn." });
   }
-  const report = read23(testReport);
+  const report = read24(testReport);
   if (!report) return null;
   const failed = report.steps.find((s) => s.status === "failed");
   const warned = report.steps.some((s) => s.status === "warning");
   const tone = failed ? "danger" : warned ? "warning" : "success";
   const title = failed ? `Failed at "${failed.title}"` : warned ? "Connected, with warnings" : "Connected";
-  return /* @__PURE__ */ jsx21(Callout19, { tone, icon: failed ? "error" : warned ? "warning" : "check", title, children: /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
-    report.server ? /* @__PURE__ */ jsxs20(Text20, { size: "sm", children: [
+  return /* @__PURE__ */ jsx22(Callout19, { tone, icon: failed ? "error" : warned ? "warning" : "check", title, children: /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
+    report.server ? /* @__PURE__ */ jsxs21(Text21, { size: "sm", children: [
       "MongoDB ",
       report.server.version,
       ", ",
       report.server.topology,
       "."
     ] }) : null,
-    /* @__PURE__ */ jsx21(List, { label: "Test steps", children: report.steps.map((s) => /* @__PURE__ */ jsx21(ListItem, { icon: STEP_ICON[s.status], title: `${s.title}${s.status === "skipped" ? "" : ` · ${s.ms} ms`}`, description: s.hint ? `${s.detail} ${s.hint}` : s.detail }, s.id)) })
+    /* @__PURE__ */ jsx22(List, { label: "Test steps", children: report.steps.map((s) => /* @__PURE__ */ jsx22(ListItem, { icon: STEP_ICON[s.status], title: `${s.title}${s.status === "skipped" ? "" : ` · ${s.ms} ms`}`, description: s.hint ? `${s.detail} ${s.hint}` : s.detail }, s.id)) })
   ] }) });
 }
 function groupField(def) {
-  const groups = read23(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name);
+  const groups = read24(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name);
   const { names, hidden, filtered } = suggestGroups(groups, def.group);
   const label = filtered ? "Matching groups:" : def.group.trim() ? "Other groups:" : "Existing groups:";
-  return /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
+  return /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
     textInput("Group", def.group, (v) => editMeta((d) => d.group = v), { placeholder: "Optional, e.g. Clients or Staging" }),
-    names.length ? /* @__PURE__ */ jsxs20(Row20, { gap: "xs", align: "center", wrap: true, children: [
-      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: label }),
-      names.map((g) => /* @__PURE__ */ jsx21(Button19, { size: "xs", variant: "outline", icon: "folder", tooltip: `Put this connection in ${g}`, onPress: () => editMeta((d) => d.group = g), children: g }, g)),
-      hidden ? /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: `and ${hidden} more; type to narrow them down` }) : null
+    names.length ? /* @__PURE__ */ jsxs21(Row21, { gap: "xs", align: "center", wrap: true, children: [
+      /* @__PURE__ */ jsx22(Text21, { muted: true, size: "xs", children: label }),
+      names.map((g) => /* @__PURE__ */ jsx22(Button19, { size: "xs", variant: "outline", icon: "folder", tooltip: `Put this connection in ${g}`, onPress: () => editMeta((d) => d.group = g), children: g }, g)),
+      hidden ? /* @__PURE__ */ jsx22(Text21, { muted: true, size: "xs", children: `and ${hidden} more; type to narrow them down` }) : null
     ] }) : null
   ] });
 }
 function ConnectionForm() {
-  const def = read23(formDef);
+  const def = read24(formDef);
   if (!def) return null;
-  const mode = read23(formMode);
-  const problem = read23(uriProblem);
-  const errors = read23(formErrors);
-  const flags = read23(formFlags);
-  const hasPassword = flags.password === true || typeof read23(formSecrets).password === "string";
-  return /* @__PURE__ */ jsxs20(Box19, { gap: "md", children: [
-    /* @__PURE__ */ jsx21(Heading, { level: 2, children: read23(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
-    /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+  const mode = read24(formMode);
+  const problem = read24(uriProblem);
+  const errors = read24(formErrors);
+  const flags = read24(formFlags);
+  const hasPassword = flags.password === true || typeof read24(formSecrets).password === "string";
+  return /* @__PURE__ */ jsxs21(Box19, { gap: "md", children: [
+    /* @__PURE__ */ jsx22(Heading, { level: 2, children: read24(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
+    /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       textInput("Name", def.name, (v) => editMeta((d) => d.name = v), { placeholder: "Production cluster", field: "name" }),
       groupField(def),
-      /* @__PURE__ */ jsxs20(Box19, { gap: "none", children: [
-        /* @__PURE__ */ jsx21(Switch5, { label: "Read only", checked: def.readOnly, onChange: (v) => editMeta((d) => d.readOnly = v) }),
-        /* @__PURE__ */ jsx21(Text20, { muted: true, size: "xs", children: "Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work." })
+      /* @__PURE__ */ jsxs21(Box19, { gap: "none", children: [
+        /* @__PURE__ */ jsx22(Switch5, { label: "Read only", checked: def.readOnly, onChange: (v) => editMeta((d) => d.readOnly = v) }),
+        /* @__PURE__ */ jsx22(Text21, { muted: true, size: "xs", children: "Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work." })
       ] }),
-      /* @__PURE__ */ jsx21(
+      /* @__PURE__ */ jsx22(
         RadioGroup8,
         {
           label: "Edit as",
@@ -10188,30 +10227,30 @@ function ConnectionForm() {
         }
       )
     ] }),
-    mode === "uri" ? /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
-      /* @__PURE__ */ jsx21(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx21(Textarea8, { label: "Connection string", labelHidden: true, rows: 4, value: read23(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
-      problem.warnings.map((w) => /* @__PURE__ */ jsx21(Text20, { tone: "warning", size: "sm", children: w }, w)),
-      /* @__PURE__ */ jsx21(Text20, { muted: true, size: "sm", children: "Set the SSH tunnel, pasted certificates and AWS keys in Form mode." })
-    ] }) : /* @__PURE__ */ jsxs20(Box19, { gap: "xs", children: [
+    mode === "uri" ? /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
+      /* @__PURE__ */ jsx22(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx22(Textarea8, { label: "Connection string", labelHidden: true, rows: 4, value: read24(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
+      problem.warnings.map((w) => /* @__PURE__ */ jsx22(Text21, { tone: "warning", size: "sm", children: w }, w)),
+      /* @__PURE__ */ jsx22(Text21, { muted: true, size: "sm", children: "Set the SSH tunnel, pasted certificates and AWS keys in Form mode." })
+    ] }) : /* @__PURE__ */ jsxs21(Box19, { gap: "xs", children: [
       serverSection(def),
       authSection(def),
       tlsSection(def),
       sshSection(def),
       advancedSection(def)
     ] }),
-    mode === "form" ? /* @__PURE__ */ jsx21(CodeView14, { label: "Connection string", code: buildConnectionString(def, hasPassword ? { maskPassword: true } : {}), language: "text", wrap: true }) : null,
-    errors.length ? /* @__PURE__ */ jsx21(Callout19, { tone: "danger", icon: "error", title: "Fix these to save", children: /* @__PURE__ */ jsx21(Box19, { gap: "xs", children: errors.map((e) => /* @__PURE__ */ jsx21(Text20, { size: "sm", children: e.message }, `${e.field}:${e.message}`)) }) }) : null,
+    mode === "form" ? /* @__PURE__ */ jsx22(CodeView14, { label: "Connection string", code: buildConnectionString(def, hasPassword ? { maskPassword: true } : {}), language: "text", wrap: true }) : null,
+    errors.length ? /* @__PURE__ */ jsx22(Callout19, { tone: "danger", icon: "error", title: "Fix these to save", children: /* @__PURE__ */ jsx22(Box19, { gap: "xs", children: errors.map((e) => /* @__PURE__ */ jsx22(Text21, { size: "sm", children: e.message }, `${e.field}:${e.message}`)) }) }) : null,
     testResult(),
-    /* @__PURE__ */ jsxs20(Row20, { gap: "xs", wrap: true, children: [
-      /* @__PURE__ */ jsx21(Button19, { icon: "play", disabled: read23(testing), onPress: runTest, children: read23(testing) ? "Testing…" : "Test connection" }),
-      /* @__PURE__ */ jsx21(Button19, { variant: "solid", tone: "accent", icon: "check", disabled: read23(saving), onPress: saveForm, children: "Save" }),
-      /* @__PURE__ */ jsx21(Button19, { variant: "ghost", onPress: closeForm, children: "Cancel" })
+    /* @__PURE__ */ jsxs21(Row21, { gap: "xs", wrap: true, children: [
+      /* @__PURE__ */ jsx22(Button19, { icon: "play", disabled: read24(testing), onPress: runTest, children: read24(testing) ? "Testing…" : "Test connection" }),
+      /* @__PURE__ */ jsx22(Button19, { variant: "solid", tone: "accent", icon: "check", disabled: read24(saving), onPress: saveForm, children: "Save" }),
+      /* @__PURE__ */ jsx22(Button19, { variant: "ghost", onPress: closeForm, children: "Cancel" })
     ] })
   ] });
 }
 
 // src/panel/layout-state.ts
-import { atom as atom8, plugin as plugin17, read as read24, set as set11, update as update9 } from "orca";
+import { atom as atom8, plugin as plugin17, read as read25, set as set11, update as update9 } from "orca";
 var EMPTY = { view: "tree", order: [], tabs: [], expanded: [], selected: null, open: [] };
 var layout = atom8("mongo-studio.layout", EMPTY, { persist: "workspace", version: 1 });
 var restored = false;
@@ -10264,17 +10303,17 @@ function saveAdmin(t) {
   }
 }
 function currentLayout() {
-  const colls = read24(collTabs);
-  const admins = read24(adminTabs);
+  const colls = read25(collTabs);
+  const admins = read25(adminTabs);
   const tabs = [];
-  for (const id of read24(tabOrder)) {
+  for (const id of read25(tabOrder)) {
     const c = colls[id];
     const a = admins[id];
     const saved = c ? saveColl(c) : a ? saveAdmin(a) : void 0;
     if (saved) tabs.push(saved);
   }
-  const open = read24(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? [];
-  return { view: read24(view), order: tabs.map((t) => t.id), tabs, expanded: read24(expanded), selected: read24(selected), open };
+  const open = read25(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? [];
+  return { view: read25(view), order: tabs.map((t) => t.id), tabs, expanded: read25(expanded), selected: read25(selected), open };
 }
 function scheduleLayoutSave() {
   if (!restored) return;
@@ -10282,7 +10321,7 @@ function scheduleLayoutSave() {
   timer = setTimeout(() => {
     timer = void 0;
     const next = currentLayout();
-    if (JSON.stringify(next) !== JSON.stringify(read24(layout))) set11(layout, next);
+    if (JSON.stringify(next) !== JSON.stringify(read25(layout))) set11(layout, next);
   }, 300);
 }
 function connectionOfKey(key) {
@@ -10366,7 +10405,7 @@ async function resume(ids) {
         await plugin17.request("tree.children", { key: `conn:${encodeURIComponent(id)}` }, { timeoutMs: 6e4 });
         opened.add(id);
       } catch (error) {
-        const name = read24(connections)?.connections.find((c) => c.id === id)?.name ?? id;
+        const name = read25(connections)?.connections.find((c) => c.id === id)?.name ?? id;
         failed.push(`${name}: ${errorText(error)}`);
       }
     })
@@ -10376,22 +10415,22 @@ async function resume(ids) {
   return opened;
 }
 async function restoreLayout() {
-  const saved = read24(layout);
+  const saved = read25(layout);
   const pending = [];
   try {
-    const before = read24(connections)?.connections ?? [];
+    const before = read25(connections)?.connections ?? [];
     const known = new Set(before.map((c) => c.id));
     const open = new Set(before.filter((c) => c.connected).map((c) => c.id));
     const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable));
     for (const id of await resume(again)) open.add(id);
-    const existing = new Set(read24(tabOrder));
+    const existing = new Set(read25(tabOrder));
     for (const t of saved.tabs) {
       const conn = connectionOf(t);
       if (!known.has(conn) || existing.has(t.id)) continue;
       if (t.type === "query" || t.type === "pipeline" || t.type === "document") pending.push(restoreColl(t, open.has(conn)));
       else if (open.has(conn)) pending.push(restoreAdmin(t));
     }
-    const order = read24(tabOrder);
+    const order = read25(tabOrder);
     const rank = new Map(saved.order.map((id, i) => [id, i]));
     set11(tabOrder, [...order].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)));
     set11(view, saved.view === "tree" || order.includes(saved.view) ? saved.view : "tree");
@@ -10418,62 +10457,62 @@ function resetLayoutRun() {
 }
 
 // src/panel/transfer-view.tsx
-import { Box as Box20, Button as Button20, Callout as Callout20, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read25, Row as Row21, set as set12, Text as Text21, Textarea as Textarea9 } from "orca";
-import { jsx as jsx22, jsxs as jsxs21 } from "orca/jsx-runtime";
+import { Box as Box20, Button as Button20, Callout as Callout20, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read26, Row as Row22, set as set12, Text as Text22, Textarea as Textarea9 } from "orca";
+import { jsx as jsx23, jsxs as jsxs22 } from "orca/jsx-runtime";
 function importSection() {
-  const result = read25(importResult);
-  return /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
-    /* @__PURE__ */ jsx22(Heading2, { level: 3, children: "Import" }),
-    /* @__PURE__ */ jsx22(
+  const result = read26(importResult);
+  return /* @__PURE__ */ jsxs22(Box20, { gap: "sm", children: [
+    /* @__PURE__ */ jsx23(Heading2, { level: 3, children: "Import" }),
+    /* @__PURE__ */ jsx23(
       Textarea9,
       {
         label: "Connection strings or an export file's JSON",
         rows: 6,
-        value: read25(importText),
+        value: read26(importText),
         placeholder: "mongodb://alice@db1.example.com:27017/?authSource=admin\nmongodb+srv://cluster0.abcde.mongodb.net",
         onChange: (v) => set12(importText, v),
         onSubmit: () => void runImport()
       }
     ),
-    /* @__PURE__ */ jsx22(Text21, { muted: true, size: "sm", children: "One connection string per line, or the JSON of a Mongo Studio or MongoDB Compass export. Passwords in connection strings are saved encrypted." }),
-    /* @__PURE__ */ jsx22(Row21, { gap: "xs", children: /* @__PURE__ */ jsx22(Button20, { variant: "solid", tone: "accent", icon: "upload", disabled: !read25(importText).trim(), onPress: runImport, children: "Import" }) }),
-    result ? /* @__PURE__ */ jsx22(Callout20, { tone: result.errors.length ? result.imported.length ? "warning" : "danger" : "success", icon: result.errors.length ? "warning" : "check", title: `Imported ${result.imported.length} connection${result.imported.length === 1 ? "" : "s"}`, children: /* @__PURE__ */ jsxs21(Box20, { gap: "xs", children: [
-      result.tasks?.length ? /* @__PURE__ */ jsx22(Text21, { size: "sm", children: `With ${result.tasks.length} saved task${result.tasks.length === 1 ? "" : "s"}: ${result.tasks.join(", ")}.` }) : null,
-      result.imported.flatMap((i) => i.warnings.map((w) => /* @__PURE__ */ jsxs21(Text21, { size: "sm", children: [
+    /* @__PURE__ */ jsx23(Text22, { muted: true, size: "sm", children: "One connection string per line, or the JSON of a Mongo Studio or MongoDB Compass export. Passwords in connection strings are saved encrypted." }),
+    /* @__PURE__ */ jsx23(Row22, { gap: "xs", children: /* @__PURE__ */ jsx23(Button20, { variant: "solid", tone: "accent", icon: "upload", disabled: !read26(importText).trim(), onPress: runImport, children: "Import" }) }),
+    result ? /* @__PURE__ */ jsx23(Callout20, { tone: result.errors.length ? result.imported.length ? "warning" : "danger" : "success", icon: result.errors.length ? "warning" : "check", title: `Imported ${result.imported.length} connection${result.imported.length === 1 ? "" : "s"}`, children: /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
+      result.tasks?.length ? /* @__PURE__ */ jsx23(Text22, { size: "sm", children: `With ${result.tasks.length} saved task${result.tasks.length === 1 ? "" : "s"}: ${result.tasks.join(", ")}.` }) : null,
+      result.imported.flatMap((i) => i.warnings.map((w) => /* @__PURE__ */ jsxs22(Text22, { size: "sm", children: [
         i.name,
         ": ",
         w
       ] }, `${i.id}:${w}`))),
-      result.errors.map((e) => /* @__PURE__ */ jsx22(Text21, { size: "sm", tone: "danger", children: e }, e))
+      result.errors.map((e) => /* @__PURE__ */ jsx23(Text22, { size: "sm", tone: "danger", children: e }, e))
     ] }) }) : null
   ] });
 }
 function exportSection() {
-  const state = read25(connections);
+  const state = read26(connections);
   const all = state?.connections ?? [];
-  const chosen = read25(exportSelection) ?? all.map((c) => c.id);
-  const prepared = read25(exportJson);
+  const chosen = read26(exportSelection) ?? all.map((c) => c.id);
+  const prepared = read26(exportJson);
   const toggle = (id, on) => {
     set12(exportSelection, on ? [.../* @__PURE__ */ new Set([...chosen, id])] : chosen.filter((x) => x !== id));
     void refreshExport();
   };
-  return /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
-    /* @__PURE__ */ jsx22(Heading2, { level: 3, children: "Export" }),
-    all.length === 0 ? /* @__PURE__ */ jsx22(Text21, { muted: true, children: "There are no connections to export yet." }) : /* @__PURE__ */ jsx22(Box20, { gap: "xs", children: all.map((c) => /* @__PURE__ */ jsx22(Checkbox10, { label: c.name, description: c.group ? `${c.group} · ${c.subtitle}` : c.subtitle, checked: chosen.includes(c.id), onChange: (on) => toggle(c.id, on) }, c.id)) }),
-    all.length ? /* @__PURE__ */ jsx22(
+  return /* @__PURE__ */ jsxs22(Box20, { gap: "sm", children: [
+    /* @__PURE__ */ jsx23(Heading2, { level: 3, children: "Export" }),
+    all.length === 0 ? /* @__PURE__ */ jsx23(Text22, { muted: true, children: "There are no connections to export yet." }) : /* @__PURE__ */ jsx23(Box20, { gap: "xs", children: all.map((c) => /* @__PURE__ */ jsx23(Checkbox10, { label: c.name, description: c.group ? `${c.group} · ${c.subtitle}` : c.subtitle, checked: chosen.includes(c.id), onChange: (on) => toggle(c.id, on) }, c.id)) }),
+    all.length ? /* @__PURE__ */ jsx23(
       Checkbox10,
       {
         label: "Include saved tasks",
-        description: `Tasks that use only the chosen connections${prepared && read25(exportTasks) ? ` (${prepared.tasks})` : ""}. They name connections by name, so they find them on another machine.`,
-        checked: read25(exportTasks),
+        description: `Tasks that use only the chosen connections${prepared && read26(exportTasks) ? ` (${prepared.tasks})` : ""}. They name connections by name, so they find them on another machine.`,
+        checked: read26(exportTasks),
         onChange: (on) => {
           set12(exportTasks, on);
           void refreshExport();
         }
       }
     ) : null,
-    /* @__PURE__ */ jsx22(Callout20, { tone: "neutral", icon: "info", children: "Passwords, keys and pasted certificates are never exported. Whoever imports the file enters them again." }),
-    /* @__PURE__ */ jsx22(Row21, { gap: "xs", children: /* @__PURE__ */ jsx22(
+    /* @__PURE__ */ jsx23(Callout20, { tone: "neutral", icon: "info", children: "Passwords, keys and pasted certificates are never exported. Whoever imports the file enters them again." }),
+    /* @__PURE__ */ jsx23(Row22, { gap: "xs", children: /* @__PURE__ */ jsx23(
       Button20,
       {
         variant: "solid",
@@ -10490,10 +10529,10 @@ function exportSection() {
   ] });
 }
 function TransferView() {
-  return /* @__PURE__ */ jsxs21(Box20, { gap: "lg", children: [
+  return /* @__PURE__ */ jsxs22(Box20, { gap: "lg", children: [
     importSection(),
     exportSection(),
-    /* @__PURE__ */ jsx22(Row21, { children: /* @__PURE__ */ jsx22(Button20, { variant: "ghost", onPress: () => set12(view, "tree"), children: "Back to connections" }) })
+    /* @__PURE__ */ jsx23(Row22, { children: /* @__PURE__ */ jsx23(Button20, { variant: "ghost", onPress: () => set12(view, "tree"), children: "Back to connections" }) })
   ] });
 }
 
@@ -10508,16 +10547,16 @@ import {
   Input as Input15,
   KeyValue as KeyValue11,
   Link,
-  read as read26,
-  Row as Row22,
+  read as read27,
+  Row as Row23,
   set as set13,
   Skeleton as Skeleton13,
-  Text as Text22,
+  Text as Text23,
   Toolbar as Toolbar16,
   Tree as Tree5,
   update as update10
 } from "orca";
-import { jsx as jsx23, jsxs as jsxs22 } from "orca/jsx-runtime";
+import { jsx as jsx24, jsxs as jsxs23 } from "orca/jsx-runtime";
 var ICONS = {
   group: "folder",
   conn: "database",
@@ -10539,7 +10578,7 @@ function nodeItem(node2) {
   if (node2.description) item.description = node2.description;
   if (node2.disabled) item.disabled = true;
   if (node2.hasChildren) {
-    const loaded = read26(children)[node2.key];
+    const loaded = read27(children)[node2.key];
     if (loaded?.status === "ok") item.children = loaded.nodes.map(nodeItem);
     else if (loaded?.status === "error") item.children = [errorItem(node2.key, loaded.message)];
     else item.hasChildren = true;
@@ -10571,7 +10610,7 @@ function filterItems(items, text) {
   return out;
 }
 function treeItems2() {
-  const state = read26(connections);
+  const state = read27(connections);
   if (!state) return [];
   const items = [];
   if (state.favourites.length) {
@@ -10585,13 +10624,13 @@ function treeItems2() {
   }
   const byId = new Map(state.connections.map((c) => [c.id, c]));
   const grouped = /* @__PURE__ */ new Set();
-  for (const g of read26(savedGroups)) {
+  for (const g of read27(savedGroups)) {
     const members = g.ids.map((id) => byId.get(id)).filter((c) => Boolean(c));
     for (const id of g.ids) grouped.add(id);
     items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
   }
   items.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
-  return filterItems(items, read26(filter).trim());
+  return filterItems(items, read27(filter).trim());
 }
 function connectionIdOf(key) {
   const m = /^conn:([^/]+)/.exec(key);
@@ -10607,53 +10646,53 @@ function act(run) {
   };
 }
 function pasteButton(at) {
-  const clip2 = read26(clipboard);
+  const clip2 = read27(clipboard);
   if (!clip2) return null;
   const fits2 = at.collection !== void 0 ? clip2.kind !== "database" : at.db !== void 0 ? true : clip2.kind === "database";
   if (!fits2) return null;
-  return /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "copy", variant: "ghost", tone: "accent", onPress: act(async () => paste(clip2, at)), children: "Paste" });
+  return /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "copy", variant: "ghost", tone: "accent", onPress: act(async () => paste(clip2, at)), children: "Paste" });
 }
 function copied(clip2) {
   copyToClipboard(clip2);
   set13(notice, { tone: "neutral", text: `Copied ${clipText(clip2)}. Select a connection, database or collection, on any connection, and press Paste.` });
 }
 function actionBar(key) {
-  const state = read26(connections);
+  const state = read27(connections);
   if (key.startsWith(GROUP_PREFIX)) {
     const group = decodeURIComponent(key.slice(GROUP_PREFIX.length));
-    const renaming = read26(renamingGroup);
+    const renaming = read27(renamingGroup);
     if (renaming) {
-      return /* @__PURE__ */ jsxs22(Row22, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx23(Input15, { label: "Group name", value: renaming.to, onChange: (to) => set13(renamingGroup, { from: group, to }), onSubmit: (to) => act(() => renameGroup(group, to))() }),
-        /* @__PURE__ */ jsx23(Button21, { variant: "solid", tone: "accent", onPress: act(() => renameGroup(group, renaming.to)), children: "Rename" }),
-        /* @__PURE__ */ jsx23(Button21, { variant: "ghost", onPress: () => set13(renamingGroup, null), children: "Cancel" })
+      return /* @__PURE__ */ jsxs23(Row23, { gap: "xs", align: "end", children: [
+        /* @__PURE__ */ jsx24(Input15, { label: "Group name", value: renaming.to, onChange: (to) => set13(renamingGroup, { from: group, to }), onSubmit: (to) => act(() => renameGroup(group, to))() }),
+        /* @__PURE__ */ jsx24(Button21, { variant: "solid", tone: "accent", onPress: act(() => renameGroup(group, renaming.to)), children: "Rename" }),
+        /* @__PURE__ */ jsx24(Button21, { variant: "ghost", onPress: () => set13(renamingGroup, null), children: "Cancel" })
       ] });
     }
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: "Group actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "add", onPress: () => openNewConnection(group), children: "New connection here" }),
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "edit", variant: "ghost", onPress: () => set13(renamingGroup, { from: group, to: group }), children: "Rename group" }),
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "remove", variant: "ghost", onPress: act(() => renameGroup(group, "")), children: "Ungroup" })
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: "Group actions", gap: "xs", children: [
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "add", onPress: () => openNewConnection(group), children: "New connection here" }),
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "edit", variant: "ghost", onPress: () => set13(renamingGroup, { from: group, to: group }), children: "Rename group" }),
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "remove", variant: "ghost", onPress: act(() => renameGroup(group, "")), children: "Ungroup" })
     ] });
   }
   const real = realKey(key);
-  const meta = read26(nodeIndex)[real];
+  const meta = read27(nodeIndex)[real];
   const id = connectionIdOf(real);
   if (!meta || !id) return null;
   const isFavourite = state?.favourites.some((f) => f.key === real) ?? false;
-  const favourite = meta.kind === "conn" || meta.kind === "message" ? null : /* @__PURE__ */ jsx23(IconButton17, { icon: "star", label: isFavourite ? "Remove from favourites" : "Add to favourites", variant: isFavourite ? "solid" : "ghost", tone: isFavourite ? "accent" : "neutral", size: "sm", onPress: act(() => toggleFavourite(real)) });
-  const refresh = /* @__PURE__ */ jsx23(IconButton17, { icon: "refresh", label: "Refresh", variant: "ghost", size: "sm", onPress: act(() => refreshNode(real)) });
+  const favourite = meta.kind === "conn" || meta.kind === "message" ? null : /* @__PURE__ */ jsx24(IconButton17, { icon: "star", label: isFavourite ? "Remove from favourites" : "Add to favourites", variant: isFavourite ? "solid" : "ghost", tone: isFavourite ? "accent" : "neutral", size: "sm", onPress: act(() => toggleFavourite(real)) });
+  const refresh = /* @__PURE__ */ jsx24(IconButton17, { icon: "refresh", label: "Refresh", variant: "ghost", size: "sm", onPress: act(() => refreshNode(real)) });
   if (meta.kind === "conn") {
     const summary2 = state?.connections.find((c) => c.id === id);
     const connected = summary2?.connected ?? false;
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: "Connection actions", gap: "xs", children: [
-      connected ? /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "stop", onPress: act(() => disconnect(id)), children: "Disconnect" }) : /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: read26(busy) === real, onPress: act(() => connect(id)), children: read26(busy) === real ? "Connecting…" : "Connect" }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "edit", label: "Edit connection", variant: "ghost", size: "sm", onPress: act(() => openEditConnection(id)) }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "copy", label: "Clone connection", variant: "ghost", size: "sm", onPress: act(() => cloneConnection(id)) }),
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: "Connection actions", gap: "xs", children: [
+      connected ? /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "stop", onPress: act(() => disconnect(id)), children: "Disconnect" }) : /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: read27(busy) === real, onPress: act(() => connect(id)), children: read27(busy) === real ? "Connecting…" : "Connect" }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "edit", label: "Edit connection", variant: "ghost", size: "sm", onPress: act(() => openEditConnection(id)) }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "copy", label: "Clone connection", variant: "ghost", size: "sm", onPress: act(() => cloneConnection(id)) }),
       connected ? refresh : null,
-      connected ? /* @__PURE__ */ jsx23(IconButton17, { icon: "gauge", label: "Server status and operations", variant: "ghost", size: "sm", onPress: act(() => openServer(id)) }) : null,
-      connected ? /* @__PURE__ */ jsx23(IconButton17, { icon: "add", label: "New database", variant: "ghost", size: "sm", onPress: act(async () => openNewDatabase(id)) }) : null,
+      connected ? /* @__PURE__ */ jsx24(IconButton17, { icon: "gauge", label: "Server status and operations", variant: "ghost", size: "sm", onPress: act(() => openServer(id)) }) : null,
+      connected ? /* @__PURE__ */ jsx24(IconButton17, { icon: "add", label: "New database", variant: "ghost", size: "sm", onPress: act(async () => openNewDatabase(id)) }) : null,
       connected ? pasteButton({ connectionId: id }) : null,
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "delete", label: "Delete connection", variant: "ghost", tone: "danger", size: "sm", onPress: () => set13(confirmDelete, { id, name: summary2?.name ?? "" }) })
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "delete", label: "Delete connection", variant: "ghost", tone: "danger", size: "sm", onPress: () => set13(confirmDelete, { id, name: summary2?.name ?? "" }) })
     ] });
   }
   const openable = meta.kind === "coll" || meta.kind === "view" || meta.kind === "timeseries";
@@ -10662,12 +10701,12 @@ function actionBar(key) {
   const collKind = () => parseNodeKey(real).find((s) => s.kind === "coll" || s.kind === "timeseries")?.kind ?? "coll";
   if (meta.kind === "db" && target.db) {
     const db = target.db;
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "settings", variant: "solid", tone: "accent", onPress: act(() => openDatabase(id, db)), children: "Manage" }),
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "agent", variant: "ghost", onPress: act(() => openUsers(id, db)), children: "Users" }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "upload", label: "Import into this database: a file, pasted documents or a mongodump folder", variant: "ghost", size: "sm", onPress: () => openImport({ connectionId: id, db }) }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "download", label: "Export or copy the whole database", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "database", connectionId: id, db }) }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "copy", label: "Copy the database, to paste on a connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "database", connectionId: id, db }) }),
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "settings", variant: "solid", tone: "accent", onPress: act(() => openDatabase(id, db)), children: "Manage" }),
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "agent", variant: "ghost", onPress: act(() => openUsers(id, db)), children: "Users" }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "upload", label: "Import into this database: a file, pasted documents or a mongodump folder", variant: "ghost", size: "sm", onPress: () => openImport({ connectionId: id, db }) }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "download", label: "Export or copy the whole database", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "database", connectionId: id, db }) }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "copy", label: "Copy the database, to paste on a connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "database", connectionId: id, db }) }),
       pasteButton({ connectionId: id, db }),
       refresh,
       favourite
@@ -10675,8 +10714,8 @@ function actionBar(key) {
   }
   if ((meta.kind === "indexes" || meta.kind === "index") && ns) {
     const index = meta.kind === "index" ? meta.label : void 0;
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "settings", variant: "solid", tone: "accent", onPress: act(() => openManage(ns, collKind(), { section: "indexes", ...index ? { index } : {} })), children: "Manage indexes" }),
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "settings", variant: "solid", tone: "accent", onPress: act(() => openManage(ns, collKind(), { section: "indexes", ...index ? { index } : {} })), children: "Manage indexes" }),
       refresh,
       favourite
     ] });
@@ -10684,8 +10723,8 @@ function actionBar(key) {
   if (meta.kind === "bucket" && ns) {
     const db = ns.db;
     const bucket = ns.collection;
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "package", variant: "solid", tone: "accent", onPress: act(() => openGridfs(id, db, bucket)), children: "Browse files" }),
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "package", variant: "solid", tone: "accent", onPress: act(() => openGridfs(id, db, bucket)), children: "Browse files" }),
       refresh,
       favourite
     ] });
@@ -10693,88 +10732,88 @@ function actionBar(key) {
   if ((meta.kind === "users" || meta.kind === "user" || meta.kind === "roles" || meta.kind === "role") && target.db) {
     const db = target.db;
     const focus = meta.kind === "user" ? { user: meta.label } : meta.kind === "role" ? { role: meta.label } : void 0;
-    return /* @__PURE__ */ jsxs22(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
-      /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "agent", variant: "solid", tone: "accent", onPress: act(() => openUsers(id, db, focus)), children: "Manage users and roles" }),
+    return /* @__PURE__ */ jsxs23(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
+      /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "agent", variant: "solid", tone: "accent", onPress: act(() => openUsers(id, db, focus)), children: "Manage users and roles" }),
       refresh,
       favourite
     ] });
   }
-  return /* @__PURE__ */ jsxs22(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
-    openable ? /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "open-external", variant: "solid", tone: "accent", onPress: act(() => openCollection(real)), children: meta.kind === "view" ? "Open view" : "Open" }) : null,
-    openable ? /* @__PURE__ */ jsx23(Button21, { size: "sm", icon: "layers", variant: "ghost", onPress: act(() => openAggregationForNode(real)), children: "Aggregate" }) : null,
-    openable && ns ? /* @__PURE__ */ jsx23(IconButton17, { icon: "settings", label: meta.kind === "view" ? "Manage the view" : "Manage the collection: indexes, validation, rename, drop", variant: "ghost", size: "sm", onPress: act(() => openManage(ns, meta.kind)) }) : null,
-    openable && ns ? /* @__PURE__ */ jsx23(IconButton17, { icon: "bar-chart-3", label: "Schema: sample the fields and their types", variant: "ghost", size: "sm", onPress: act(() => openSchema(ns, meta.kind)) }) : null,
-    openable && ns && meta.kind !== "view" ? /* @__PURE__ */ jsx23(IconButton17, { icon: "upload", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(ns) }) : null,
-    openable && ns ? /* @__PURE__ */ jsx23(IconButton17, { icon: "download", label: "Export: JSON, CSV, BSON or another collection", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "query", ns, collKind: meta.kind }) }) : null,
-    openable && ns ? /* @__PURE__ */ jsx23(IconButton17, { icon: "branch", label: "Compare with another collection", variant: "ghost", size: "sm", onPress: () => openCompare(ns, meta.kind) }) : null,
-    openable && ns ? /* @__PURE__ */ jsx23(IconButton17, { icon: "copy", label: "Copy, to paste into another database or connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "collection", ns, collKind: meta.kind }) }) : null,
+  return /* @__PURE__ */ jsxs23(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
+    openable ? /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "open-external", variant: "solid", tone: "accent", onPress: act(() => openCollection(real)), children: meta.kind === "view" ? "Open view" : "Open" }) : null,
+    openable ? /* @__PURE__ */ jsx24(Button21, { size: "sm", icon: "layers", variant: "ghost", onPress: act(() => openAggregationForNode(real)), children: "Aggregate" }) : null,
+    openable && ns ? /* @__PURE__ */ jsx24(IconButton17, { icon: "settings", label: meta.kind === "view" ? "Manage the view" : "Manage the collection: indexes, validation, rename, drop", variant: "ghost", size: "sm", onPress: act(() => openManage(ns, meta.kind)) }) : null,
+    openable && ns ? /* @__PURE__ */ jsx24(IconButton17, { icon: "bar-chart-3", label: "Schema: sample the fields and their types", variant: "ghost", size: "sm", onPress: act(() => openSchema(ns, meta.kind)) }) : null,
+    openable && ns && meta.kind !== "view" ? /* @__PURE__ */ jsx24(IconButton17, { icon: "upload", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(ns) }) : null,
+    openable && ns ? /* @__PURE__ */ jsx24(IconButton17, { icon: "download", label: "Export: JSON, CSV, BSON or another collection", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "query", ns, collKind: meta.kind }) }) : null,
+    openable && ns ? /* @__PURE__ */ jsx24(IconButton17, { icon: "branch", label: "Compare with another collection", variant: "ghost", size: "sm", onPress: () => openCompare(ns, meta.kind) }) : null,
+    openable && ns ? /* @__PURE__ */ jsx24(IconButton17, { icon: "copy", label: "Copy, to paste into another database or connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "collection", ns, collKind: meta.kind }) }) : null,
     openable && ns && meta.kind !== "view" ? pasteButton({ connectionId: ns.connectionId, db: ns.db, collection: ns.collection }) : null,
     refresh,
     favourite
   ] });
 }
 function isOpenable(key) {
-  const kind = read26(nodeIndex)[key]?.kind;
+  const kind = read27(nodeIndex)[key]?.kind;
   return kind === "coll" || kind === "view" || kind === "timeseries";
 }
 function detailsBlock() {
-  const d = read26(details);
-  const key = read26(selected);
+  const d = read27(details);
+  const key = read27(selected);
   if (!d || !key || d.key !== realKey(key)) return null;
-  if (d.status === "loading") return /* @__PURE__ */ jsx23(Skeleton13, { lines: 4, label: "Loading details" });
-  if (d.status === "error") return /* @__PURE__ */ jsx23(Callout21, { tone: "danger", icon: "error", children: d.error });
+  if (d.status === "loading") return /* @__PURE__ */ jsx24(Skeleton13, { lines: 4, label: "Loading details" });
+  if (d.status === "error") return /* @__PURE__ */ jsx24(Callout21, { tone: "danger", icon: "error", children: d.error });
   const data = d.data;
-  return /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs22(Box21, { gap: "none", children: [
-      /* @__PURE__ */ jsx23(Text22, { weight: "semibold", truncate: true, children: data.title }),
-      /* @__PURE__ */ jsx23(Text22, { muted: true, size: "xs", children: data.subtitle })
+  return /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs23(Box21, { gap: "none", children: [
+      /* @__PURE__ */ jsx24(Text23, { weight: "semibold", truncate: true, children: data.title }),
+      /* @__PURE__ */ jsx24(Text23, { muted: true, size: "xs", children: data.subtitle })
     ] }),
-    data.items.length ? /* @__PURE__ */ jsx23(KeyValue11, { label: `${data.title} details`, items: data.items }) : null,
-    data.json ? /* @__PURE__ */ jsx23(CodeView15, { label: data.subtitle === "Connection" ? "Connection string" : "Definition", code: data.json, language: data.subtitle === "Connection" ? "text" : "json", wrap: true, maxHeight: "md" }) : null
+    data.items.length ? /* @__PURE__ */ jsx24(KeyValue11, { label: `${data.title} details`, items: data.items }) : null,
+    data.json ? /* @__PURE__ */ jsx24(CodeView15, { label: data.subtitle === "Connection" ? "Connection string" : "Definition", code: data.json, language: data.subtitle === "Connection" ? "text" : "json", wrap: true, maxHeight: "md" }) : null
   ] });
 }
 function TreeView() {
-  const state = read26(connections);
-  const sel = read26(selected);
-  const pending = read26(confirmDelete);
-  const sign = read26(oidc);
-  const n2 = read26(notice);
-  const clip2 = read26(clipboard);
-  return /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs22(Toolbar16, { label: "Connections", children: [
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "add", label: "New connection", variant: "solid", tone: "accent", onPress: () => openNewConnection() }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "upload", label: "Import connections", onPress: () => set13(view, "transfer") }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "download", label: "Export connections", onPress: () => set13(view, "transfer") }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "rocket", label: "Saved tasks", onPress: () => openTasks() }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "refresh", label: "Refresh all", onPress: act(async () => {
+  const state = read27(connections);
+  const sel = read27(selected);
+  const pending = read27(confirmDelete);
+  const sign = read27(oidc);
+  const n2 = read27(notice);
+  const clip2 = read27(clipboard);
+  return /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs23(Toolbar16, { label: "Connections", children: [
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "add", label: "New connection", variant: "solid", tone: "accent", onPress: () => openNewConnection() }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "upload", label: "Import connections", onPress: () => set13(view, "transfer") }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "download", label: "Export connections", onPress: () => set13(view, "transfer") }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "rocket", label: "Saved tasks", onPress: () => openTasks() }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "refresh", label: "Refresh all", onPress: act(async () => {
         await refreshState();
-        for (const key of read26(expanded)) if (/^conn:[^/]+$/.test(key)) await refreshNode(key);
+        for (const key of read27(expanded)) if (/^conn:[^/]+$/.test(key)) await refreshNode(key);
       }) })
     ] }),
-    state?.secretsProtection === "unavailable" ? /* @__PURE__ */ jsx23(Callout21, { tone: "warning", icon: "warning", title: "Secrets are not saved", children: "Orca can't encrypt secrets on this computer, so passwords and keys are kept only until the plugin stops. Set up your system keyring to save them." }) : null,
-    sign ? /* @__PURE__ */ jsxs22(Callout21, { tone: "accent", icon: "link", title: `Sign in to ${sign.name}`, children: [
-      /* @__PURE__ */ jsx23(Link, { href: sign.url, children: "Open the sign-in page" }),
+    state?.secretsProtection === "unavailable" ? /* @__PURE__ */ jsx24(Callout21, { tone: "warning", icon: "warning", title: "Secrets are not saved", children: "Orca can't encrypt secrets on this computer, so passwords and keys are kept only until the plugin stops. Set up your system keyring to save them." }) : null,
+    sign ? /* @__PURE__ */ jsxs23(Callout21, { tone: "accent", icon: "link", title: `Sign in to ${sign.name}`, children: [
+      /* @__PURE__ */ jsx24(Link, { href: sign.url, children: "Open the sign-in page" }),
       " in your browser. Mongo Studio connects once you have signed in."
     ] }) : null,
-    n2 ? /* @__PURE__ */ jsx23(Callout21, { tone: n2.tone === "neutral" ? "neutral" : n2.tone, icon: n2.tone === "danger" ? "error" : n2.tone === "neutral" ? "info" : "check", children: /* @__PURE__ */ jsxs22(Row22, { justify: "between", align: "center", children: [
-      /* @__PURE__ */ jsx23(Text22, { children: n2.text }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => set13(notice, null) })
+    n2 ? /* @__PURE__ */ jsx24(Callout21, { tone: n2.tone === "neutral" ? "neutral" : n2.tone, icon: n2.tone === "danger" ? "error" : n2.tone === "neutral" ? "info" : "check", children: /* @__PURE__ */ jsxs23(Row23, { justify: "between", align: "center", children: [
+      /* @__PURE__ */ jsx24(Text23, { children: n2.text }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => set13(notice, null) })
     ] }) }) : null,
-    clip2 ? /* @__PURE__ */ jsxs22(Row22, { gap: "xs", align: "center", justify: "between", children: [
-      /* @__PURE__ */ jsx23(Text22, { size: "xs", muted: true, truncate: true, children: `Clipboard: ${clipText(clip2)}` }),
-      /* @__PURE__ */ jsx23(IconButton17, { icon: "close", label: "Clear the clipboard", variant: "ghost", size: "xs", onPress: () => set13(clipboard, null) })
+    clip2 ? /* @__PURE__ */ jsxs23(Row23, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsx24(Text23, { size: "xs", muted: true, truncate: true, children: `Clipboard: ${clipText(clip2)}` }),
+      /* @__PURE__ */ jsx24(IconButton17, { icon: "close", label: "Clear the clipboard", variant: "ghost", size: "xs", onPress: () => set13(clipboard, null) })
     ] }) : null,
-    !state ? /* @__PURE__ */ jsx23(Skeleton13, { lines: 5, label: "Loading connections" }) : state.connections.length === 0 ? /* @__PURE__ */ jsx23(EmptyState4, { icon: "database", title: "No connections yet", description: "Add a MongoDB server or Atlas cluster, or import connection strings or a Compass export.", children: /* @__PURE__ */ jsxs22(Row22, { gap: "xs", justify: "center", children: [
-      /* @__PURE__ */ jsx23(Button21, { variant: "solid", tone: "accent", icon: "add", onPress: () => openNewConnection(), children: "New connection" }),
-      /* @__PURE__ */ jsx23(Button21, { icon: "upload", onPress: () => set13(view, "transfer"), children: "Import" })
-    ] }) }) : /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
-      /* @__PURE__ */ jsx23(Input15, { label: "Filter", labelHidden: true, type: "search", placeholder: "Filter loaded connections, databases and collections", value: read26(filter), onChange: (v) => set13(filter, v) }),
-      /* @__PURE__ */ jsx23(
+    !state ? /* @__PURE__ */ jsx24(Skeleton13, { lines: 5, label: "Loading connections" }) : state.connections.length === 0 ? /* @__PURE__ */ jsx24(EmptyState4, { icon: "database", title: "No connections yet", description: "Add a MongoDB server or Atlas cluster, or import connection strings or a Compass export.", children: /* @__PURE__ */ jsxs23(Row23, { gap: "xs", justify: "center", children: [
+      /* @__PURE__ */ jsx24(Button21, { variant: "solid", tone: "accent", icon: "add", onPress: () => openNewConnection(), children: "New connection" }),
+      /* @__PURE__ */ jsx24(Button21, { icon: "upload", onPress: () => set13(view, "transfer"), children: "Import" })
+    ] }) }) : /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
+      /* @__PURE__ */ jsx24(Input15, { label: "Filter", labelHidden: true, type: "search", placeholder: "Filter loaded connections, databases and collections", value: read27(filter), onChange: (v) => set13(filter, v) }),
+      /* @__PURE__ */ jsx24(
         Tree5,
         {
           label: "Connections",
           items: treeItems2(),
-          expanded: [...read26(expanded), ...rootKeys().filter((k) => !read26(collapsedRoots).includes(k))],
+          expanded: [...read27(expanded), ...rootKeys().filter((k) => !read27(collapsedRoots).includes(k))],
           ...sel ? { selected: sel } : {},
           maxHeight: "lg",
           onToggle: ({ key, expanded: open }) => {
@@ -10787,20 +10826,20 @@ function TreeView() {
             const id = connectionIdOf(real);
             if (/^conn:[^/]+$/.test(real) && id) void act(() => connect(id))();
             else if (isOpenable(real)) void act(() => openCollection(real))();
-            else void act(() => toggleNode(real, !read26(expanded).includes(real)))();
+            else void act(() => toggleNode(real, !read27(expanded).includes(real)))();
           }
         }
       ),
-      sel ? actionBar(sel) : /* @__PURE__ */ jsx23(Text22, { muted: true, size: "xs", children: "Select a connection or collection to see its actions and details. Enter connects, or opens a collection." }),
-      pending ? /* @__PURE__ */ jsx23(Callout21, { tone: "danger", icon: "warning", title: `Delete "${pending.name}"?`, children: /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
-        /* @__PURE__ */ jsx23(Text22, { children: "The connection, its saved passwords and keys, and the saved tasks that use it are removed. Your databases are not touched." }),
-        /* @__PURE__ */ jsxs22(Row22, { gap: "xs", children: [
-          /* @__PURE__ */ jsx23(Button21, { variant: "solid", tone: "danger", onPress: act(async () => {
+      sel ? actionBar(sel) : /* @__PURE__ */ jsx24(Text23, { muted: true, size: "xs", children: "Select a connection or collection to see its actions and details. Enter connects, or opens a collection." }),
+      pending ? /* @__PURE__ */ jsx24(Callout21, { tone: "danger", icon: "warning", title: `Delete "${pending.name}"?`, children: /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
+        /* @__PURE__ */ jsx24(Text23, { children: "The connection, its saved passwords and keys, and the saved tasks that use it are removed. Your databases are not touched." }),
+        /* @__PURE__ */ jsxs23(Row23, { gap: "xs", children: [
+          /* @__PURE__ */ jsx24(Button21, { variant: "solid", tone: "danger", onPress: act(async () => {
             closeTabsFor(pending.id);
             closeAdminTabsFor(pending.id);
             await deleteConnection(pending.id);
           }), children: "Delete connection" }),
-          /* @__PURE__ */ jsx23(Button21, { variant: "ghost", onPress: () => set13(confirmDelete, null), children: "Cancel" })
+          /* @__PURE__ */ jsx24(Button21, { variant: "ghost", onPress: () => set13(confirmDelete, null), children: "Cancel" })
         ] })
       ] }) }) : null,
       detailsBlock()
@@ -10808,12 +10847,12 @@ function TreeView() {
   ] });
 }
 function rootKeys() {
-  if (!read26(connections)) return [];
-  return ["favourites", ...read26(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)];
+  if (!read27(connections)) return [];
+  return ["favourites", ...read27(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)];
 }
 
 // src/panel.tsx
-import { jsx as jsx24, jsxs as jsxs23 } from "orca/jsx-runtime";
+import { jsx as jsx25, jsxs as jsxs24 } from "orca/jsx-runtime";
 function setup(ctx) {
   resetLayoutRun();
   ctx.subscriptions.push(
@@ -10822,7 +10861,7 @@ function setup(ctx) {
       if (target === "new") openNewConnection();
       else if (target === "tasks") openTasks();
       else if (target === "shell") {
-        if (read27(shellRun)) set14(view, SHELL_TAB);
+        if (read28(shellRun)) set14(view, SHELL_TAB);
       } else if (target === "import" || target === "export") {
         set14(view, "transfer");
         void refreshExport();
@@ -10842,57 +10881,26 @@ function changeView(next) {
   if (v === "transfer") void refreshExport();
 }
 var TAB_ICONS = { view: "filter", timeseries: "activity" };
-function adminPlaces(a) {
-  switch (a.kind) {
-    case "manage":
-    case "schema":
-      return [a.ns];
-    case "compare":
-      return [a.a, a.b];
-    case "export":
-      return [a.from.kind === "database" ? a.from : a.from.ns];
-    case "server":
-      return [{ connectionId: a.connectionId }];
-    default:
-      return [{ connectionId: a.connectionId, db: a.db }];
-  }
-}
-function placeText(p) {
-  return p.db ? `${connectionName(p.connectionId)} › ${p.db}` : connectionName(p.connectionId);
-}
-function withPlace(places, content) {
-  const all = read27(connections)?.connections ?? [];
-  const readOnly = places.some((p) => all.find((c) => c.id === p.connectionId)?.readOnly);
-  const sides = places.map(placeText);
-  const text = sides.length === 2 && sides[0] !== sides[1] ? `${sides[0]} ⇄ ${sides[1]}` : sides[0];
-  return /* @__PURE__ */ jsxs23(Box22, { gap: "sm", children: [
-    /* @__PURE__ */ jsxs23(Row23, { gap: "xs", align: "center", children: [
-      readOnly ? /* @__PURE__ */ jsx24(Badge8, { tone: "warning", children: "Read only" }) : null,
-      /* @__PURE__ */ jsx24(Text23, { size: "xs", muted: true, truncate: true, children: readOnly ? `${text} · changes are refused` : text })
-    ] }),
-    content
-  ] });
-}
 function Panel() {
-  const current = read27(view);
-  const def = read27(formDef);
-  read27(expanded);
-  read27(selected);
-  read27(connections);
+  const current = read28(view);
+  const def = read28(formDef);
+  read28(expanded);
+  read28(selected);
+  read28(connections);
   scheduleLayoutSave();
-  return /* @__PURE__ */ jsxs23(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
-    /* @__PURE__ */ jsx24(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx24(TreeView, {}) }),
-    def ? /* @__PURE__ */ jsx24(Tab, { value: "form", label: read27(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx24(ConnectionForm, {}) }) : null,
-    current === "transfer" ? /* @__PURE__ */ jsx24(Tab, { value: "transfer", label: "Import / export", icon: "upload", children: /* @__PURE__ */ jsx24(TransferView, {}) }) : null,
-    read27(tasksOpen) ? /* @__PURE__ */ jsx24(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx24(TasksView, {}) }) : null,
-    read27(shellRun) ? /* @__PURE__ */ jsx24(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx24(ShellTab, {}) }) : null,
-    read27(tabOrder).map((id) => {
-      const t = read27(collTabs)[id];
+  return /* @__PURE__ */ jsxs24(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
+    /* @__PURE__ */ jsx25(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx25(TreeView, {}) }),
+    def ? /* @__PURE__ */ jsx25(Tab, { value: "form", label: read28(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx25(ConnectionForm, {}) }) : null,
+    current === "transfer" ? /* @__PURE__ */ jsx25(Tab, { value: "transfer", label: "Import / export", icon: "upload", children: /* @__PURE__ */ jsx25(TransferView, {}) }) : null,
+    read28(tasksOpen) ? /* @__PURE__ */ jsx25(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx25(TasksView, {}) }) : null,
+    read28(shellRun) ? /* @__PURE__ */ jsx25(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx25(ShellTab, {}) }) : null,
+    read28(tabOrder).map((id) => {
+      const t = read28(collTabs)[id];
       if (t) {
-        return /* @__PURE__ */ jsx24(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: withPlace([t.ns], t.agg ? /* @__PURE__ */ jsx24(AggregationTab, { id }) : /* @__PURE__ */ jsx24(CollectionTab, { id })) }, id);
+        return /* @__PURE__ */ jsx25(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: t.agg ? /* @__PURE__ */ jsx25(AggregationTab, { id }) : /* @__PURE__ */ jsx25(CollectionTab, { id }) }, id);
       }
-      const a = read27(adminTabs)[id];
-      return a ? /* @__PURE__ */ jsx24(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: withPlace(adminPlaces(a), /* @__PURE__ */ jsx24(AdminTabView, { id })) }, id) : null;
+      const a = read28(adminTabs)[id];
+      return a ? /* @__PURE__ */ jsx25(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: /* @__PURE__ */ jsx25(AdminTabView, { id }) }, id) : null;
     })
   ] });
 }

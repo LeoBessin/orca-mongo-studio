@@ -27,7 +27,8 @@ import { openNamespace } from './collection-state'
 import { bytesText, jobRunning } from './data-state'
 import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
-import { cancelImport, DELIMITERS, importProblems, previewImport, setColumn, setImport, startImport, targetLabel, type ImportTab } from './import-state'
+import { cancelImport, DELIMITERS, importProblems, previewImport, setColumn, setImport, startImport, importPlaces, type ImportTab } from './import-state'
+import { PlaceLine } from './place-view'
 
 const FORMATS = [
   { value: 'auto', label: 'Automatic' },
@@ -126,7 +127,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>Import</Text>
-          <Text size="xs" muted truncate>{targetLabel(t)}</Text>
+          <PlaceLine places={importPlaces(t)} />
         </Box>
         <IconButton icon="close" label="Close the import" variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

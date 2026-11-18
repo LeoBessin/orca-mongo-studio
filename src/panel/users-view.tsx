@@ -20,9 +20,10 @@ import {
   type OrcaNode
 } from 'orca'
 import { toShell } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, type RoleEditor, type UserEditor, type UsersTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, isReadOnly, type RoleEditor, type UserEditor, type UsersTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { addGrantedRole, changeEditor, closeEditor, dropConfirmed, editRole, editUser, loadUsers, newRole, newUser, removeGrantedRoles, roleKey, saveEditor } from './users-state'
+import { PlaceLine } from './place-view'
 
 const refs = (roles: { role: string; db: string }[], db: string): string => roles.map((r) => (r.db === db ? r.role : `${r.role}@${r.db}`)).join(', ') || 'none'
 
@@ -127,7 +128,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{`Users and roles in ${t.db}`}</Text>
-          <Text size="xs" muted truncate>{connectionName(t.connectionId)}</Text>
+          <PlaceLine places={[{ connectionId: t.connectionId, writes: true }]} />
         </Box>
         <IconButton icon="close" label={`Close users and roles of ${t.db}`} variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>

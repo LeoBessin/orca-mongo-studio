@@ -55,6 +55,7 @@ import { guard } from './guard'
 import { CodeSection, tabOperation } from './shell-view'
 import { Results } from './results-view'
 import { connections } from './state'
+import { PlaceLine } from './place-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -277,6 +278,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{nsLabel(t.ns)}</Text>
+          <PlaceLine places={[{ connectionId: t.ns.connectionId, writes: t.kind !== 'view' }]} />
           {KIND_LABEL[t.kind] ? <Row gap="xs"><Badge tone={t.kind === 'view' ? 'warning' : 'neutral'}>{KIND_LABEL[t.kind]}</Badge></Row> : null}
         </Box>
         <IconButton icon="close" label={`Close ${t.title}`} variant="ghost" size="sm" onPress={() => closeTab(t.id)} />

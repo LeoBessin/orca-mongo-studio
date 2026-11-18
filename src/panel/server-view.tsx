@@ -22,9 +22,10 @@ import {
   type OrcaNode
 } from 'orca'
 import { formatBytes } from '../shared/nodes'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText, type ServerTab } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, isReadOnly, numberText, type ServerTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { killConfirmed, LIVE_MS, loadOps, loadStatus, rates, setLive } from './server-state'
+import { PlaceLine } from './place-view'
 
 function rateText(n: number): string {
   return n >= 100 ? numberText(Math.round(n)) : String(Math.round(n * 10) / 10)
@@ -129,7 +130,8 @@ export function ServerTabView({ id }: { id: string }): OrcaNode {
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
-          <Text weight="semibold" truncate>{`Server: ${connectionName(t.connectionId)}`}</Text>
+          <Text weight="semibold" truncate>Server</Text>
+          <PlaceLine places={[{ connectionId: t.connectionId, writes: true }]} />
           {s ? (
             <Row gap="xs" align="center">
               <Text size="xs" muted>Read</Text>

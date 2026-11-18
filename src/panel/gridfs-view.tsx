@@ -20,11 +20,12 @@ import {
   type OrcaNode
 } from 'orca'
 import { idKey, isoDate, valueText } from '../shared/ejson-view'
-import { adminTabs, aguard, changeAdmin, closeAdmin, connectionName, isReadOnly, numberText } from './admin-state'
+import { adminTabs, aguard, changeAdmin, closeAdmin, isReadOnly, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
 import { bytesText, jobRunning } from './data-state'
 import { cancelGridJob, deleteSelected, downloadFile, loadFiles, renameSelected, saveFile, selectedFile, selectFile, uploadFile, type GridfsTab } from './gridfs-state'
 import { JobProgress } from './job-view'
+import { PlaceLine } from './place-view'
 
 function language(name: string, type?: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
@@ -155,7 +156,7 @@ export function GridfsTabView({ id }: { id: string }): OrcaNode {
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{`GridFS ${t.db}.${t.bucket}`}</Text>
-          <Text size="xs" muted truncate>{connectionName(t.connectionId)}</Text>
+          <PlaceLine places={[{ connectionId: t.connectionId, writes: true }]} />
         </Box>
         <IconButton icon="close" label={`Close the ${t.bucket} files`} variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>
