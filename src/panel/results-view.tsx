@@ -40,6 +40,7 @@ import {
   parseTreeKey,
   previousPage,
   recount,
+  RESULT_VIEWS,
   rowKeys,
   say,
   selectedDocs,
@@ -188,7 +189,7 @@ function ResultTable({ t }: { t: CollTab }): OrcaNode {
           if (!d || !('_id' in d)) return
           if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id!))()
           else if (canOpenDocuments(t)) void guard(t.id, () => openDocument(t.id, d._id!))()
-          else change(t.id, () => ({ resultView: 'tree' as const, treeExpanded: [`r${i}`], treeSelected: `r${i}` }))
+          else setResultView(t.id, 'tree', { treeExpanded: [`r${i}`], treeSelected: `r${i}` })
         }}
       />
       {total > shown.length ? <Text size="xs" muted>{`Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.`}</Text> : null}
@@ -298,7 +299,10 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
     return (
       <Toolbar label="Row actions" gap="xs">
         <OpenButtons t={t} doc={one} />
-        {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => change(t.id, (x) => ({ resultView: 'tree' as const, treeExpanded: [treeKey(x.page!.docs.indexOf(one), [])], treeSelected: treeKey(x.page!.docs.indexOf(one), []) }))}>Show in Tree</Button> : null}
+        {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
+              const key = treeKey(t.page!.docs.indexOf(one), [])
+              setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
+            }}>Show in Tree</Button> : null}
         {copy}
       </Toolbar>
     )
@@ -350,11 +354,7 @@ function TreeActions({ t }: { t: CollTab }): OrcaNode {
   )
 }
 
-const VIEWS: { value: ResultView; label: string }[] = [
-  { value: 'table', label: 'Table' },
-  { value: 'tree', label: 'Tree' },
-  { value: 'json', label: 'JSON' }
-]
+const VIEWS = Object.entries(RESULT_VIEWS).map(([value, label]) => ({ value: value as ResultView, label }))
 
 export function Results({ t }: { t: CollTab }): OrcaNode {
   if (!t.page && t.loading) return <Skeleton lines={6} label="Running the query" />

@@ -3,7 +3,7 @@
 // explain section on collection and aggregation tabs.
 import { assert, describe, hostError, mockHost, mount, test, type MockRequests } from 'orca/testing'
 import type { AggOptions, ConnectionsState, ExplainResult, Namespace, PreviewResult, QueryPage, SavedPipeline, ShellRunSummary } from './protocol'
-import type { JsonObject } from './shared/ejson-view'
+import type { JsonObject, JsonValue } from './shared/ejson-view'
 import { summarizeExplain } from './shared/explain'
 import * as panel from './panel'
 import { aggTabId } from './panel/aggregate-state'
@@ -44,10 +44,11 @@ type Calls = {
   saves: { name: string; stages: unknown }[]
 }
 
-function setup(extra: MockRequests = {}) {
+function setup(extra: MockRequests = {}, storage: Record<string, JsonValue> = {}) {
   const calls: Calls = { previews: [], runs: [], pages: [], counts: [], explains: [], views: [], saves: [] }
   let saved: SavedPipeline[] = []
   const host = mockHost({
+    storage,
     requests: {
       'connections.state': state,
       'data.count': { exists: true, count: 120, kind: 'collection' },
@@ -166,6 +167,17 @@ describe('aggregation tabs', () => {
     // Changing the operator keeps what was typed.
     await view.select({ label: 'Stage' }, '$project')
     assert.equal(view.valueOf(value), "{ _id: '$status', n: { $sum: 1 } }")
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('a new pipeline tab shows results in the view chosen last, without remembering its own', async () => {
+    const { host } = setup({}, { 'mongo-studio.resultView': 'tree' })
+    const view = await openAggregation(host)
+    await view.press({ text: 'Run' })
+    assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
+    assert.equal(view.find({ type: 'Table', label: 'Documents' }), null)
+    await view.press({ text: 'JSON' })
+    assert.equal(host.data().storage['mongo-studio.resultView'], 'tree')
     assert.deepEqual(view.errors, [])
   })
 

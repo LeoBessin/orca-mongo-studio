@@ -9,6 +9,7 @@ import {
   cloneDocument,
   closeDocument,
   closeTab,
+  DOC_VIEWS,
   editDocument,
   editField,
   loadFocus,
@@ -25,11 +26,7 @@ import {
 } from './collection-state'
 import { guard } from './guard'
 
-const VIEWS: { value: DocView; label: string }[] = [
-  { value: 'tree', label: 'Tree' },
-  { value: 'json', label: 'JSON' },
-  { value: 'shell', label: 'Shell' }
-]
+const VIEWS = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value: value as DocView, label }))
 
 function entries(v: JsonValue): [string | number, JsonValue][] {
   return Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v as JsonObject)

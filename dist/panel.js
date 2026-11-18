@@ -2290,17 +2290,17 @@ var PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500];
 var collTabs = atom2({});
 var tabOrder = atom2([]);
 var defaultPageSize = atom2("mongo-studio.pageSize", 50, { persist: "plugin" });
-var lastResultView = atom2("mongo-studio.resultView", "table", { persist: "plugin" });
-var lastDocView = atom2("mongo-studio.docView", "tree", { persist: "plugin" });
-var RESULT_VIEWS = ["table", "tree", "json"];
-var DOC_VIEWS = ["tree", "json", "shell"];
+var lastResultView = atom2("mongo-studio.resultView", "table", { persist: "storage" });
+var lastDocView = atom2("mongo-studio.docView", "tree", { persist: "storage" });
+var RESULT_VIEWS = { table: "Table", tree: "Tree", json: "JSON" };
+var DOC_VIEWS = { tree: "Tree", json: "JSON", shell: "Shell" };
 function startResultView() {
   const v = read2(lastResultView);
-  return RESULT_VIEWS.includes(v) ? v : "table";
+  return typeof v === "string" && Object.hasOwn(RESULT_VIEWS, v) ? v : "table";
 }
 function startDocView() {
   const v = read2(lastDocView);
-  return DOC_VIEWS.includes(v) ? v : "tree";
+  return typeof v === "string" && Object.hasOwn(DOC_VIEWS, v) ? v : "tree";
 }
 var emptyText = { filter: "", projection: "", sort: "", collation: "", skip: "", limit: "" };
 function tab(id) {
@@ -2355,7 +2355,7 @@ async function openNamespace(ns, kind, text) {
     return;
   }
   const id = tabIdFor(ns);
-  const t = newTab(id, ns, kind, ns.collection);
+  const t = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() };
   if (text) t.text = text;
   update2(collTabs, (prev) => ({ ...prev, [id]: t }));
   update2(tabOrder, (prev) => [...prev, id]);
@@ -2374,7 +2374,7 @@ function newTab(id, ns, kind, title) {
     pageSize: read2(defaultPageSize),
     loading: false,
     runToken: 0,
-    resultView: startResultView(),
+    resultView: "table",
     relaxed: true,
     selectedRows: [],
     treeExpanded: [],
@@ -2406,8 +2406,8 @@ function closeTabsFor(connectionId) {
 function canOpenDocuments(t) {
   return !t.shell && !t.agg;
 }
-function newFocus(docId) {
-  return { id: docId, loading: true, view: startDocView(), relaxed: true, expanded: [treeKey(0, [])] };
+function newFocus(docId, view2 = "tree") {
+  return { id: docId, loading: true, view: view2, relaxed: true, expanded: [treeKey(0, [])] };
 }
 async function loadFocus(id) {
   const t = tab(id);
@@ -2424,7 +2424,7 @@ async function loadFocus(id) {
   change(id, (x) => x.focus && idKey(x.focus.id) === idKey(f.id) ? { focus: { ...x.focus, ...next } } : {});
 }
 async function openDocument(id, docId) {
-  patch(id, { focus: newFocus(docId), editor: void 0, confirmDelete: void 0 });
+  patch(id, { focus: newFocus(docId, startDocView()), editor: void 0, confirmDelete: void 0 });
   await loadFocus(id);
 }
 function closeDocument(id) {
@@ -2439,7 +2439,7 @@ async function openDocumentTab(fromId, docId) {
     await loadFocus(id);
     return;
   }
-  const t = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId) };
+  const t = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId, from.focus?.view ?? startDocView()) };
   update2(collTabs, (prev) => ({ ...prev, [id]: t }));
   update2(tabOrder, (prev) => {
     const at = prev.indexOf(fromId);
@@ -2565,12 +2565,13 @@ function previousPage(id) {
   const t = tab(id);
   return t?.page ? goToPage(id, t.page.offset - t.pageSize) : Promise.resolve();
 }
-function setResultView(id, v) {
-  set2(lastResultView, v);
-  patch(id, { resultView: v });
+function setResultView(id, v, extra = {}) {
+  const t = tab(id);
+  if (t && canOpenDocuments(t) && read2(lastResultView) !== v) set2(lastResultView, v);
+  patch(id, { ...extra, resultView: v });
 }
 function setDocView(id, v) {
-  set2(lastDocView, v);
+  if (read2(lastDocView) !== v) set2(lastDocView, v);
   setFocus(id, { view: v });
 }
 async function setPageSize(id, size) {
@@ -7120,7 +7121,7 @@ async function openAggregation(ns, kind, stages, from) {
     }
     return;
   }
-  const t = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), readOnly: true, agg: newAgg(stages ?? [newStage("$match")]) };
+  const t = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg: newAgg(stages ?? [newStage("$match")]) };
   if (from) t.notice = { tone: "neutral", text: `Started from ${from}.` };
   update7(collTabs, (prev) => ({ ...prev, [id]: t }));
   update7(tabOrder, (prev) => [...prev, id]);
@@ -7732,7 +7733,7 @@ function ResultTable({ t }) {
           if (!d || !("_id" in d)) return;
           if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id))();
           else if (canOpenDocuments(t)) void guard(t.id, () => openDocument(t.id, d._id))();
-          else change(t.id, () => ({ resultView: "tree", treeExpanded: [`r${i}`], treeSelected: `r${i}` }));
+          else setResultView(t.id, "tree", { treeExpanded: [`r${i}`], treeSelected: `r${i}` });
         }
       }
     ),
@@ -7824,7 +7825,10 @@ function TableActions({ t }) {
   if (t.readOnly) {
     return /* @__PURE__ */ jsxs14(Toolbar11, { label: "Row actions", gap: "xs", children: [
       /* @__PURE__ */ jsx15(OpenButtons, { t, doc: one }),
-      one ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => change(t.id, (x) => ({ resultView: "tree", treeExpanded: [treeKey(x.page.docs.indexOf(one), [])], treeSelected: treeKey(x.page.docs.indexOf(one), []) })), children: "Show in Tree" }) : null,
+      one ? /* @__PURE__ */ jsx15(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
+        const key = treeKey(t.page.docs.indexOf(one), []);
+        setResultView(t.id, "tree", { treeExpanded: [key], treeSelected: key });
+      }, children: "Show in Tree" }) : null,
       copy
     ] });
   }
@@ -7860,11 +7864,7 @@ function TreeActions({ t }) {
     value !== void 0 ? /* @__PURE__ */ jsx15(Badge3, { children: BSON_TYPE_LABELS[bsonType(value)] }) : null
   ] });
 }
-var VIEWS = [
-  { value: "table", label: "Table" },
-  { value: "tree", label: "Tree" },
-  { value: "json", label: "JSON" }
-];
+var VIEWS = Object.entries(RESULT_VIEWS).map(([value, label]) => ({ value, label }));
 function Results2({ t }) {
   if (!t.page && t.loading) return /* @__PURE__ */ jsx15(Skeleton10, { lines: 6, label: "Running the query" });
   if (!t.page) return null;
@@ -9426,11 +9426,7 @@ import {
 // src/panel/document-view.tsx
 import { Badge as Badge6, Box as Box16, Button as Button16, Callout as Callout16, CodeView as CodeView13, EmptyState as EmptyState3, IconButton as IconButton15, Row as Row17, Skeleton as Skeleton12, Switch as Switch4, Text as Text17, Toolbar as Toolbar14, Tree as Tree4 } from "orca";
 import { jsx as jsx18, jsxs as jsxs17 } from "orca/jsx-runtime";
-var VIEWS2 = [
-  { value: "tree", label: "Tree" },
-  { value: "json", label: "JSON" },
-  { value: "shell", label: "Shell" }
-];
+var VIEWS2 = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value, label }));
 function entries(v) {
   return Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
 }
