@@ -1,9 +1,10 @@
 // Update many: the card under a collection's results. Choose the documents (the selected rows, the
 // query's matches, or the whole collection), write the update, preview it (how many documents, and
 // one before and after), confirm, and see what changed.
-import { Box, Button, Callout, Card, CodeView, Input, RadioGroup, Row, Skeleton, Table, Text, Textarea, type OrcaNode } from 'orca'
+import { Box, Button, Callout, Card, CodeView, Input, Progress, RadioGroup, Row, Skeleton, Table, Text, Textarea, type OrcaNode } from 'orca'
 import { toShell } from '../shared/ejson-view'
 import { scopeIsEverything } from '../shared/update-spec'
+import { numberText } from './admin-state'
 import {
   bulkConfirmed,
   bulkPlan,
@@ -14,16 +15,17 @@ import {
   previewUpdateMany,
   runUpdateMany,
   setBulk,
+  type BulkPlan,
   type BulkScope,
   type BulkUpdate,
   type CollTab
 } from './collection-state'
 import { guard } from './guard'
 
-const plural = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+const plural = (n: number, one: string, many = `${one}s`): string => `${numberText(n)} ${n === 1 ? one : many}`
 
-function scopeOptions(t: CollTab): { value: BulkScope; label: string; description: string; disabled?: boolean }[] {
-  const selection = bulkScope(t, 'selection')
+function scopeOptions(t: CollTab, plan: BulkPlan): { value: BulkScope; label: string; description: string; disabled?: boolean }[] {
+  const selection = t.bulk?.scope === 'selection' ? { scope: plan.scope, error: plan.scopeError } : bulkScope(t, 'selection')
   const n = selection.scope?.kind === 'ids' ? selection.scope.ids.length : 0
   const spec = t.spec
   const ignored = spec && (spec.skip || spec.limit) ? ' Skip and limit are not applied.' : ''
@@ -41,12 +43,12 @@ function scopeOptions(t: CollTab): { value: BulkScope; label: string; descriptio
 
 function reachText(p: NonNullable<BulkUpdate['preview']>): string {
   const r = p.result!
-  if (r.count === null) return `The number of documents isn't known: ${r.countError ?? 'counting failed'}.`
+  if (r.count === null) return `The number of documents isn't known: ${(r.countError ?? 'counting failed').replace(/\.$/, '')}.`
   if (r.count === 0) return 'No document matches, so nothing would change.'
   return `${r.approximate ? 'About ' : ''}${plural(r.count, 'document')} would be updated.`
 }
 
-function Preview({ t, p }: { t: CollTab; p: NonNullable<BulkUpdate['preview']> }): OrcaNode {
+function Preview({ t, p, plan }: { t: CollTab; p: NonNullable<BulkUpdate['preview']>; plan: BulkPlan }): OrcaNode {
   if (p.loading) return <Skeleton lines={3} label="Counting and trying the update on one document" />
   if (p.error) return <Callout tone="danger" icon="error" title="The preview failed">{p.error}</Callout>
   const r = p.result!
@@ -80,14 +82,15 @@ function Preview({ t, p }: { t: CollTab; p: NonNullable<BulkUpdate['preview']> }
         )
       ) : null}
       {s?.capped ? <Text size="xs" muted>Only the first 100 changed fields are listed.</Text> : null}
+      {s?.tooBig ? <Text size="xs" muted>The document is too big to show here before and after, so it is cut down to its _id.</Text> : null}
       {s ? <CodeView label="Before" code={toShell(s.before)} language="javascript" maxHeight="sm" /> : null}
       {s?.after ? <CodeView label="After" code={toShell(s.after)} language="javascript" maxHeight="sm" /> : null}
-      {r.count !== 0 ? <Confirm t={t} p={p} /> : null}
+      {s?.error ? <Text size="sm" tone="danger">Fix the update first: updateMany would stop at a document like this one, after changing others.</Text> : r.count !== 0 ? <Confirm t={t} p={p} plan={plan} /> : null}
     </Box>
   )
 }
 
-function Confirm({ t, p }: { t: CollTab; p: NonNullable<BulkUpdate['preview']> }): OrcaNode {
+function Confirm({ t, p, plan }: { t: CollTab; p: NonNullable<BulkUpdate['preview']>; plan: BulkPlan }): OrcaNode {
   const b = t.bulk!
   const everything = scopeIsEverything(p.scope)
   const n = p.result!.count
@@ -101,7 +104,7 @@ function Confirm({ t, p }: { t: CollTab; p: NonNullable<BulkUpdate['preview']> }
           <Input label={`Type ${t.ns.collection} to confirm`} value={b.confirmName} onChange={(confirmName) => setBulk(t.id, { confirmName })} onSubmit={() => void guard(t.id, () => runUpdateMany(t.id))()} />
         ) : null}
         <Row gap="xs">
-          <Button variant="solid" tone="danger" icon="check" disabled={b.running || !bulkConfirmed(t)} onPress={guard(t.id, () => runUpdateMany(t.id))}>
+          <Button variant="solid" tone="danger" icon="check" disabled={b.running || !bulkConfirmed(t, plan)} onPress={guard(t.id, () => runUpdateMany(t.id))}>
             {b.running ? 'Updating…' : everything ? 'Update every document' : n === null ? 'Update documents' : `Update ${plural(n, 'document')}`}
           </Button>
         </Row>
@@ -114,12 +117,12 @@ export function UpdateMany({ t }: { t: CollTab }): OrcaNode {
   const b = t.bulk
   if (!b) return null
   const plan = bulkPlan(t)
-  const p = currentPreview(t)
+  const p = currentPreview(t, plan)
   const typed = b.text.trim() !== ''
   return (
     <Card title="Update documents" description={`updateMany on ${nsLabel(t.ns)}`}>
       <Box gap="sm">
-        <RadioGroup label="Documents" value={b.scope} options={scopeOptions(t)} onChange={(v) => setBulk(t.id, { scope: v as BulkScope })} />
+        <RadioGroup label="Documents" value={b.scope} options={scopeOptions(t, plan)} disabled={b.running} onChange={(v) => setBulk(t.id, { scope: v as BulkScope })} />
         {plan.skipped ? <Text size="xs" tone="warning">{`${plural(plan.skipped, 'selected row')} without an _id ${plan.skipped === 1 ? 'is' : 'are'} left out.`}</Text> : null}
         <Textarea
           label="Update"
@@ -127,17 +130,19 @@ export function UpdateMany({ t }: { t: CollTab }): OrcaNode {
           placeholder="{ $set: { status: 'archived' } }   or a pipeline: [{ $set: { … } }]"
           value={b.text}
           invalid={typed && Boolean(plan.updateError)}
+          disabled={b.running}
           onChange={(text) => setBulk(t.id, { text })}
           onSubmit={() => void guard(t.id, () => previewUpdateMany(t.id))()}
         />
         {typed && plan.updateError ? <Text size="xs" tone="danger">{plan.updateError}</Text> : <Text size="xs" muted>Update operators, or an update pipeline in [ ]. Ctrl+Enter previews.</Text>}
         <Row gap="xs">
-          <Button variant={p ? 'ghost' : 'solid'} tone="accent" icon="search" disabled={!plan.basis || p?.loading} onPress={guard(t.id, () => previewUpdateMany(t.id))}>
+          <Button variant={p ? 'ghost' : 'solid'} tone="accent" icon="search" disabled={!plan.basis || p?.loading || b.running} onPress={guard(t.id, () => previewUpdateMany(t.id))}>
             {p ? 'Preview again' : 'Preview'}
           </Button>
           <Button variant="ghost" disabled={b.running} onPress={() => closeUpdateMany(t.id)}>Cancel</Button>
         </Row>
-        {p ? <Preview t={t} p={p} /> : null}
+        {p ? <Preview t={t} p={p} plan={plan} /> : null}
+        {b.running ? <Progress label={`${b.job?.state?.phase ?? 'Starting the update'}…`} /> : null}
         {b.error ? <Callout tone="danger" icon="error" title="The update failed">{b.error}</Callout> : null}
       </Box>
     </Card>

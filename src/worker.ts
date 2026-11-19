@@ -30,7 +30,7 @@ import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
 import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
 import { analyzeSchema } from './worker/schema'
-import { previewUpdate, updateMany } from './worker/update'
+import { checkUpdate, previewUpdate, updateMany } from './worker/update'
 import { currentOps, killOp, serverStatus, sleep } from './worker/server'
 import { ShellService } from './worker/shell'
 import { ConnectionStore } from './worker/store'
@@ -308,7 +308,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('doc.updateMany', async ({ ns, scope, update }) => {
     await writable(ns.connectionId, 'updating documents')
-    return updateMany(await clientFor(ns.connectionId), ns, scope, update)
+    checkUpdate(scope, update)
+    const client = await clientFor(ns.connectionId)
+    // One server command: it can't be cancelled from here or report progress, only finish.
+    return {
+      jobId: running.start('update', 'documents', async (job) => {
+        job.progress({ phase: `Updating ${ns.db}.${ns.collection}` })
+        return { kind: 'update', ...(await updateMany(client, ns, scope, update)) }
+      })
+    }
   })
 
   orca.panels.handle('query.explain', async ({ ns, spec, verbosity }) => explainFind(await clientFor(ns.connectionId), ns, spec, verbosity))

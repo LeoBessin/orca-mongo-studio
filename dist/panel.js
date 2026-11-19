@@ -5,7 +5,7 @@
 import { plugin as plugin18, read as read28, set as set14, Tab, Tabs } from "orca";
 
 // src/panel/collection-state.ts
-import { atom as atom2, plugin as plugin2, read as read2, set as set2, update as update2 } from "orca";
+import { atom as atom3, plugin as plugin3, read as read3, set as set3, update as update2 } from "orca";
 
 // src/shared/ejson-view.ts
 var BSON_TYPE_LABELS = {
@@ -1645,6 +1645,42 @@ function scopeIsEverything(scope) {
   return scope.kind === "all" || scope.kind === "filter" && Object.keys(scope.filter).length === 0;
 }
 
+// src/panel/data-state.ts
+import { atom as atom2, files, plugin as plugin2, read as read2, set as set2 } from "orca";
+
+// src/shared/base64.ts
+var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var LOOKUP = new Int16Array(128).fill(-1);
+for (let i = 0; i < ALPHABET.length; i++) LOOKUP[ALPHABET.charCodeAt(i)] = i;
+function base64Bytes(b64) {
+  const clean = b64.replace(/[\s=]+/g, "");
+  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
+  let o = 0;
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const v = LOOKUP[clean.charCodeAt(i)] ?? -1;
+    if (v < 0) throw new Error("Not base64 text.");
+    acc = acc << 6 | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = acc >> bits & 255;
+    }
+  }
+  return o === out.length ? out : out.slice(0, o);
+}
+function joinBytes(parts) {
+  const total = parts.reduce((n2, p) => n2 + p.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out.buffer;
+}
+
 // src/panel/state.ts
 import { atom, derived, plugin, read, set, update } from "orca";
 
@@ -2330,26 +2366,132 @@ async function refreshExport() {
   set(exportJson, await plugin.request("connections.export", { ...ids ? { ids } : {}, tasks: read(exportTasks) }));
 }
 
+// src/panel/data-state.ts
+var fetched = /* @__PURE__ */ new Map();
+var PIECE_BYTES = 600 * 1024;
+var UPLOAD_CHARS = 2e5;
+async function followJob(jobId, get, put) {
+  let version = 0;
+  for (; ; ) {
+    if (get()?.jobId !== jobId) return void 0;
+    let s;
+    try {
+      s = await plugin2.request("job.poll", { jobId, version, waitMs: 15e3 }, { timeoutMs: 3e4 });
+    } catch (error) {
+      const box2 = get();
+      if (box2?.jobId === jobId) put({ ...box2, error: errorText(error) });
+      return void 0;
+    }
+    const box = get();
+    if (box?.jobId !== jobId) return void 0;
+    version = s.version;
+    put({ ...box, state: s });
+    if (s.status === "running") continue;
+    const d = s.result && "download" in s.result ? s.result.download : void 0;
+    if (s.status === "done" && d) await fetchDownload(jobId, d, get, put);
+    return s;
+  }
+}
+async function fetchDownload(jobId, d, get, put) {
+  const update11 = (download) => {
+    const box = get();
+    if (box?.jobId === jobId) put({ ...box, download });
+  };
+  const parts = [];
+  let offset = 0;
+  update11({ ...d, fetched: 0, ready: false });
+  try {
+    while (offset < d.size) {
+      if (get()?.jobId !== jobId) return;
+      const r = await plugin2.request("job.read", { jobId, offset, size: PIECE_BYTES }, { timeoutMs: 6e4 });
+      const bytes = base64Bytes(r.base64);
+      if (bytes.length === 0) break;
+      parts.push(bytes);
+      offset += bytes.length;
+      update11({ ...d, fetched: offset, ready: false });
+    }
+    fetched.set(jobId, joinBytes(parts));
+    update11({ ...d, fetched: offset, ready: true });
+  } catch (error) {
+    update11({ ...d, fetched: offset, ready: false, error: errorText(error) });
+  } finally {
+    void plugin2.request("job.close", { jobId }).catch(() => void 0);
+  }
+}
+async function saveDownload(box) {
+  const d = box?.download;
+  const data = box ? fetched.get(box.jobId) : void 0;
+  if (!box || !d?.ready || !data) return false;
+  const r = await files.saveAs({ suggestedName: d.name, mimeType: d.mimeType, data });
+  return r.status === "saved";
+}
+function dropDownload(box) {
+  if (box) fetched.delete(box.jobId);
+}
+async function cancelJob(box) {
+  if (box?.state?.status === "running" || box && !box.state) await plugin2.request("job.cancel", { jobId: box.jobId });
+}
+function jobRunning(box) {
+  return Boolean(box && !box.error && (!box.state || box.state.status === "running" || box.download && !box.download.ready && !box.download.error));
+}
+async function uploadText(text) {
+  let uploadId;
+  for (let at = 0; at < text.length || at === 0; at += UPLOAD_CHARS) {
+    const r = await plugin2.request("import.upload", { chunk: text.slice(at, at + UPLOAD_CHARS), ...uploadId ? { uploadId } : {} }, { timeoutMs: 6e4 });
+    uploadId = r.uploadId;
+  }
+  return uploadId;
+}
+var clipboard = atom2(null);
+function copyToClipboard(clip2) {
+  set2(clipboard, clip2);
+}
+function clipText(clip2) {
+  if (clip2.kind === "database") return `the ${clip2.db} database`;
+  if (clip2.kind === "collection") return `${clip2.ns.db}.${clip2.ns.collection}`;
+  return `${clip2.ids.length.toLocaleString("en-US")} document${clip2.ids.length === 1 ? "" : "s"} of ${clip2.ns.db}.${clip2.ns.collection}`;
+}
+function bytesText(n2) {
+  if (n2 < 1024) return `${n2} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n2 / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+function progressText(s) {
+  const fmt3 = (n2) => s.unit === "bytes" ? bytesText(n2) : n2.toLocaleString("en-US");
+  const unit = s.unit === "bytes" ? "" : " documents";
+  return s.total !== null ? `${fmt3(s.done)} of ${fmt3(s.total)}${unit}` : `${fmt3(s.done)}${unit}`;
+}
+function progressPercent(s) {
+  if (s.total === null || s.total === 0) return s.status === "done" ? 100 : void 0;
+  return Math.max(0, Math.min(100, Math.round(s.done / s.total * 100)));
+}
+
 // src/panel/collection-state.ts
 var PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500];
-var collTabs = atom2({});
-var tabOrder = atom2([]);
-var defaultPageSize = atom2("mongo-studio.pageSize", 50, { persist: "plugin" });
-var lastResultView = atom2("mongo-studio.resultView", "table", { persist: "storage" });
-var lastDocView = atom2("mongo-studio.docView", "tree", { persist: "storage" });
+var collTabs = atom3({});
+var tabOrder = atom3([]);
+var defaultPageSize = atom3("mongo-studio.pageSize", 50, { persist: "plugin" });
+var lastResultView = atom3("mongo-studio.resultView", "table", { persist: "storage" });
+var lastDocView = atom3("mongo-studio.docView", "tree", { persist: "storage" });
 var RESULT_VIEWS = { table: "Table", tree: "Tree", json: "JSON" };
 var DOC_VIEWS = { tree: "Tree", json: "JSON", shell: "Shell" };
 function startResultView() {
-  const v = read2(lastResultView);
+  const v = read3(lastResultView);
   return typeof v === "string" && Object.hasOwn(RESULT_VIEWS, v) ? v : "table";
 }
 function startDocView() {
-  const v = read2(lastDocView);
+  const v = read3(lastDocView);
   return typeof v === "string" && Object.hasOwn(DOC_VIEWS, v) ? v : "tree";
 }
 var emptyText = { filter: "", projection: "", sort: "", collation: "", skip: "", limit: "" };
 function tab(id) {
-  return read2(collTabs)[id];
+  return read3(collTabs)[id];
 }
 function change(id, fn) {
   update2(collTabs, (prev) => {
@@ -2383,16 +2525,16 @@ async function openCollection(nodeKey2) {
   const target = nodeTarget(nodeKey2);
   if (!target.connectionId || !target.db || !target.collection) return;
   const ns = { connectionId: target.connectionId, db: target.db, collection: target.collection };
-  const meta = read2(nodeIndex)[nodeKey2];
+  const meta = read3(nodeIndex)[nodeKey2];
   await openNamespace(ns, meta?.kind ?? target.kind);
 }
 async function openNamespace(ns, kind, text) {
-  const existing = read2(tabOrder).find((id2) => {
+  const existing = read3(tabOrder).find((id2) => {
     const t2 = tab(id2);
     return t2 && !t2.docTab && !t2.agg && t2.ns.connectionId === ns.connectionId && t2.ns.db === ns.db && t2.ns.collection === ns.collection;
   });
   if (existing) {
-    set2(view, existing);
+    set3(view, existing);
     if (text) {
       patch(existing, { text, fieldErrors: {} });
       await runQuery(existing);
@@ -2404,7 +2546,7 @@ async function openNamespace(ns, kind, text) {
   if (text) t.text = text;
   update2(collTabs, (prev) => ({ ...prev, [id]: t }));
   update2(tabOrder, (prev) => [...prev, id]);
-  set2(view, id);
+  set3(view, id);
   await Promise.all([runQuery(id, text !== void 0), loadLibrary(id)]);
 }
 function newTab(id, ns, kind, title) {
@@ -2416,7 +2558,7 @@ function newTab(id, ns, kind, title) {
     readOnly: kind === "view",
     text: { ...emptyText },
     fieldErrors: {},
-    pageSize: read2(defaultPageSize),
+    pageSize: read3(defaultPageSize),
     loading: false,
     runToken: 0,
     resultView: "table",
@@ -2433,20 +2575,20 @@ function newTab(id, ns, kind, title) {
 }
 function closeTab(id) {
   const t = tab(id);
-  if (t?.queryId && !t.shell) void plugin2.request("query.close", { queryId: t.queryId }).catch(() => void 0);
-  const order = read2(tabOrder);
+  if (t?.queryId && !t.shell) void plugin3.request("query.close", { queryId: t.queryId }).catch(() => void 0);
+  const order = read3(tabOrder);
   const at = order.indexOf(id);
   const rest = order.filter((x) => x !== id);
-  set2(tabOrder, rest);
+  set3(tabOrder, rest);
   update2(collTabs, (prev) => {
     const next = { ...prev };
     delete next[id];
     return next;
   });
-  if (read2(view) === id) set2(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
+  if (read3(view) === id) set3(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
 }
 function closeTabsFor(connectionId) {
-  for (const id of read2(tabOrder)) if (tab(id)?.ns.connectionId === connectionId) closeTab(id);
+  for (const id of read3(tabOrder)) if (tab(id)?.ns.connectionId === connectionId) closeTab(id);
 }
 function canOpenDocuments(t) {
   return !t.shell && !t.agg;
@@ -2461,7 +2603,7 @@ async function loadFocus(id) {
   change(id, (x) => x.focus ? { focus: { ...x.focus, loading: true, error: void 0 } } : {});
   let next;
   try {
-    const { doc } = await plugin2.request("doc.get", { ns: t.ns, id: f.id }, { timeoutMs: 6e4 });
+    const { doc } = await plugin3.request("doc.get", { ns: t.ns, id: f.id }, { timeoutMs: 6e4 });
     next = doc ? { doc, loading: false } : { doc: void 0, loading: false, error: "This document is no longer there: it was deleted, or its _id changed." };
   } catch (error) {
     next = { loading: false, error: errorText(error) };
@@ -2480,7 +2622,7 @@ async function openDocumentTab(fromId, docId) {
   if (!from) return;
   const id = docTabIdFor(from.ns, docId);
   if (tab(id)) {
-    set2(view, id);
+    set3(view, id);
     await loadFocus(id);
     return;
   }
@@ -2490,7 +2632,7 @@ async function openDocumentTab(fromId, docId) {
     const at = prev.indexOf(fromId);
     return at < 0 ? [...prev, id] : [...prev.slice(0, at + 1), id, ...prev.slice(at + 1)];
   });
-  set2(view, id);
+  set3(view, id);
   await loadFocus(id);
 }
 function setFocus(id, values) {
@@ -2549,15 +2691,15 @@ async function runQuery(id, record = true) {
     patch(id, { fieldErrors: errors });
     return;
   }
-  if (t.queryId) void plugin2.request("query.close", { queryId: t.queryId }).catch(() => void 0);
+  if (t.queryId) void plugin3.request("query.close", { queryId: t.queryId }).catch(() => void 0);
   const token = t.runToken + 1;
-  patch(id, { loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0 });
+  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0 });
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...record ? { text: t.text } : {} };
   const counting = countQuery(id, token, spec);
   try {
-    const page = await plugin2.request("query.run", input, { timeoutMs: 12e4 });
+    const page = await plugin3.request("query.run", input, { timeoutMs: 12e4 });
     if (tab(id)?.runToken !== token) {
-      void plugin2.request("query.close", { queryId: page.queryId }).catch(() => void 0);
+      void plugin3.request("query.close", { queryId: page.queryId }).catch(() => void 0);
       return;
     }
     patch(id, { page, queryId: page.queryId, loading: false });
@@ -2572,7 +2714,7 @@ async function countQuery(id, token, spec) {
   if (!t) return;
   const ran = t.agg?.ran;
   try {
-    const count = ran ? await plugin2.request("agg.count", { ns: t.ns, pipeline: ran.pipeline, options: ran.options }, { timeoutMs: 6e4 }) : await plugin2.request("query.count", { ns: t.ns, spec }, { timeoutMs: 6e4 });
+    const count = ran ? await plugin3.request("agg.count", { ns: t.ns, pipeline: ran.pipeline, options: ran.options }, { timeoutMs: 6e4 }) : await plugin3.request("query.count", { ns: t.ns, spec }, { timeoutMs: 6e4 });
     if (tab(id)?.runToken === token) patch(id, { count });
   } catch (error) {
     if (tab(id)?.runToken === token) patch(id, { count: { count: null, approximate: false, ms: 0, error: errorText(error) } });
@@ -2594,9 +2736,9 @@ async function goToPage(id, offset) {
     return;
   }
   const token = t.runToken;
-  patch(id, { loading: true, error: void 0, selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [] });
+  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [] });
   try {
-    const page = t.shell ? await plugin2.request("shell.page", { runId: t.shell.runId, index: t.shell.index, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 }) : ran ? await plugin2.request("agg.page", { queryId: t.queryId, ns: t.ns, pipeline: ran.pipeline, options: ran.options, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 }) : await plugin2.request("query.page", { queryId: t.queryId, ns: t.ns, spec: t.spec, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 });
+    const page = t.shell ? await plugin3.request("shell.page", { runId: t.shell.runId, index: t.shell.index, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 }) : ran ? await plugin3.request("agg.page", { queryId: t.queryId, ns: t.ns, pipeline: ran.pipeline, options: ran.options, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 }) : await plugin3.request("query.page", { queryId: t.queryId, ns: t.ns, spec: t.spec, offset: Math.max(0, offset), pageSize: t.pageSize }, { timeoutMs: 12e4 });
     if (tab(id)?.runToken === token) patch(id, { page, loading: false });
   } catch (error) {
     if (tab(id)?.runToken === token) patch(id, { loading: false, error: errorText(error) });
@@ -2612,15 +2754,15 @@ function previousPage(id) {
 }
 function setResultView(id, v, extra = {}) {
   const t = tab(id);
-  if (t && canOpenDocuments(t) && read2(lastResultView) !== v) set2(lastResultView, v);
+  if (t && canOpenDocuments(t) && read3(lastResultView) !== v) set3(lastResultView, v);
   patch(id, { ...extra, resultView: v });
 }
 function setDocView(id, v) {
-  if (read2(lastDocView) !== v) set2(lastDocView, v);
+  if (read3(lastDocView) !== v) set3(lastDocView, v);
   setFocus(id, { view: v });
 }
 async function setPageSize(id, size) {
-  set2(defaultPageSize, size);
+  set3(defaultPageSize, size);
   patch(id, { pageSize: size });
   const t = tab(id);
   if (t?.page) await goToPage(id, t.page.offset);
@@ -2687,7 +2829,7 @@ function say2(id, tone, text) {
   patch(id, { notice: { tone, text } });
 }
 async function fullDocument(t, docId) {
-  const { doc } = await plugin2.request("doc.get", { ns: t.ns, id: docId }, { timeoutMs: 6e4 });
+  const { doc } = await plugin3.request("doc.get", { ns: t.ns, id: docId }, { timeoutMs: 6e4 });
   if (!doc) throw new Error("That document is no longer there: it was deleted, or its _id changed. Run the query again.");
   return doc;
 }
@@ -2740,7 +2882,7 @@ async function saveField(id) {
   }
   change(id, (x) => x.editor ? { editor: { ...x.editor, saving: true, error: void 0 } } : {});
   try {
-    const r = await plugin2.request("doc.updateField", { ns: t.ns, id: e.id, path, value: result.value }, { timeoutMs: 6e4 });
+    const r = await plugin3.request("doc.updateField", { ns: t.ns, id: e.id, path, value: result.value }, { timeoutMs: 6e4 });
     patch(id, { editor: void 0 });
     say2(id, "success", r.modified ? `Saved ${path.join(".")}.` : `${path.join(".")} already had that value.`);
     await reloadPage(id);
@@ -2754,7 +2896,7 @@ async function removeField(id) {
   if (!t || e?.kind !== "field" || e.adding) return;
   change(id, (x) => x.editor ? { editor: { ...x.editor, saving: true, error: void 0 } } : {});
   try {
-    await plugin2.request("doc.updateField", { ns: t.ns, id: e.id, path: e.path, remove: true }, { timeoutMs: 6e4 });
+    await plugin3.request("doc.updateField", { ns: t.ns, id: e.id, path: e.path, remove: true }, { timeoutMs: 6e4 });
     patch(id, { editor: void 0 });
     say2(id, "success", `Removed ${e.path.join(".")}.`);
     await reloadPage(id);
@@ -2824,10 +2966,10 @@ async function saveDocument(id) {
   change(id, (x) => x.editor ? { editor: { ...x.editor, saving: true, error: void 0 } } : {});
   try {
     if (e.mode === "edit") {
-      const r = await plugin2.request("doc.replace", { ns: t.ns, id: e.id, doc }, { timeoutMs: 6e4 });
+      const r = await plugin3.request("doc.replace", { ns: t.ns, id: e.id, doc }, { timeoutMs: 6e4 });
       say2(id, "success", r.modified ? "Document saved." : "Nothing changed.");
     } else {
-      const r = await plugin2.request("doc.insert", { ns: t.ns, docs: [doc] }, { timeoutMs: 6e4 });
+      const r = await plugin3.request("doc.insert", { ns: t.ns, docs: [doc] }, { timeoutMs: 6e4 });
       say2(id, "success", `Inserted a document with _id ${toShellInline(r.insertedIds[0] ?? null)}.`);
     }
     patch(id, { editor: void 0 });
@@ -2848,7 +2990,7 @@ async function confirmDeletion(id) {
   const ids = t?.confirmDelete?.ids;
   if (!t || !ids) return;
   try {
-    const r = await plugin2.request("doc.deleteMany", { ns: t.ns, ids }, { timeoutMs: 12e4 });
+    const r = await plugin3.request("doc.deleteMany", { ns: t.ns, ids }, { timeoutMs: 12e4 });
     patch(id, { confirmDelete: void 0, selectedRows: [] });
     say2(id, "success", `Deleted ${r.deleted.toLocaleString("en-US")} document${r.deleted === 1 ? "" : "s"} from ${nsLabel(t.ns)}.`);
     const focused = t.focus && ids.some((x) => idKey(x) === idKey(t.focus.id));
@@ -2863,6 +3005,9 @@ async function confirmDeletion(id) {
 function canUpdateMany(t) {
   return !t.readOnly && t.kind !== "view" && !t.shell && !t.agg && !t.docTab;
 }
+function usableId(id) {
+  return !JSON.stringify(id).includes('"$msTruncated"');
+}
 function bulkScope(t, kind) {
   if (kind === "all") return { scope: { kind: "all" } };
   if (kind === "query") {
@@ -2870,72 +3015,92 @@ function bulkScope(t, kind) {
     return { scope: { kind: "filter", filter: t.spec.filter, ...t.spec.collation ? { collation: t.spec.collation } : {} } };
   }
   const docs2 = selectedDocs(t);
-  const ids = docs2.filter((d) => "_id" in d).map((d) => d._id);
+  const ids = docs2.filter((d) => "_id" in d && usableId(d._id)).map((d) => d._id);
   if (docs2.length === 0) return { error: "Select rows in the results first." };
-  if (ids.length === 0) return { error: "The selected documents have no _id (from a projection), so they can't be named." };
+  if (ids.length === 0) return { error: "The selected documents have no _id that can be named (a projection left it out, or it is too long to show)." };
   return { scope: { kind: "ids", ids }, skipped: docs2.length - ids.length };
 }
 function bulkPlan(t) {
   const b = t.bulk;
   if (!b) return {};
   const s = bulkScope(t, b.scope);
-  const u = parseUpdateText(b.text);
+  const u = parseUpdateText(b.text, b.now);
   const basis = s.scope && u.update ? JSON.stringify([s.scope, u.update]) : void 0;
   return { scope: s.scope, update: u.update, basis, scopeError: s.error, updateError: u.error, skipped: s.skipped };
 }
-function currentPreview(t) {
+function currentPreview(t, plan = bulkPlan(t)) {
   const p = t.bulk?.preview;
-  return p && p.basis === bulkPlan(t).basis ? p : void 0;
+  return p && p.basis === plan.basis ? p : void 0;
+}
+function dropBulkPreview(t) {
+  return t.bulk && !t.bulk.running && t.bulk.preview ? { bulk: { ...t.bulk, preview: void 0, confirmName: "" } } : {};
 }
 function openUpdateMany(id, scope) {
   const t = tab(id);
   if (!t || !canUpdateMany(t)) return;
+  if (t.bulk?.running) return;
   const start = scope ?? (selectedDocs(t).some((d) => "_id" in d) ? "selection" : "query");
-  patch(id, { bulk: { scope: start, text: t.bulk?.text ?? "", confirmName: "", running: false }, editor: void 0, confirmDelete: void 0 });
+  patch(id, { bulk: { scope: start, text: t.bulk?.text ?? "", now: Date.now(), confirmName: "", running: false }, editor: void 0, confirmDelete: void 0 });
 }
 function closeUpdateMany(id) {
+  if (tab(id)?.bulk?.running) return;
   patch(id, { bulk: void 0 });
 }
 function setBulk(id, values) {
   change(id, (t) => {
-    if (!t.bulk) return {};
+    if (!t.bulk || t.bulk.running) return {};
     const reset = "scope" in values || "text" in values ? { preview: void 0, confirmName: "", error: void 0 } : {};
-    return { bulk: { ...t.bulk, ...reset, ...values } };
+    const now = "text" in values ? { now: Date.now() } : {};
+    return { bulk: { ...t.bulk, ...reset, ...now, ...values } };
   });
 }
 async function previewUpdateMany(id) {
   const t = tab(id);
-  if (!t?.bulk) return;
+  if (!t?.bulk || t.bulk.running) return;
   const plan = bulkPlan(t);
   if (!plan.scope || !plan.update || !plan.basis) return;
   const { scope, update: update11, basis } = plan;
   change(id, (x) => x.bulk ? { bulk: { ...x.bulk, error: void 0, confirmName: "", preview: { basis, scope, update: update11, loading: true } } } : {});
   let next;
   try {
-    next = { loading: false, result: await plugin2.request("doc.updatePreview", { ns: t.ns, scope, update: update11 }, { timeoutMs: 12e4 }) };
+    next = { loading: false, result: await plugin3.request("doc.updatePreview", { ns: t.ns, scope, update: update11 }, { timeoutMs: 12e4 }) };
   } catch (error) {
     next = { loading: false, error: errorText(error) };
   }
   change(id, (x) => x.bulk?.preview?.basis === basis ? { bulk: { ...x.bulk, preview: { ...x.bulk.preview, ...next } } } : {});
 }
-function bulkConfirmed(t) {
-  const p = currentPreview(t);
-  if (!t.bulk || !p?.result) return false;
-  return !scopeIsEverything(p.scope) || t.bulk.confirmName.trim() === t.ns.collection;
+function bulkConfirmed(t, plan = bulkPlan(t)) {
+  const p = currentPreview(t, plan);
+  if (!t.bulk || t.bulk.running || !p?.result || p.result.sample?.error) return false;
+  return !scopeIsEverything(p.scope) || t.bulk.confirmName === t.ns.collection;
 }
 async function runUpdateMany(id) {
   const t = tab(id);
   const p = t && currentPreview(t);
   if (!t?.bulk || !p?.result || !bulkConfirmed(t)) return;
-  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, running: true, error: void 0 } } : {});
+  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, running: true, error: void 0, job: void 0 } } : {});
+  const fail2 = (error) => change(id, (x) => x.bulk ? { bulk: { ...x.bulk, running: false, job: void 0, preview: void 0, confirmName: "", error } } : {});
+  let jobId;
   try {
-    const r = await plugin2.request("doc.updateMany", { ns: t.ns, scope: p.scope, update: p.update }, { timeoutMs: 12e4 });
-    patch(id, { bulk: void 0, selectedRows: [] });
-    say2(id, "success", `Updated ${nsLabel(t.ns)}: ${r.matched.toLocaleString("en-US")} matched, ${r.modified.toLocaleString("en-US")} modified.`);
-    await reloadPage(id);
+    jobId = (await plugin3.request("doc.updateMany", { ns: t.ns, scope: p.scope, update: p.update }, { timeoutMs: 6e4 })).jobId;
   } catch (error) {
-    change(id, (x) => x.bulk ? { bulk: { ...x.bulk, running: false, error: errorText(error) } } : {});
+    return fail2(errorText(error));
   }
+  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, job: { jobId } } } : {});
+  const end = await followJob(
+    jobId,
+    () => tab(id)?.bulk?.job,
+    (job) => change(id, (x) => x.bulk ? { bulk: { ...x.bulk, job } } : {})
+  );
+  if (end?.status === "done" && end.result?.kind === "update") {
+    patch(id, { bulk: void 0, selectedRows: [] });
+    say2(id, "success", `Updated ${nsLabel(t.ns)}: ${end.result.matched.toLocaleString("en-US")} matched, ${end.result.modified.toLocaleString("en-US")} modified.`);
+    await reloadPage(id);
+    return;
+  }
+  if (end) return fail2(end.message ?? `The update ended: ${end.status}.`);
+  const lost = tab(id)?.bulk?.job?.error;
+  fail2(`Lost track of the update${lost ? ` (${lost})` : ""}. The server may still be applying it: preview again to see what is left.`);
 }
 function treeKey(row, path) {
   return [`r${row}`, ...path.map((s) => typeof s === "number" ? `#${s}` : encodeURIComponent(s))].join("/");
@@ -2985,7 +3150,7 @@ async function loadLibrary(id) {
   const t = tab(id);
   if (!t) return;
   try {
-    patch(id, { library: await plugin2.request("history.list", { ns: t.ns }) });
+    patch(id, { library: await plugin3.request("history.list", { ns: t.ns }) });
   } catch {
   }
 }
@@ -2997,7 +3162,7 @@ async function saveQuery(id) {
   const t = tab(id);
   if (!t) return;
   try {
-    const library = await plugin2.request("saved.save", { ns: t.ns, name: t.saveName, query: t.text });
+    const library = await plugin3.request("saved.save", { ns: t.ns, name: t.saveName, query: t.text });
     patch(id, { library, saveName: "" });
     say2(id, "success", `Saved the query as "${t.saveName.trim()}".`);
   } catch (error) {
@@ -3007,160 +3172,16 @@ async function saveQuery(id) {
 async function deleteSaved(id, name) {
   const t = tab(id);
   if (!t) return;
-  patch(id, { library: await plugin2.request("saved.delete", { ns: t.ns, name }), librarySelected: void 0 });
+  patch(id, { library: await plugin3.request("saved.delete", { ns: t.ns, name }), librarySelected: void 0 });
 }
 async function clearHistory(id) {
   const t = tab(id);
   if (!t) return;
-  patch(id, { library: await plugin2.request("history.clear", { ns: t.ns }), librarySelected: void 0 });
+  patch(id, { library: await plugin3.request("history.clear", { ns: t.ns }), librarySelected: void 0 });
 }
 
 // src/panel/admin-state.ts
 import { atom as atom4, read as read4, set as set4, update as update3 } from "orca";
-
-// src/panel/data-state.ts
-import { atom as atom3, files, plugin as plugin3, read as read3, set as set3 } from "orca";
-
-// src/shared/base64.ts
-var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-var LOOKUP = new Int16Array(128).fill(-1);
-for (let i = 0; i < ALPHABET.length; i++) LOOKUP[ALPHABET.charCodeAt(i)] = i;
-function base64Bytes(b64) {
-  const clean = b64.replace(/[\s=]+/g, "");
-  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
-  let o = 0;
-  let acc = 0;
-  let bits = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const v = LOOKUP[clean.charCodeAt(i)] ?? -1;
-    if (v < 0) throw new Error("Not base64 text.");
-    acc = acc << 6 | v;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out[o++] = acc >> bits & 255;
-    }
-  }
-  return o === out.length ? out : out.slice(0, o);
-}
-function joinBytes(parts) {
-  const total = parts.reduce((n2, p) => n2 + p.length, 0);
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out.buffer;
-}
-
-// src/panel/data-state.ts
-var fetched = /* @__PURE__ */ new Map();
-var PIECE_BYTES = 600 * 1024;
-var UPLOAD_CHARS = 2e5;
-async function followJob(jobId, get, put) {
-  let version = 0;
-  for (; ; ) {
-    if (get()?.jobId !== jobId) return void 0;
-    let s;
-    try {
-      s = await plugin3.request("job.poll", { jobId, version, waitMs: 15e3 }, { timeoutMs: 3e4 });
-    } catch (error) {
-      const box2 = get();
-      if (box2?.jobId === jobId) put({ ...box2, error: errorText(error) });
-      return void 0;
-    }
-    const box = get();
-    if (box?.jobId !== jobId) return void 0;
-    version = s.version;
-    put({ ...box, state: s });
-    if (s.status === "running") continue;
-    const d = s.result && "download" in s.result ? s.result.download : void 0;
-    if (s.status === "done" && d) await fetchDownload(jobId, d, get, put);
-    return s;
-  }
-}
-async function fetchDownload(jobId, d, get, put) {
-  const update11 = (download) => {
-    const box = get();
-    if (box?.jobId === jobId) put({ ...box, download });
-  };
-  const parts = [];
-  let offset = 0;
-  update11({ ...d, fetched: 0, ready: false });
-  try {
-    while (offset < d.size) {
-      if (get()?.jobId !== jobId) return;
-      const r = await plugin3.request("job.read", { jobId, offset, size: PIECE_BYTES }, { timeoutMs: 6e4 });
-      const bytes = base64Bytes(r.base64);
-      if (bytes.length === 0) break;
-      parts.push(bytes);
-      offset += bytes.length;
-      update11({ ...d, fetched: offset, ready: false });
-    }
-    fetched.set(jobId, joinBytes(parts));
-    update11({ ...d, fetched: offset, ready: true });
-  } catch (error) {
-    update11({ ...d, fetched: offset, ready: false, error: errorText(error) });
-  } finally {
-    void plugin3.request("job.close", { jobId }).catch(() => void 0);
-  }
-}
-async function saveDownload(box) {
-  const d = box?.download;
-  const data = box ? fetched.get(box.jobId) : void 0;
-  if (!box || !d?.ready || !data) return false;
-  const r = await files.saveAs({ suggestedName: d.name, mimeType: d.mimeType, data });
-  return r.status === "saved";
-}
-function dropDownload(box) {
-  if (box) fetched.delete(box.jobId);
-}
-async function cancelJob(box) {
-  if (box?.state?.status === "running" || box && !box.state) await plugin3.request("job.cancel", { jobId: box.jobId });
-}
-function jobRunning(box) {
-  return Boolean(box && !box.error && (!box.state || box.state.status === "running" || box.download && !box.download.ready && !box.download.error));
-}
-async function uploadText(text) {
-  let uploadId;
-  for (let at = 0; at < text.length || at === 0; at += UPLOAD_CHARS) {
-    const r = await plugin3.request("import.upload", { chunk: text.slice(at, at + UPLOAD_CHARS), ...uploadId ? { uploadId } : {} }, { timeoutMs: 6e4 });
-    uploadId = r.uploadId;
-  }
-  return uploadId;
-}
-var clipboard = atom3(null);
-function copyToClipboard(clip2) {
-  set3(clipboard, clip2);
-}
-function clipText(clip2) {
-  if (clip2.kind === "database") return `the ${clip2.db} database`;
-  if (clip2.kind === "collection") return `${clip2.ns.db}.${clip2.ns.collection}`;
-  return `${clip2.ids.length.toLocaleString("en-US")} document${clip2.ids.length === 1 ? "" : "s"} of ${clip2.ns.db}.${clip2.ns.collection}`;
-}
-function bytesText(n2) {
-  if (n2 < 1024) return `${n2} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = n2 / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
-}
-function progressText(s) {
-  const fmt3 = (n2) => s.unit === "bytes" ? bytesText(n2) : n2.toLocaleString("en-US");
-  const unit = s.unit === "bytes" ? "" : " documents";
-  return s.total !== null ? `${fmt3(s.done)} of ${fmt3(s.total)}${unit}` : `${fmt3(s.done)}${unit}`;
-}
-function progressPercent(s) {
-  if (s.total === null || s.total === 0) return s.status === "done" ? 100 : void 0;
-  return Math.max(0, Math.min(100, Math.round(s.done / s.total * 100)));
-}
-
-// src/panel/admin-state.ts
 var adminTabs = atom4({});
 function adminTab(id) {
   return read4(adminTabs)[id];
@@ -5605,6 +5626,8 @@ function resultSummary(result) {
       return `${n(result.inserted)} inserted, ${n(result.replaced)} replaced, ${n(result.deleted)} deleted${result.failed ? `, ${n(result.failed)} failed` : ""}.`;
     case "gridfs-upload":
       return `Uploaded ${n(result.bytes)} bytes.`;
+    case "update":
+      return `${n(result.matched)} matched, ${n(result.modified)} modified.`;
   }
 }
 
@@ -7885,7 +7908,7 @@ function ResultTable({ t }) {
           const c = shown[colKeys.indexOf(column)];
           if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))();
         },
-        onSelectionChange: ({ keys: sel }) => change(t.id, () => ({ selectedRows: sel, confirmDelete: void 0 })),
+        onSelectionChange: ({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: void 0 })),
         onRowAction: ({ key }) => {
           const i = keys.indexOf(key);
           const d = docs2[i];
@@ -9786,11 +9809,11 @@ function Editors({ t }) {
 }
 
 // src/panel/update-view.tsx
-import { Box as Box18, Button as Button18, Callout as Callout18, Card as Card6, CodeView as CodeView14, Input as Input13, RadioGroup as RadioGroup8, Row as Row20, Skeleton as Skeleton13, Table as Table14, Text as Text20, Textarea as Textarea8 } from "orca";
+import { Box as Box18, Button as Button18, Callout as Callout18, Card as Card6, CodeView as CodeView14, Input as Input13, Progress as Progress3, RadioGroup as RadioGroup8, Row as Row20, Skeleton as Skeleton13, Table as Table14, Text as Text20, Textarea as Textarea8 } from "orca";
 import { jsx as jsx21, jsxs as jsxs20 } from "orca/jsx-runtime";
-var plural = (n2, one, many = `${one}s`) => `${n2.toLocaleString("en-US")} ${n2 === 1 ? one : many}`;
-function scopeOptions(t) {
-  const selection = bulkScope(t, "selection");
+var plural = (n2, one, many = `${one}s`) => `${numberText(n2)} ${n2 === 1 ? one : many}`;
+function scopeOptions(t, plan) {
+  const selection = t.bulk?.scope === "selection" ? { scope: plan.scope, error: plan.scopeError } : bulkScope(t, "selection");
   const n2 = selection.scope?.kind === "ids" ? selection.scope.ids.length : 0;
   const spec = t.spec;
   const ignored = spec && (spec.skip || spec.limit) ? " Skip and limit are not applied." : "";
@@ -9807,11 +9830,11 @@ function scopeOptions(t) {
 }
 function reachText(p) {
   const r = p.result;
-  if (r.count === null) return `The number of documents isn't known: ${r.countError ?? "counting failed"}.`;
+  if (r.count === null) return `The number of documents isn't known: ${(r.countError ?? "counting failed").replace(/\.$/, "")}.`;
   if (r.count === 0) return "No document matches, so nothing would change.";
   return `${r.approximate ? "About " : ""}${plural(r.count, "document")} would be updated.`;
 }
-function Preview3({ t, p }) {
+function Preview3({ t, p, plan }) {
   if (p.loading) return /* @__PURE__ */ jsx21(Skeleton13, { lines: 3, label: "Counting and trying the update on one document" });
   if (p.error) return /* @__PURE__ */ jsx21(Callout18, { tone: "danger", icon: "error", title: "The preview failed", children: p.error });
   const r = p.result;
@@ -9841,12 +9864,13 @@ function Preview3({ t, p }) {
       }
     ) : /* @__PURE__ */ jsx21(Text20, { size: "sm", muted: true, children: "The first document would stay as it is." }) : null,
     s?.capped ? /* @__PURE__ */ jsx21(Text20, { size: "xs", muted: true, children: "Only the first 100 changed fields are listed." }) : null,
+    s?.tooBig ? /* @__PURE__ */ jsx21(Text20, { size: "xs", muted: true, children: "The document is too big to show here before and after, so it is cut down to its _id." }) : null,
     s ? /* @__PURE__ */ jsx21(CodeView14, { label: "Before", code: toShell(s.before), language: "javascript", maxHeight: "sm" }) : null,
     s?.after ? /* @__PURE__ */ jsx21(CodeView14, { label: "After", code: toShell(s.after), language: "javascript", maxHeight: "sm" }) : null,
-    r.count !== 0 ? /* @__PURE__ */ jsx21(Confirm, { t, p }) : null
+    s?.error ? /* @__PURE__ */ jsx21(Text20, { size: "sm", tone: "danger", children: "Fix the update first: updateMany would stop at a document like this one, after changing others." }) : r.count !== 0 ? /* @__PURE__ */ jsx21(Confirm, { t, p, plan }) : null
   ] });
 }
-function Confirm({ t, p }) {
+function Confirm({ t, p, plan }) {
   const b = t.bulk;
   const everything = scopeIsEverything(p.scope);
   const n2 = p.result.count;
@@ -9855,17 +9879,17 @@ function Confirm({ t, p }) {
   return /* @__PURE__ */ jsx21(Callout18, { tone: everything ? "danger" : "warning", icon: "warning", title, children: /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
     /* @__PURE__ */ jsx21(Text20, { children: `This changes ${everything ? "the whole collection" : what}. It can't be undone.` }),
     everything ? /* @__PURE__ */ jsx21(Input13, { label: `Type ${t.ns.collection} to confirm`, value: b.confirmName, onChange: (confirmName) => setBulk(t.id, { confirmName }), onSubmit: () => void guard(t.id, () => runUpdateMany(t.id))() }) : null,
-    /* @__PURE__ */ jsx21(Row20, { gap: "xs", children: /* @__PURE__ */ jsx21(Button18, { variant: "solid", tone: "danger", icon: "check", disabled: b.running || !bulkConfirmed(t), onPress: guard(t.id, () => runUpdateMany(t.id)), children: b.running ? "Updating…" : everything ? "Update every document" : n2 === null ? "Update documents" : `Update ${plural(n2, "document")}` }) })
+    /* @__PURE__ */ jsx21(Row20, { gap: "xs", children: /* @__PURE__ */ jsx21(Button18, { variant: "solid", tone: "danger", icon: "check", disabled: b.running || !bulkConfirmed(t, plan), onPress: guard(t.id, () => runUpdateMany(t.id)), children: b.running ? "Updating…" : everything ? "Update every document" : n2 === null ? "Update documents" : `Update ${plural(n2, "document")}` }) })
   ] }) });
 }
 function UpdateMany({ t }) {
   const b = t.bulk;
   if (!b) return null;
   const plan = bulkPlan(t);
-  const p = currentPreview(t);
+  const p = currentPreview(t, plan);
   const typed = b.text.trim() !== "";
   return /* @__PURE__ */ jsx21(Card6, { title: "Update documents", description: `updateMany on ${nsLabel(t.ns)}`, children: /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
-    /* @__PURE__ */ jsx21(RadioGroup8, { label: "Documents", value: b.scope, options: scopeOptions(t), onChange: (v) => setBulk(t.id, { scope: v }) }),
+    /* @__PURE__ */ jsx21(RadioGroup8, { label: "Documents", value: b.scope, options: scopeOptions(t, plan), disabled: b.running, onChange: (v) => setBulk(t.id, { scope: v }) }),
     plan.skipped ? /* @__PURE__ */ jsx21(Text20, { size: "xs", tone: "warning", children: `${plural(plan.skipped, "selected row")} without an _id ${plan.skipped === 1 ? "is" : "are"} left out.` }) : null,
     /* @__PURE__ */ jsx21(
       Textarea8,
@@ -9875,16 +9899,18 @@ function UpdateMany({ t }) {
         placeholder: "{ $set: { status: 'archived' } }   or a pipeline: [{ $set: { … } }]",
         value: b.text,
         invalid: typed && Boolean(plan.updateError),
+        disabled: b.running,
         onChange: (text) => setBulk(t.id, { text }),
         onSubmit: () => void guard(t.id, () => previewUpdateMany(t.id))()
       }
     ),
     typed && plan.updateError ? /* @__PURE__ */ jsx21(Text20, { size: "xs", tone: "danger", children: plan.updateError }) : /* @__PURE__ */ jsx21(Text20, { size: "xs", muted: true, children: "Update operators, or an update pipeline in [ ]. Ctrl+Enter previews." }),
     /* @__PURE__ */ jsxs20(Row20, { gap: "xs", children: [
-      /* @__PURE__ */ jsx21(Button18, { variant: p ? "ghost" : "solid", tone: "accent", icon: "search", disabled: !plan.basis || p?.loading, onPress: guard(t.id, () => previewUpdateMany(t.id)), children: p ? "Preview again" : "Preview" }),
+      /* @__PURE__ */ jsx21(Button18, { variant: p ? "ghost" : "solid", tone: "accent", icon: "search", disabled: !plan.basis || p?.loading || b.running, onPress: guard(t.id, () => previewUpdateMany(t.id)), children: p ? "Preview again" : "Preview" }),
       /* @__PURE__ */ jsx21(Button18, { variant: "ghost", disabled: b.running, onPress: () => closeUpdateMany(t.id), children: "Cancel" })
     ] }),
-    p ? /* @__PURE__ */ jsx21(Preview3, { t, p }) : null,
+    p ? /* @__PURE__ */ jsx21(Preview3, { t, p, plan }) : null,
+    b.running ? /* @__PURE__ */ jsx21(Progress3, { label: `${b.job?.state?.phase ?? "Starting the update"}…` }) : null,
     b.error ? /* @__PURE__ */ jsx21(Callout18, { tone: "danger", icon: "error", title: "The update failed", children: b.error }) : null
   ] }) });
 }

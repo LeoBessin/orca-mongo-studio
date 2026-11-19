@@ -165,6 +165,8 @@ export function resultSummary(result: JobResult): string {
       return `${n(result.inserted)} inserted, ${n(result.replaced)} replaced, ${n(result.deleted)} deleted${result.failed ? `, ${n(result.failed)} failed` : ''}.`
     case 'gridfs-upload':
       return `Uploaded ${n(result.bytes)} bytes.`
+    case 'update':
+      return `${n(result.matched)} matched, ${n(result.modified)} modified.`
   }
 }
 

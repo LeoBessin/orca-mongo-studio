@@ -27,6 +27,7 @@ import {
   addToQuery,
   askDelete,
   canUpdateMany,
+  dropBulkPreview,
   openUpdateMany,
   canOpenDocuments,
   change,
@@ -184,7 +185,7 @@ function ResultTable({ t }: { t: CollTab }): OrcaNode {
           const c = shown[colKeys.indexOf(column)]
           if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
         }}
-        onSelectionChange={({ keys: sel }) => change(t.id, () => ({ selectedRows: sel, confirmDelete: undefined }))}
+        onSelectionChange={({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: undefined }))}
         onRowAction={({ key }) => {
           const i = keys.indexOf(key)
           const d = docs[i]

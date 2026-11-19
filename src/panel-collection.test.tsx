@@ -1,7 +1,7 @@
 // Collection tabs over a stand-in worker: querying, paging, the views, the editors, the Query
 // Builder and history. What the person sees, and what reaches the worker.
 import { assert, describe, mockHost, mount, test, type MockRequests, type MountOptions } from 'orca/testing'
-import type { ConnectionsState, QueryLibrary, QueryPage, QuerySpec, QueryText } from './protocol'
+import type { ConnectionsState, JobState, QueryLibrary, QueryPage, QuerySpec, QueryText } from './protocol'
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import * as panel from './panel'
 import { docTabIdFor, tabIdFor } from './panel/collection-state'
@@ -84,6 +84,23 @@ async function openOrders(host: ReturnType<typeof setup>['host'], kind: 'coll' |
 }
 
 const table = { type: 'Table', label: 'Documents' }
+
+/** A finished update job, as `job.poll` answers it. */
+const updateJob = (jobId: string, matched: number, modified: number, failed?: string): JobState => ({
+  jobId,
+  kind: 'update',
+  status: failed ? 'failed' : 'done',
+  version: 2,
+  phase: failed ? 'Failed' : 'Done',
+  done: 0,
+  total: null,
+  unit: 'documents',
+  errors: [],
+  errorCount: 0,
+  ...(failed ? { message: failed } : { result: { kind: 'update', matched, modified } }),
+  started: 0,
+  ms: 5
+})
 const RESULT_VIEW = 'mongo-studio.resultView'
 const DOC_VIEW = 'mongo-studio.docView'
 
@@ -251,8 +268,9 @@ describe('collection tabs', () => {
       },
       'doc.updateMany': (input) => {
         calls.updates!.push(input)
-        return { matched: 2, modified: 1 }
-      }
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 2, 1)
     })
     const view = await openOrders(host)
     await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(2))])
@@ -278,8 +296,9 @@ describe('collection tabs', () => {
       'doc.updatePreview': ({ scope }) => ({ count: scope.kind === 'all' ? 20000 : 7, approximate: scope.kind === 'all', ms: 2 }),
       'doc.updateMany': (input) => {
         calls.updates!.push(input)
-        return { matched: 20000, modified: 20000 }
-      }
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 20000, 20000)
     })
     const view = await openOrders(host)
     await view.type({ label: 'Filter' }, "{ status: 'pending' }", { submit: true })
@@ -301,6 +320,71 @@ describe('collection tabs', () => {
     await view.type({ label: 'Type orders to confirm' }, 'orders', { replace: true })
     await view.press(run)
     assert.deepEqual(calls.updates, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' }, scope: { kind: 'all' }, update: [{ $set: { n: { $numberInt: '1' } } }] }])
+  })
+
+  test('update many: a date in the update is fixed when typed, so the preview and the run agree', async () => {
+    const { host, calls } = setup({
+      'doc.updatePreview': { count: 3, approximate: false, ms: 1 },
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 3, 3)
+    })
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, "{ status: 'pending' }", { submit: true })
+    await view.press({ text: 'Update many' })
+    await view.type({ label: 'Update' }, '{ $set: { at: new Date() } }')
+    await view.press({ text: 'Preview' })
+    await new Promise((r) => setTimeout(r, 5))
+    await view.rerender()
+    assert.ok(view.find({ text: '3 documents would be updated.' }), 'the preview stays current as time passes')
+    await view.press({ text: 'Update 3 documents' })
+    assert.equal(calls.updates!.length, 1)
+  })
+
+  test('update many: a refused first document blocks the run, and a failed run needs a new preview', async () => {
+    let refuse = true
+    const { host, calls } = setup({
+      'doc.updatePreview': () => ({
+        count: 3,
+        approximate: false,
+        sample: { before: orders[0]!, diffs: [], capped: false, ...(refuse ? { error: 'Cannot apply $inc to a value of non-numeric type.' } : {}) },
+        ms: 1
+      }),
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 0, 0, 'Plan executor error during update.')
+    })
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, "{ status: 'pending' }", { submit: true })
+    await view.press({ text: 'Update many' })
+    await view.type({ label: 'Update' }, '{ $inc: { status: 1 } }')
+    await view.press({ text: 'Preview' })
+    assert.ok(view.find({ text: /Cannot apply \$inc/ }))
+    assert.equal(view.find({ text: 'Update 3 documents' }), null, 'no confirmation while the server refuses it')
+    refuse = false
+    await view.press({ text: 'Preview again' })
+    await view.press({ text: 'Update 3 documents' })
+    assert.ok(view.find({ type: 'Callout', label: 'The update failed' }))
+    assert.equal(view.find({ text: 'Update 3 documents' }), null, 'the preview is gone: pressing again cannot repeat it')
+    assert.ok(view.find({ type: 'Button', text: 'Preview' }))
+    assert.equal(calls.updates!.length, 1)
+  })
+
+  test('update many: running the query again drops the preview and its confirmation', async () => {
+    const { host } = setup({ 'doc.updatePreview': { count: 3, approximate: false, ms: 1 } })
+    const view = await openOrders(host)
+    await view.press({ text: 'Update many' })
+    await view.type({ label: 'Update' }, "{ $set: { a: 1 } }")
+    await view.press({ text: 'Preview' })
+    await view.type({ label: 'Type orders to confirm' }, 'orders')
+    await view.type({ label: 'Filter' }, '{ a: 1 }', { submit: true })
+    await view.type({ label: 'Filter' }, '', { replace: true, submit: true })
+    assert.equal(view.find({ text: '3 documents would be updated.' }), null)
+    assert.equal(view.find({ text: 'Update every document' }), null)
   })
 
   test('update many is not offered on a read-only connection', async () => {

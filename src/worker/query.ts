@@ -3,7 +3,7 @@
 // request answer (1 MiB): long strings, big arrays and binary data are cut down with a marker, and a
 // page stops early when its documents would pass the byte budget.
 import { createHash } from 'node:crypto'
-import { BSON, type AbstractCursor, type Document, type MongoClient } from 'mongodb'
+import { BSON, type AbstractCursor, type Collection, type Document, type MongoClient } from 'mongodb'
 import type { AggOptions, CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
 import { hasWriteStage } from '../shared/pipeline'
 import { base64Length, bsonType, isObject, type JsonObject, type JsonValue } from '../shared/ejson-view'
@@ -273,36 +273,8 @@ export class QuerySessions {
 
   async count(ns: Namespace, spec: QuerySpec): Promise<CountResult> {
     checkSpec(spec, 1)
-    const started = Date.now()
     const client = await this.client(ns.connectionId)
-    const coll = client.db(ns.db).collection(ns.collection)
-    const within = (total: number): number => {
-      const after = Math.max(total - spec.skip, 0)
-      return spec.limit > 0 ? Math.min(after, spec.limit) : after
-    }
-    try {
-      if (Object.keys(spec.filter).length === 0) {
-        try {
-          // Metadata only: instant even on a big collection. Views and some sharded setups refuse it.
-          const n = await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS })
-          return { count: within(n), approximate: true, ms: Date.now() - started }
-        } catch {
-          // fall through to an exact count
-        }
-      }
-      const options: Document = { maxTimeMS: COUNT_MAX_TIME_MS }
-      if (spec.skip) options.skip = spec.skip
-      if (spec.limit) options.limit = spec.limit
-      if (spec.collation && Object.keys(spec.collation).length) options.collation = toBson(spec.collation)
-      const n = await coll.countDocuments(toBson(spec.filter), options)
-      return { count: n, approximate: false, ms: Date.now() - started }
-    } catch (error) {
-      const e = error as { code?: unknown; codeName?: unknown; message?: string }
-      if (e.code === 50 || e.codeName === 'MaxTimeMSExpired') {
-        return { count: null, approximate: false, ms: Date.now() - started, error: `Counting took longer than ${COUNT_MAX_TIME_MS / 1000} s, so it stopped.` }
-      }
-      return { count: null, approximate: false, ms: Date.now() - started, error: e.message ?? String(error) }
-    }
+    return countMatching(client.db(ns.db).collection(ns.collection), spec.filter, spec)
   }
 
   async close(queryId: string): Promise<void> {
@@ -335,6 +307,49 @@ export class QuerySessions {
   private stopSweeper(): void {
     if (this.sweeper) clearInterval(this.sweeper)
     this.sweeper = undefined
+  }
+}
+
+/**
+ * Counts the documents a filter matches (after `skip`, within `limit`), with a time limit. An empty
+ * filter reads the collection's metadata instead, instant but approximate, when the server allows
+ * it. `primary` counts on the primary, where a write would go.
+ */
+export async function countMatching(
+  coll: Collection,
+  filter: JsonObject,
+  options: { collation?: JsonObject; skip?: number; limit?: number; primary?: boolean } = {}
+): Promise<CountResult> {
+  const started = Date.now()
+  const skip = options.skip ?? 0
+  const limit = options.limit ?? 0
+  const read: Document = options.primary ? { readPreference: 'primary' } : {}
+  const within = (total: number): number => {
+    const after = Math.max(total - skip, 0)
+    return limit > 0 ? Math.min(after, limit) : after
+  }
+  try {
+    if (Object.keys(filter).length === 0) {
+      try {
+        // Metadata only: instant even on a big collection. Views and some sharded setups refuse it.
+        const n = await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS, ...read })
+        return { count: within(n), approximate: true, ms: Date.now() - started }
+      } catch {
+        // fall through to an exact count
+      }
+    }
+    const countOptions: Document = { maxTimeMS: COUNT_MAX_TIME_MS, ...read }
+    if (skip) countOptions.skip = skip
+    if (limit) countOptions.limit = limit
+    if (options.collation && Object.keys(options.collation).length) countOptions.collation = toBson(options.collation)
+    const n = await coll.countDocuments(toBson(filter), countOptions)
+    return { count: n, approximate: false, ms: Date.now() - started }
+  } catch (error) {
+    const e = error as { code?: unknown; codeName?: unknown; message?: string }
+    if (e.code === 50 || e.codeName === 'MaxTimeMSExpired') {
+      return { count: null, approximate: false, ms: Date.now() - started, error: `Counting took longer than ${COUNT_MAX_TIME_MS / 1000} s, so it stopped.` }
+    }
+    return { count: null, approximate: false, ms: Date.now() - started, error: e.message ?? String(error) }
   }
 }
 
