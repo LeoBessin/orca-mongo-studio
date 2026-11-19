@@ -103,13 +103,18 @@ Skills: `/dev-plugin` (load, reload, inspect, screenshot), `/test` (which tests,
   calls `writable(connectionId, action)` in `src/worker.ts` first, and the shell checks commands
   against `src/shared/read-only.ts`. A new write path must do the same. No setting may weaken
   this.
-- User preferences live in the Settings tab. A new one goes in `src/shared/settings.ts` (type,
-  default, `normalizeSettings`, with a test) and gets a control in `src/panel/settings-view.tsx`.
-  Panel code reads them with `settings()` from `src/panel/settings-state.ts`, never the atoms:
-  storage keeps values as written, with no migration. Each setting is its own `storage` key
-  (`mongo-studio.settings.<name>`), because storage echoes writes back to the atom, and with one
-  object the echo of one change can undo the next. Keep them out of `connections.v1`, so
-  **Reset to defaults** never touches connections. Panel tests seed them as plain storage keys.
-- A confirmation that a setting can turn off is a function that asks, then runs the action at
-  once when `settings()` says not to ask (`askDelete`, `askConfirm`, `askDropIndex`). Its button
-  must go through `guard`/`aguard`, since the action may now run and fail from that press.
+- User preferences are Orca plugin settings (`settings:own`), declared in `orca-plugin.json`
+  `contributes.settings`, so they stay apart from storage and connections and Orca's Settings
+  shows them too. A new one needs its type, default and `readSetting` case in
+  `src/shared/settings.ts`, the same key, default and values declared in the manifest
+  (`settings.test.ts` checks they match), and a control in `src/panel/settings-view.tsx`. Panel
+  code reads them with `settings()` from `src/panel/settings-state.ts`: one normalized copy,
+  loaded before the layout comes back and re-read from Orca when a change is announced, never
+  from the announcement itself. Panel tests seed them with `mockHost({ settings })` in their
+  stored form (`pageSize: 0` is "Last used").
+- A confirmation that a setting can turn off is an `ask*` function (`askDelete`, `askConfirm`,
+  `askDropIndex`) over an action that takes its arguments explicitly (`deleteDocuments`,
+  `clearOrDrop`, `dropIndex`). When not asking, it calls the action directly and never sets the
+  confirmation's state, so nothing can cancel or repeat it while it runs or linger after it
+  fails; the action ignores a second press while one runs. Its button goes through
+  `guard`/`aguard`, since that press can now run and fail.

@@ -24,12 +24,13 @@ const orders: JsonObject[] = Array.from({ length: 3 }, (_, i) => ({
 
 type Calls = { runs: { spec: QuerySpec; pageSize: number; text?: QueryText }[]; pages: { offset: number }[]; [k: string]: unknown[] }
 
-function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage: Record<string, JsonValue> = {}) {
+function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage: Record<string, JsonValue> = {}, settings: Record<string, JsonValue> = {}) {
   const calls: Calls = { runs: [], pages: [], updates: [], replaces: [], inserts: [], deletes: [] }
   let library: QueryLibrary = { history: [], saved: [] }
   const page = (offset: number, docs: JsonObject[], hasMore: boolean): QueryPage => ({ queryId: 'q1', offset, docs, truncated: [], hasMore, stoppedForSize: false, ms: 3 })
   const host = mockHost({
     storage,
+    settings,
     requests: {
       'connections.state': state,
       'tree.children': ({ key }) =>
@@ -959,50 +960,10 @@ describe('switching sidebar tabs', () => {
   })
 })
 
-/** Settings as storage holds them: one key each. */
-const prefs = (values: Record<string, JsonValue>): Record<string, JsonValue> =>
-  Object.fromEntries(Object.entries(values).map(([k, v]) => [`mongo-studio.settings.${k}`, v]))
-
+// The Settings tab itself is tested in panel.test.tsx; these are what each setting does here.
 describe('settings', () => {
-  test('the Settings tab opens from the tree, saves each change in storage and resets to the defaults', async () => {
-    const { host } = setup({}, 'coll', { 'connections.v1': { items: [] } })
-    const view = await mount(panel, { host })
-    await view.press({ type: 'IconButton', label: 'Settings' })
-    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
-    const reset = { type: 'Button', text: 'Reset to defaults' }
-    assert.equal(view.find(reset)!.props.disabled, true, 'nothing to reset yet')
-    await view.select({ type: 'Select', label: 'Results view' }, 'json')
-    await view.select({ type: 'Select', label: 'Page size' }, '200')
-    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping' })
-    const stored = host.data().storage
-    assert.equal(stored['mongo-studio.settings.resultView'], 'json')
-    assert.equal(stored['mongo-studio.settings.pageSize'], 200)
-    assert.equal(stored['mongo-studio.settings.confirmDrop'], false)
-    // Storage echoes each write back after the act settles; a person can't press Reset sooner.
-    await view.settled()
-    await view.press(reset)
-    assert.equal(view.valueOf({ type: 'Select', label: 'Results view' }), 'last')
-    assert.equal(view.valueOf({ type: 'Checkbox', label: 'Ask before dropping' }), true)
-    assert.deepEqual(host.data().storage['connections.v1'], { items: [] }, 'connections are kept apart')
-    await view.press({ label: 'Close settings' })
-    assert.equal(view.valueOf({ type: 'Tabs' }), 'tree')
-    assert.deepEqual(view.errors, [])
-    assert.deepEqual(view.warnings, [])
-  })
-
-  test('the Settings command opens the tab', async () => {
-    const { host } = setup()
-    const view = await mount(panel, { host })
-    await view.post('ui.navigate', { view: 'settings' })
-    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
-  })
-
   test('new tabs start in the chosen view, page size and Extended JSON, whatever was used last', async () => {
-    const { host, calls } = setup({}, 'coll', {
-      [RESULT_VIEW]: 'tree',
-      [DOC_VIEW]: 'tree',
-      ...prefs({ resultView: 'json', docView: 'shell', pageSize: 20, ejson: 'canonical' })
-    })
+    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree', [DOC_VIEW]: 'tree' }, { resultView: 'json', docView: 'shell', pageSize: 20, ejson: 'canonical' })
     const view = await openOrders(host)
     assert.equal(calls.runs[0]!.pageSize, 20)
     const code = view.find({ type: 'CodeView', label: 'Documents as Extended JSON' })!.props.code as string
@@ -1018,7 +979,7 @@ describe('settings', () => {
   })
 
   test('"Last used" page size and views follow what was chosen last', async () => {
-    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree', ...prefs({ pageSize: 'last' }) })
+    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree' }, { pageSize: 0 })
     const view = await openOrders(host, 'coll', { plugin: { 'mongo-studio.pageSize': 100 } })
     assert.equal(calls.runs[0]!.pageSize, 100)
     assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
@@ -1032,7 +993,7 @@ describe('settings', () => {
         return { jobId: 'u1' }
       },
       'job.poll': ({ jobId }) => updateJob(jobId, 4, 4)
-    }, 'coll', prefs({ confirmDeleteDocs: false, confirmByName: false }))
+    }, 'coll', {}, { confirmDeleteDocs: false, confirmByName: false })
     const view = await openOrders(host)
     await view.selectRows(table, [JSON.stringify(oid(2))])
     await view.press({ text: 'Delete' })
@@ -1049,7 +1010,7 @@ describe('settings', () => {
   })
 
   test('with checking while typing off, errors wait for Run; with Format buttons off, there are none', async () => {
-    const { host, calls } = setup({}, 'coll', prefs({ liveCheck: false, formatButtons: false }))
+    const { host, calls } = setup({}, 'coll', {}, { liveCheck: false, formatButtons: false })
     const view = await openOrders(host)
     assert.equal(view.find({ type: 'IconButton', label: 'Format the filter on several lines' }), null)
     await view.type({ label: 'Filter' }, '{ a: 1 ]')
@@ -1059,5 +1020,30 @@ describe('settings', () => {
     assert.equal(calls.runs.length, 1)
     await view.type({ label: 'Filter' }, '{\n  a: 1\n}', { replace: true })
     assert.ok(view.find({ type: 'IconButton', label: 'Put the filter on one line' }), 'a multi-line box can always go back')
+  })
+})
+
+describe('settings: deleting without asking', () => {
+  test('shows no confirmation while the deletion runs, and a second press sends nothing', async () => {
+    let finish: (() => void) | undefined
+    const { host, calls } = setup({
+      'doc.deleteMany': (input) => {
+        calls.deletes!.push(input)
+        return new Promise((resolve) => (finish = () => resolve({ deleted: input.ids.length })))
+      }
+    }, 'coll', {}, { confirmDeleteDocs: false })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    const pressing = view.press({ text: 'Delete' })
+    await new Promise((r) => setTimeout(r, 0))
+    assert.equal(view.find({ type: 'Callout', label: 'Delete 1 document from shop.orders?' }), null)
+    assert.equal(view.find({ text: 'Delete document' }), null, 'nothing to confirm or cancel')
+    void view.press({ text: 'Delete' }).catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 0))
+    finish!()
+    await pressing
+    await view.settled()
+    assert.equal(calls.deletes!.length, 1)
+    assert.ok(view.find({ text: 'Deleted 1 document from shop.orders.' }))
   })
 })

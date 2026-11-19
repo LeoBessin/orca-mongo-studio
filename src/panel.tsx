@@ -32,7 +32,7 @@ import { ShellTab } from './panel/shell-view'
 import { TreeView } from './panel/tree-view'
 import { openTasks, setTasks, TASKS_TAB, tasksOpen } from './panel/tasks-state'
 import { TasksView } from './panel/tasks-view'
-import { openSettings, SETTINGS_TAB, settingsOpen } from './panel/settings-state'
+import { loadSettings, openSettings, SETTINGS_TAB, settingsOpen } from './panel/settings-state'
 import { SettingsView } from './panel/settings-view'
 
 export function setup(ctx: PanelContext): void {
@@ -58,8 +58,11 @@ export function setup(ctx: PanelContext): void {
   )
   void loadLatestRun()
   // Orca ends the panel's run on every switch to another sidebar tab; this brings back what was
-  // open. It waits for the connections' state, to know which ones are still open.
-  refreshState()
+  // open. It waits for the connections' state, to know which ones are still open, and for the
+  // settings, which say how tabs start.
+  const listening = loadSettings()
+  ctx.subscriptions.push({ dispose: () => void listening.then((l) => l.dispose()) })
+  Promise.all([refreshState(), listening])
     .catch((error) => set(notice, { tone: 'danger', text: `Mongo Studio could not start: ${errorText(error)}` }))
     .finally(() => void restoreLayout())
 }

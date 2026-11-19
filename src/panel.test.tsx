@@ -3,6 +3,7 @@ import { assert, describe, mockHost, mount, test } from 'orca/testing'
 import type { ConnectionsState, TestReport } from './protocol'
 import { emptyConnection, type ConnectionDef, type SecretDraft } from './shared/model'
 import * as panel from './panel'
+import { openSettings } from './panel/settings-state'
 
 const emptyState: ConnectionsState = { connections: [], favourites: [], secretsProtection: 'os-keyring' }
 const oneConn: ConnectionsState = {
@@ -340,5 +341,82 @@ describe('import and export', () => {
     assert.deepEqual(exports.at(-1), { tasks: false })
     assert.ok(view.find({ text: 'Save 1 as JSON…' }))
     assert.deepEqual(view.refusals, [])
+  })
+})
+
+describe('settings tab', () => {
+  test('opens from the tree, saves each change as an Orca setting and resets to the defaults', async () => {
+    const host = mockHost({ storage: { 'connections.v1': { items: [] } }, requests: { 'connections.state': oneConn } })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'IconButton', label: 'Settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
+    const reset = { type: 'Button', text: 'Reset to defaults' }
+    assert.equal(view.find(reset)!.props.disabled, true, 'nothing to reset yet')
+    await view.select({ type: 'Select', label: 'Results view' }, 'json')
+    await view.select({ type: 'Select', label: 'Page size' }, '200')
+    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping collections and indexes' })
+    assert.deepEqual(host.data().settings, { resultView: 'json', pageSize: 200, confirmDrop: false })
+    // No waiting between a change and Reset: an older write's echo must not undo a newer one.
+    await view.press(reset)
+    assert.equal(view.valueOf({ type: 'Select', label: 'Results view' }), 'last')
+    assert.equal(view.valueOf({ type: 'Select', label: 'Page size' }), 'last')
+    assert.equal(view.valueOf({ type: 'Checkbox', label: 'Ask before dropping collections and indexes' }), true)
+    await view.settled()
+    assert.equal(view.valueOf({ type: 'Checkbox', label: 'Ask before dropping collections and indexes' }), true, 'still, once every write has landed')
+    assert.equal(host.data().settings.pageSize, 0, '"Last used" is stored as 0')
+    assert.equal(host.data().settings.confirmDrop, true)
+    assert.deepEqual(host.data().storage['connections.v1'], { items: [] }, 'connections are kept apart')
+    await view.press({ label: 'Close settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'tree')
+    assert.deepEqual(view.errors, [])
+    assert.deepEqual(view.warnings, [])
+  })
+
+  test('the same setting changed twice in a row keeps the last change', async () => {
+    const host = mockHost({ requests: { 'connections.state': oneConn } })
+    const view = await mount(panel, { host })
+    await view.post('ui.navigate', { view: 'settings' })
+    const box = { type: 'Checkbox', label: 'Format buttons' }
+    await view.toggle(box)
+    await view.toggle(box)
+    await view.toggle(box)
+    await view.settled()
+    assert.equal(view.valueOf(box), false)
+    assert.equal(host.data().settings.formatButtons, false)
+  })
+
+  test('starts with the saved settings', async () => {
+    const host = mockHost({ settings: { ejson: 'canonical', pageSize: 0 }, requests: { 'connections.state': oneConn } })
+    const view = await mount(panel, { host })
+    await view.post('ui.navigate', { view: 'settings' })
+    assert.equal(view.valueOf({ type: 'Select', label: 'Extended JSON' }), 'canonical')
+    assert.equal(view.valueOf({ type: 'Select', label: 'Page size' }), 'last')
+    assert.equal(view.find({ type: 'Button', text: 'Reset to defaults' })!.props.disabled, false)
+  })
+
+  test('the palette command opens it', async () => {
+    const view = await mount(panel, { host: mockHost({ requests: { 'connections.state': oneConn } }) })
+    await view.post('ui.navigate', { view: 'settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
+  })
+
+  test('opened while a connection reconnects, it stays in front when the layout comes back', async () => {
+    let release: (() => void) | undefined
+    const resumable: ConnectionsState = { ...oneConn, connections: [{ ...oneConn.connections[0]!, resumable: true }] }
+    const host = mockHost({
+      requests: {
+        'connections.state': resumable,
+        'tree.children': () => new Promise((resolve) => (release = () => resolve({ nodes: [] })))
+      }
+    })
+    const layout = { view: 'tree', order: [], tabs: [], expanded: [], selected: null, open: ['c1'] }
+    const mounting = mount(panel, { host, persisted: { workspace: { 'mongo-studio.layout': layout } } })
+    // The test can't act while mount waits for the reconnect, so it opens Settings the way the
+    // palette command does.
+    while (!release) await new Promise((r) => setTimeout(r, 0))
+    openSettings()
+    release()
+    const view = await mounting
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
   })
 })

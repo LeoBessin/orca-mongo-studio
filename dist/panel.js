@@ -2,10 +2,10 @@
 
 
 // src/panel.tsx
-import { plugin as plugin18, read as read29, set as set15, Tab, Tabs } from "orca";
+import { plugin as plugin18, read as read30, set as set15, Tab, Tabs } from "orca";
 
 // src/panel/collection-state.ts
-import { atom as atom4, plugin as plugin3, read as read4, set as set4, update as update2 } from "orca";
+import { atom as atom4, plugin as plugin3, read as read4, set as set4, update as update3 } from "orca";
 
 // src/shared/ejson-view.ts
 var BSON_TYPE_LABELS = {
@@ -2208,6 +2208,7 @@ function scopeIsEverything(scope) {
 var RESULT_VIEW_KEYS = ["table", "tree", "json"];
 var DOC_VIEW_KEYS = ["tree", "json", "shell"];
 var PAGE_SIZES = [20, 50, 100, 200, 500];
+var DEFAULT_PAGE_SIZE = 50;
 var DEFAULT_SETTINGS = {
   resultView: "last",
   docView: "last",
@@ -2219,33 +2220,42 @@ var DEFAULT_SETTINGS = {
   confirmDrop: true,
   confirmByName: true
 };
+var SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
+var PAGE_SIZE_LAST = 0;
 function oneOf(value, allowed, fallback) {
   return allowed.includes(value) ? value : fallback;
 }
 function flag(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
+function readSetting(key2, raw) {
+  const d = DEFAULT_SETTINGS;
+  const read31 = {
+    resultView: (r) => oneOf(r, ["last", ...RESULT_VIEW_KEYS], d.resultView),
+    docView: (r) => oneOf(r, ["last", ...DOC_VIEW_KEYS], d.docView),
+    pageSize: (r) => r === PAGE_SIZE_LAST ? "last" : oneOf(r, ["last", ...PAGE_SIZES], d.pageSize),
+    ejson: (r) => oneOf(r, ["relaxed", "canonical"], d.ejson),
+    liveCheck: (r) => flag(r, d.liveCheck),
+    formatButtons: (r) => flag(r, d.formatButtons),
+    confirmDeleteDocs: (r) => flag(r, d.confirmDeleteDocs),
+    confirmDrop: (r) => flag(r, d.confirmDrop),
+    confirmByName: (r) => flag(r, d.confirmByName)
+  };
+  return read31[key2](raw);
+}
+function storedSetting(key2, value) {
+  return key2 === "pageSize" && value === "last" ? PAGE_SIZE_LAST : value;
+}
 function normalizeSettings(raw) {
   const r = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  const d = DEFAULT_SETTINGS;
-  return {
-    resultView: oneOf(r.resultView, ["last", ...RESULT_VIEW_KEYS], d.resultView),
-    docView: oneOf(r.docView, ["last", ...DOC_VIEW_KEYS], d.docView),
-    pageSize: oneOf(r.pageSize, ["last", ...PAGE_SIZES], d.pageSize),
-    ejson: oneOf(r.ejson, ["relaxed", "canonical"], d.ejson),
-    liveCheck: flag(r.liveCheck, d.liveCheck),
-    formatButtons: flag(r.formatButtons, d.formatButtons),
-    confirmDeleteDocs: flag(r.confirmDeleteDocs, d.confirmDeleteDocs),
-    confirmDrop: flag(r.confirmDrop, d.confirmDrop),
-    confirmByName: flag(r.confirmByName, d.confirmByName)
-  };
+  return Object.fromEntries(SETTING_KEYS.map((k) => [k, readSetting(k, r[k])]));
 }
 function isDefault(s) {
-  return Object.keys(DEFAULT_SETTINGS).every((k) => s[k] === DEFAULT_SETTINGS[k]);
+  return SETTING_KEYS.every((k) => s[k] === DEFAULT_SETTINGS[k]);
 }
-function startView(setting, remembered, allowed, fallback) {
+function startValue(setting, remembered, allowed, fallback) {
   if (setting !== "last") return setting;
-  return typeof remembered === "string" && allowed.includes(remembered) ? remembered : fallback;
+  return oneOf(remembered, allowed, fallback);
 }
 
 // src/panel/data-state.ts
@@ -2996,13 +3006,13 @@ async function followJob(jobId, get, put) {
   }
 }
 async function fetchDownload(jobId, d, get, put) {
-  const update11 = (download) => {
+  const update12 = (download) => {
     const box = get();
     if (box?.jobId === jobId) put({ ...box, download });
   };
   const parts = [];
   let offset = 0;
-  update11({ ...d, fetched: 0, ready: false });
+  update12({ ...d, fetched: 0, ready: false });
   try {
     while (offset < d.size) {
       if (get()?.jobId !== jobId) return;
@@ -3011,12 +3021,12 @@ async function fetchDownload(jobId, d, get, put) {
       if (bytes.length === 0) break;
       parts.push(bytes);
       offset += bytes.length;
-      update11({ ...d, fetched: offset, ready: false });
+      update12({ ...d, fetched: offset, ready: false });
     }
     fetched.set(jobId, joinBytes(parts));
-    update11({ ...d, fetched: offset, ready: true });
+    update12({ ...d, fetched: offset, ready: true });
   } catch (error) {
-    update11({ ...d, fetched: offset, ready: false, error: errorText(error) });
+    update12({ ...d, fetched: offset, ready: false, error: errorText(error) });
   } finally {
     void plugin2.request("job.close", { jobId }).catch(() => void 0);
   }
@@ -3076,22 +3086,63 @@ function progressPercent(s) {
 }
 
 // src/panel/settings-state.ts
-import { atom as atom3, read as read3, set as set3 } from "orca";
+import { atom as atom3, read as read3, set as set3, settings as orcaSettings, update as update2 } from "orca";
 var SETTINGS_TAB = "settings";
-var SETTINGS_PREFIX = "mongo-studio.settings.";
-var KEYS = Object.keys(DEFAULT_SETTINGS);
-var atoms = Object.fromEntries(
-  KEYS.map((k) => [k, atom3(`${SETTINGS_PREFIX}${k}`, DEFAULT_SETTINGS[k], { persist: "storage" })])
-);
+var settingsAtom = atom3({ ...DEFAULT_SETTINGS });
 var settingsOpen = atom3(false);
+var settingsError = atom3(null);
+var inFlight = /* @__PURE__ */ new Map();
 function settings() {
-  return normalizeSettings(Object.fromEntries(KEYS.map((k) => [k, read3(atoms[k])])));
+  return read3(settingsAtom);
+}
+function isSettingKey(key2) {
+  return SETTING_KEYS.includes(key2);
+}
+async function loadSettings() {
+  let listener = { dispose: () => void 0 };
+  try {
+    listener = orcaSettings.onDidChange(({ key: key2 }) => {
+      if (!isSettingKey(key2) || inFlight.get(key2)) return;
+      void orcaSettings.get(key2).then(
+        (value) => {
+          if (!inFlight.get(key2)) update2(settingsAtom, (s) => ({ ...s, [key2]: readSetting(key2, value) }));
+        },
+        () => void 0
+      );
+    });
+  } catch {
+  }
+  try {
+    set3(settingsAtom, normalizeSettings(await orcaSettings.get()));
+  } catch {
+  }
+  return listener;
+}
+function write(key2, value) {
+  inFlight.set(key2, (inFlight.get(key2) ?? 0) + 1);
+  return orcaSettings.set(key2, storedSetting(key2, value)).finally(() => {
+    const left = (inFlight.get(key2) ?? 1) - 1;
+    if (left > 0) inFlight.set(key2, left);
+    else inFlight.delete(key2);
+  });
 }
 function changeSettings(values) {
-  for (const k of Object.keys(values)) if (k in atoms) set3(atoms[k], values[k]);
+  const keys = Object.keys(values).filter(isSettingKey);
+  update2(settingsAtom, (s) => ({ ...s, ...values }));
+  set3(settingsError, null);
+  return Promise.all(keys.map((k) => write(k, values[k]))).then(() => void 0).catch(async (error) => {
+    set3(settingsError, `Could not save the setting: ${errorText(error)}`);
+    try {
+      set3(settingsAtom, normalizeSettings(await orcaSettings.get()));
+    } catch {
+    }
+  });
 }
 function resetSettings() {
-  for (const k of KEYS) set3(atoms[k], DEFAULT_SETTINGS[k]);
+  return changeSettings({ ...DEFAULT_SETTINGS });
+}
+function startRelaxed() {
+  return settings().ejson === "relaxed";
 }
 function openSettings() {
   set3(settingsOpen, true);
@@ -3103,35 +3154,28 @@ function closeSettings() {
 }
 
 // src/panel/collection-state.ts
-var PAGE_SIZE_OPTIONS = PAGE_SIZES;
 var collTabs = atom4({});
 var tabOrder = atom4([]);
-var defaultPageSize = atom4("mongo-studio.pageSize", 50, { persist: "plugin" });
+var defaultPageSize = atom4("mongo-studio.pageSize", DEFAULT_PAGE_SIZE, { persist: "plugin" });
 var lastResultView = atom4("mongo-studio.resultView", "table", { persist: "storage" });
 var lastDocView = atom4("mongo-studio.docView", "tree", { persist: "storage" });
 var RESULT_VIEWS = { table: "Table", tree: "Tree", json: "JSON" };
 var DOC_VIEWS = { tree: "Tree", json: "JSON", shell: "Shell" };
 function startResultView() {
-  return startView(settings().resultView, read4(lastResultView), RESULT_VIEW_KEYS, "table");
+  return startValue(settings().resultView, read4(lastResultView), RESULT_VIEW_KEYS, "table");
 }
 function startDocView() {
-  return startView(settings().docView, read4(lastDocView), DOC_VIEW_KEYS, "tree");
+  return startValue(settings().docView, read4(lastDocView), DOC_VIEW_KEYS, "tree");
 }
 function startPageSize() {
-  const s = settings().pageSize;
-  if (s !== "last") return s;
-  const n2 = read4(defaultPageSize);
-  return PAGE_SIZES.includes(n2) ? n2 : 50;
-}
-function startRelaxed() {
-  return settings().ejson === "relaxed";
+  return startValue(settings().pageSize, read4(defaultPageSize), PAGE_SIZES, DEFAULT_PAGE_SIZE);
 }
 var emptyText = { filter: "", projection: "", sort: "", collation: "", skip: "", limit: "" };
 function tab(id) {
   return read4(collTabs)[id];
 }
 function change(id, fn) {
-  update2(collTabs, (prev) => {
+  update3(collTabs, (prev) => {
     const t = prev[id];
     if (!t) return prev;
     const next = fn(t);
@@ -3192,8 +3236,8 @@ async function openNamespace(ns, kind, text) {
   const id = tabIdFor(ns);
   const t = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() };
   if (text) t.text = text;
-  update2(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update2(tabOrder, (prev) => [...prev, id]);
+  update3(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update3(tabOrder, (prev) => [...prev, id]);
   set4(view, id);
   await Promise.all([runQuery(id, text !== void 0), loadLibrary(id)]);
 }
@@ -3230,7 +3274,7 @@ function closeTab(id) {
   const at = order.indexOf(id);
   const rest = order.filter((x) => x !== id);
   set4(tabOrder, rest);
-  update2(collTabs, (prev) => {
+  update3(collTabs, (prev) => {
     const next = { ...prev };
     delete next[id];
     return next;
@@ -3277,8 +3321,8 @@ async function openDocumentTab(fromId, docId) {
     return;
   }
   const t = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId, from.focus?.view ?? startDocView()) };
-  update2(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update2(tabOrder, (prev) => {
+  update3(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update3(tabOrder, (prev) => {
     const at = prev.indexOf(fromId);
     return at < 0 ? [...prev, id] : [...prev.slice(0, at + 1), id, ...prev.slice(at + 1)];
   });
@@ -3290,9 +3334,7 @@ function setFocus(id, values) {
 }
 function askDeleteFocused(id) {
   const f = tab(id)?.focus;
-  if (!f) return Promise.resolve();
-  patch(id, { confirmDelete: { ids: [f.id] }, editor: void 0 });
-  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id);
+  return f ? askDeleteIds(id, [f.id]) : Promise.resolve();
 }
 function setText(id, field, value) {
   change(id, (t) => ({
@@ -3677,14 +3719,25 @@ function askDelete(id) {
   const t = tab(id);
   if (!t) return Promise.resolve();
   const docs2 = selectedDocs(t).filter((d) => "_id" in d);
-  if (docs2.length === 0) return Promise.resolve();
-  patch(id, { confirmDelete: { ids: docs2.map((d) => d._id) }, editor: void 0 });
-  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id);
+  return docs2.length ? askDeleteIds(id, docs2.map((d) => d._id)) : Promise.resolve();
 }
-async function confirmDeletion(id) {
+function askDeleteIds(id, ids) {
+  if (!settings().confirmDeleteDocs) {
+    patch(id, { editor: void 0 });
+    return deleteDocuments(id, ids);
+  }
+  patch(id, { confirmDelete: { ids }, editor: void 0 });
+  return Promise.resolve();
+}
+function confirmDeletion(id) {
+  const ids = tab(id)?.confirmDelete?.ids;
+  return ids ? deleteDocuments(id, ids) : Promise.resolve();
+}
+var deleting = /* @__PURE__ */ new Set();
+async function deleteDocuments(id, ids) {
   const t = tab(id);
-  const ids = t?.confirmDelete?.ids;
-  if (!t || !ids) return;
+  if (!t || deleting.has(id)) return;
+  deleting.add(id);
   try {
     const r = await plugin3.request("doc.deleteMany", { ns: t.ns, ids }, { timeoutMs: 12e4 });
     patch(id, { confirmDelete: void 0, selectedRows: [] });
@@ -3696,6 +3749,8 @@ async function confirmDeletion(id) {
   } catch (error) {
     patch(id, { confirmDelete: void 0 });
     say2(id, "danger", errorText(error));
+  } finally {
+    deleting.delete(id);
   }
 }
 function canUpdateMany(t) {
@@ -3755,11 +3810,11 @@ async function previewUpdateMany(id) {
   if (!t?.bulk || t.bulk.running) return;
   const plan = bulkPlan(t);
   if (!plan.scope || !plan.update || !plan.basis) return;
-  const { scope, update: update11, basis } = plan;
-  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, error: void 0, confirmName: "", preview: { basis, scope, update: update11, loading: true } } } : {});
+  const { scope, update: update12, basis } = plan;
+  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, error: void 0, confirmName: "", preview: { basis, scope, update: update12, loading: true } } } : {});
   let next;
   try {
-    next = { loading: false, result: await plugin3.request("doc.updatePreview", { ns: t.ns, scope, update: update11 }, { timeoutMs: 12e4 }) };
+    next = { loading: false, result: await plugin3.request("doc.updatePreview", { ns: t.ns, scope, update: update12 }, { timeoutMs: 12e4 }) };
   } catch (error) {
     next = { loading: false, error: errorText(error) };
   }
@@ -3906,7 +3961,7 @@ async function clearHistory(id) {
 }
 
 // src/panel/admin-state.ts
-import { atom as atom5, read as read5, set as set5, update as update3 } from "orca";
+import { atom as atom5, read as read5, set as set5, update as update4 } from "orca";
 var adminTabs = atom5({});
 function adminTab(id) {
   return read5(adminTabs)[id];
@@ -3916,14 +3971,14 @@ function tabOf(id, kind) {
   return t && t.kind === kind ? t : void 0;
 }
 function changeAdmin(id, kind, fn) {
-  update3(adminTabs, (prev) => {
+  update4(adminTabs, (prev) => {
     const t = prev[id];
     if (!t || t.kind !== kind) return prev;
     return { ...prev, [id]: { ...t, ...fn(t) } };
   });
 }
 function sayAdmin(id, tone, text) {
-  update3(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
+  update4(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
 }
 function aguard(id, run2) {
   return async () => {
@@ -3951,8 +4006,8 @@ function connectionName(connectionId) {
 function showOrAdd(tab2) {
   const exists = Boolean(adminTab(tab2.id));
   if (!exists) {
-    update3(adminTabs, (prev) => ({ ...prev, [tab2.id]: tab2 }));
-    update3(tabOrder, (prev) => [...prev, tab2.id]);
+    update4(adminTabs, (prev) => ({ ...prev, [tab2.id]: tab2 }));
+    update4(tabOrder, (prev) => [...prev, tab2.id]);
   }
   set5(view, tab2.id);
   return !exists;
@@ -3966,7 +4021,7 @@ function closeAdmin(id) {
   const at = order.indexOf(id);
   const rest = order.filter((x) => x !== id);
   set5(tabOrder, rest);
-  update3(adminTabs, (prev) => {
+  update4(adminTabs, (prev) => {
     const next = { ...prev };
     delete next[id];
     return next;
@@ -4040,7 +4095,7 @@ import {
 } from "orca";
 
 // src/panel/admin-notice.tsx
-import { Callout, IconButton, Row, Text, update as update4 } from "orca";
+import { Callout, IconButton, Row, Text, update as update5 } from "orca";
 import { jsx, jsxs } from "orca/jsx-runtime";
 function NoticeBar({ id, notice: notice2 }) {
   if (!notice2) return null;
@@ -4053,7 +4108,7 @@ function NoticeBar({ id, notice: notice2 }) {
         label: "Dismiss",
         variant: "ghost",
         size: "xs",
-        onPress: () => update4(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: void 0 } } : prev)
+        onPress: () => update5(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: void 0 } } : prev)
       }
     )
   ] }) });
@@ -4918,19 +4973,35 @@ async function saveTtl(id, name) {
   sayAdmin(id, "success", `Documents now expire ${numberText(Number(text))} s after ${name}'s date.`);
   await loadManage(id);
 }
-function askDropIndex(id, name) {
-  changeAdmin(id, "manage", () => ({ confirmDropIndex: name }));
-  return settings().confirmDrop ? Promise.resolve() : dropIndexConfirmed(id);
+var busy2 = /* @__PURE__ */ new Set();
+async function once(id, run2) {
+  if (busy2.has(id)) return;
+  busy2.add(id);
+  try {
+    await run2();
+  } finally {
+    busy2.delete(id);
+  }
 }
-async function dropIndexConfirmed(id) {
-  const t = tabOf(id, "manage");
-  const name = t?.confirmDropIndex;
-  if (!t || !name) return;
-  await plugin6.request("admin.dropIndex", { ns: t.ns, name });
-  changeAdmin(id, "manage", () => ({ confirmDropIndex: void 0, indexSelected: void 0 }));
-  sayAdmin(id, "success", `Index ${name} dropped.`);
-  await loadManage(id);
-  await refreshTree(t.connectionId, t.ns.db);
+function askDropIndex(id, name) {
+  if (!settings().confirmDrop) return dropIndex(id, name);
+  changeAdmin(id, "manage", () => ({ confirmDropIndex: name }));
+  return Promise.resolve();
+}
+function dropIndexConfirmed(id) {
+  const name = tabOf(id, "manage")?.confirmDropIndex;
+  return name ? dropIndex(id, name) : Promise.resolve();
+}
+function dropIndex(id, name) {
+  return once(id, async () => {
+    const t = tabOf(id, "manage");
+    if (!t) return;
+    await plugin6.request("admin.dropIndex", { ns: t.ns, name });
+    changeAdmin(id, "manage", () => ({ confirmDropIndex: void 0, indexSelected: void 0 }));
+    sayAdmin(id, "success", `Index ${name} dropped.`);
+    await loadManage(id);
+    await refreshTree(t.connectionId, t.ns.db);
+  });
 }
 function setValidation(id, change2) {
   changeAdmin(id, "manage", (t) => ({ validation: { ...t.validation, ...change2, error: change2.text !== void 0 ? void 0 : t.validation.error, loaded: true } }));
@@ -5014,14 +5085,22 @@ async function convertToCapped(id) {
   await refreshTree(t.connectionId, t.ns.db);
 }
 function askConfirm(id, confirm) {
+  if (confirm && !settings().confirmDrop) return clearOrDrop(id, confirm);
   changeAdmin(id, "manage", () => ({ confirm }));
-  return confirm && !settings().confirmDrop ? confirmed(id) : Promise.resolve();
+  return Promise.resolve();
 }
-async function confirmed(id) {
+function confirmed(id) {
+  const kind = tabOf(id, "manage")?.confirm;
+  return kind ? clearOrDrop(id, kind) : Promise.resolve();
+}
+function clearOrDrop(id, kind) {
+  return once(id, () => clearOrDropNow(id, kind));
+}
+async function clearOrDropNow(id, kind) {
   const t = tabOf(id, "manage");
-  if (!t?.confirm) return;
+  if (!t) return;
   const what = nsLabel(t.ns);
-  if (t.confirm === "clear") {
+  if (kind === "clear") {
     const { deleted } = await plugin6.request("admin.clearCollection", { ns: t.ns }, { timeoutMs: 12e4 });
     changeAdmin(id, "manage", () => ({ confirm: void 0 }));
     sayAdmin(id, "success", `Deleted ${numberText(deleted)} document${deleted === 1 ? "" : "s"} from ${what}. Its indexes and options stay.`);
@@ -6259,7 +6338,7 @@ import {
   Table as Table7,
   Text as Text9,
   Toolbar as Toolbar6,
-  update as update6
+  update as update7
 } from "orca";
 
 // src/shared/tasks.ts
@@ -6404,7 +6483,7 @@ function JobProgress({ box, what, onCancel, onSave }) {
 }
 
 // src/panel/tasks-state.ts
-import { atom as atom6, plugin as plugin12, read as read12, set as set6, update as update5 } from "orca";
+import { atom as atom6, plugin as plugin12, read as read12, set as set6, update as update6 } from "orca";
 
 // src/panel/export-state.ts
 import { plugin as plugin10 } from "orca";
@@ -6426,7 +6505,7 @@ function newTab3(from, query) {
     query: { filter: "", projection: "", sort: "", limit: "", ...query },
     queryErrors: {},
     format: "json",
-    json: { layout: "lines", relaxed: settings().ejson === "relaxed", pretty: false },
+    json: { layout: "lines", relaxed: startRelaxed(), pretty: false },
     csv: { fields: [], delimiter: ",", header: true, loading: false, add: "", selected: [] },
     bsonMetadata: true,
     target: { connectionId, db: from.kind === "database" ? `${db}_copy` : db, collection: from.kind === "database" ? "" : `${from.ns.collection}_copy`, mode: "insert", indexes: true, options: true },
@@ -6815,7 +6894,7 @@ var taskList = atom6(null);
 var tasksError = atom6(null);
 var tasksUi = atom6({ runs: {} });
 function ui(change2) {
-  update5(tasksUi, (u) => ({ ...u, ...typeof change2 === "function" ? change2(u) : change2 }));
+  update6(tasksUi, (u) => ({ ...u, ...typeof change2 === "function" ? change2(u) : change2 }));
 }
 function sayTasks(tone, text) {
   ui({ notice: { tone, text } });
@@ -6991,12 +7070,12 @@ function tabRequest(tabId, kind) {
   if (kind === "sync" && t.kind === "compare") return { kind: "sync", ...syncRequest(tabId) };
   throw new Error("This tab can't be saved as that kind of task.");
 }
-async function saveTabAsTask(tabId, kind, update11) {
+async function saveTabAsTask(tabId, kind, update12) {
   const t = adminTab(tabId);
   if (!t || t.kind !== "export" && t.kind !== "import" && t.kind !== "compare") return;
   const name = t.taskName.trim() || t.task?.name || t.title;
   const request = tabRequest(tabId, kind);
-  const id = update11 && t.task && (t.kind !== "compare" || t.task.kind === kind) ? t.task.id : void 0;
+  const id = update12 && t.task && (t.kind !== "compare" || t.task.kind === kind) ? t.task.id : void 0;
   const r = await plugin12.request("tasks.save", { ...id ? { id } : {}, name, request });
   setTasks(r);
   const saved = r.tasks.find((x) => x.id === r.id);
@@ -7044,26 +7123,26 @@ function Selected({ task }) {
       /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "open-external", variant: "ghost", onPress: tguard(() => openTaskInTab(task.id)), children: "Open in its tab" }),
       /* @__PURE__ */ jsx9(IconButton7, { icon: "edit", label: "Rename", variant: "ghost", size: "sm", onPress: () => startRename(task.id) }),
       /* @__PURE__ */ jsx9(IconButton7, { icon: "copy", label: "Duplicate", variant: "ghost", size: "sm", onPress: tguard(() => duplicateTask(task.id)) }),
-      /* @__PURE__ */ jsx9(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
     ] }),
     blocked ? /* @__PURE__ */ jsx9(Text9, { size: "xs", tone: "warning", children: `It writes to ${connectionName(writesTo)}, which is read only: turn that off in the connection's settings to run it.` }) : null,
     renaming ? /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx9(Box7, { grow: true, children: /* @__PURE__ */ jsx9(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update6(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
+      /* @__PURE__ */ jsx9(Box7, { grow: true, children: /* @__PURE__ */ jsx9(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update7(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
       /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "accent", onPress: tguard(() => renameTask(task.id, renaming.name)), children: "Rename" }),
-      /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
+      /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
     ] }) : null,
     u.confirmDelete === task.id ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: `Delete the task "${task.name}"?`, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
       /* @__PURE__ */ jsx9(Text9, { children: "Only the saved task is removed. Its collections and files are not touched." }),
       /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
         /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => deleteTask(task.id)), children: "Delete task" }),
-        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
     confirm ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: confirm.title, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
       /* @__PURE__ */ jsx9(Text9, { children: `${confirm.text}${confirm.exists ? confirm.count === null ? "" : ` It holds ${numberText(confirm.count)} document${confirm.count === 1 ? "" : "s"} now.` : " It does not exist yet."}` }),
       /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
         /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => runTask(task.id, true)), children: "Run the task" }),
-        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
     /* @__PURE__ */ jsx9(JobProgress, { box, what: taskKindLabel(task.request).toLowerCase(), onCancel: tguard(() => cancelTaskRun(task.id)), onSave: tguard(() => saveTaskDownload(task.id)) }),
@@ -7097,7 +7176,7 @@ function TasksView() {
     ] }),
     u.notice ? /* @__PURE__ */ jsx9(Callout8, { tone: u.notice.tone, icon: u.notice.tone === "danger" ? "error" : u.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs9(Row9, { justify: "between", align: "center", children: [
       /* @__PURE__ */ jsx9(Text9, { children: u.notice.text }),
-      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update6(tasksUi, (x) => ({ ...x, notice: void 0 })) })
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update7(tasksUi, (x) => ({ ...x, notice: void 0 })) })
     ] }) }) : null,
     error ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "error", title: "Could not read the saved tasks", children: error }) : null,
     !list && !error ? /* @__PURE__ */ jsx9(Skeleton6, { lines: 3, label: "Loading saved tasks" }) : null,
@@ -8000,7 +8079,7 @@ import {
 } from "orca";
 
 // src/panel/aggregate-state.ts
-import { plugin as plugin14, read as read19, set as set7, update as update7 } from "orca";
+import { plugin as plugin14, read as read19, set as set7, update as update8 } from "orca";
 var PREVIEW_SIZES = [5, 10, 20, 50, 100];
 function aggTabId(ns) {
   return tabIdFor(ns).replace(/^coll-/, "agg-");
@@ -8036,8 +8115,8 @@ async function openAggregation(ns, kind, stages, from) {
   }
   const t = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg: newAgg(stages ?? [newStage("$match")]) };
   if (from) t.notice = { tone: "neutral", text: `Started from ${from}.` };
-  update7(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update7(tabOrder, (prev) => [...prev, id]);
+  update8(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update8(tabOrder, (prev) => [...prev, id]);
   set7(view, id);
   await Promise.all([refreshPreview(id), loadSavedPipelines(id)]);
 }
@@ -8187,11 +8266,11 @@ async function runPipeline(id, confirmed2 = false) {
   if (!t || !a) return;
   const pipeline = parsed2(id);
   if (!pipeline) return;
-  const write = writeTarget(pipeline, t.ns.db);
-  if (write && !confirmed2) {
-    const target = write.ns;
+  const write2 = writeTarget(pipeline, t.ns.db);
+  if (write2 && !confirmed2) {
+    const target = write2.ns;
     const c = target ? await plugin14.request("data.count", { ns: { connectionId: t.ns.connectionId, ...target } }).catch(() => void 0) : void 0;
-    changeAgg(id, () => ({ confirmWrite: { stage: write.stage, target: write.target, ...c ? { count: c.count, exists: c.exists } : {} } }));
+    changeAgg(id, () => ({ confirmWrite: { stage: write2.stage, target: write2.target, ...c ? { count: c.count, exists: c.exists } : {} } }));
     return;
   }
   if (t.queryId) void plugin14.request("query.close", { queryId: t.queryId }).catch(() => void 0);
@@ -8202,7 +8281,7 @@ async function runPipeline(id, confirmed2 = false) {
     error: void 0,
     runToken: token,
     agg: { ...x.agg, ran, confirmWrite: void 0 },
-    count: write ? void 0 : "counting",
+    count: write2 ? void 0 : "counting",
     selectedRows: [],
     treeSelected: void 0,
     treeExpanded: [],
@@ -8217,12 +8296,12 @@ async function runPipeline(id, confirmed2 = false) {
       return;
     }
     change(id, () => ({ page, queryId: page.queryId, loading: false }));
-    if (write) say2(id, "success", `Ran the pipeline: ${write.stage} wrote its results to ${write.target}.`);
+    if (write2) say2(id, "success", `Ran the pipeline: ${write2.stage} wrote its results to ${write2.target}.`);
   } catch (error) {
     if (tab(id)?.runToken === token) change(id, () => ({ loading: false, error: errorText(error), page: void 0, queryId: void 0, count: void 0 }));
     return;
   }
-  if (!write) await recount(id);
+  if (!write2) await recount(id);
 }
 function cancelWrite(id) {
   changeAgg(id, () => ({ confirmWrite: void 0 }));
@@ -8557,7 +8636,7 @@ function Pager({ t }) {
       /* @__PURE__ */ jsx16(IconButton12, { icon: "refresh", label: "Count again", size: "sm", variant: "ghost", disabled: !(t.spec || t.agg?.ran) || c === "counting", onPress: guard(t.id, () => recount(t.id)) })
     ] }),
     /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: total === void 0, children: countText2(t) }),
-    /* @__PURE__ */ jsx16(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZE_OPTIONS.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
+    /* @__PURE__ */ jsx16(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZES.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
   ] });
 }
 function topKeys(docs2) {
@@ -10032,7 +10111,7 @@ function generateCode(op, lang) {
 }
 
 // src/panel/shell-state.ts
-import { atom as atom8, plugin as plugin16, read as read21, set as set9, update as update8 } from "orca";
+import { atom as atom8, plugin as plugin16, read as read21, set as set9, update as update9 } from "orca";
 var SHELL_TAB = "shell";
 var shellRun = atom8(null);
 var codeLanguage = atom8("mongo-studio.codeLanguage", "node", { persist: "plugin" });
@@ -10066,12 +10145,12 @@ async function selectResult(index) {
     runToken: (previous?.runToken ?? 0) + 1,
     ...info.count !== void 0 ? { count: { count: info.count, approximate: false, ms: 0 } } : {}
   };
-  update8(collTabs, (prev) => ({ ...prev, [SHELL_TAB]: t }));
+  update9(collTabs, (prev) => ({ ...prev, [SHELL_TAB]: t }));
   await goToPage(SHELL_TAB, 0);
 }
 function closeShell() {
   set9(shellRun, null);
-  update8(collTabs, (prev) => {
+  update9(collTabs, (prev) => {
     const next = { ...prev };
     delete next[SHELL_TAB];
     return next;
@@ -10102,7 +10181,7 @@ async function openAsQuery(info) {
   try {
     await openNamespace({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
   } catch (error) {
-    update8(collTabs, (prev) => {
+    update9(collTabs, (prev) => {
       const t = prev[SHELL_TAB];
       return t ? { ...prev, [SHELL_TAB]: { ...t, notice: { tone: "danger", text: errorText(error) } } } : prev;
     });
@@ -11288,7 +11367,7 @@ function ConnectionForm() {
 }
 
 // src/panel/layout-state.ts
-import { atom as atom9, plugin as plugin17, read as read26, set as set12, update as update9 } from "orca";
+import { atom as atom9, plugin as plugin17, read as read26, set as set12, update as update10 } from "orca";
 var EMPTY = { view: "tree", order: [], tabs: [], expanded: [], selected: null, open: [] };
 var layout = atom9("mongo-studio.layout", EMPTY, { persist: "workspace", version: 1 });
 var restored = false;
@@ -11406,8 +11485,8 @@ function restoreColl(t, open) {
     if (tab2.focus) tab2.focus = { ...tab2.focus, loading: false };
     tab2.notice = { tone: "neutral", text: "This connection is not open. Connect to it in Connections, then run again." };
   }
-  update9(collTabs, (prev) => ({ ...prev, [t.id]: tab2 }));
-  update9(tabOrder, (prev) => [...prev, t.id]);
+  update10(collTabs, (prev) => ({ ...prev, [t.id]: tab2 }));
+  update10(tabOrder, (prev) => [...prev, t.id]);
   if (!open) return Promise.resolve();
   if (t.type === "query") return Promise.all([runQuery(t.id, false), loadLibrary(t.id)]);
   if (t.type === "document") return loadFocus(t.id);
@@ -11460,7 +11539,9 @@ async function restoreLayout() {
     const known = new Set(before.map((c) => c.id));
     const open = new Set(before.filter((c) => c.connected).map((c) => c.id));
     const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable));
+    const shown = read26(view);
     for (const id of await resume(again)) open.add(id);
+    const chosen = read26(view) !== shown ? read26(view) : void 0;
     const existing = new Set(read26(tabOrder));
     for (const t of saved.tabs) {
       const conn = connectionOf(t);
@@ -11471,7 +11552,7 @@ async function restoreLayout() {
     const order = read26(tabOrder);
     const rank = new Map(saved.order.map((id, i) => [id, i]));
     set12(tabOrder, [...order].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)));
-    set12(view, saved.view === "tree" || order.includes(saved.view) ? saved.view : "tree");
+    set12(view, chosen ?? (saved.view === "tree" || order.includes(saved.view) ? saved.view : "tree"));
     const keys = saved.expanded.filter((k) => {
       const conn = connectionOfKey(k);
       return conn === void 0 || open.has(conn);
@@ -11592,7 +11673,7 @@ import {
   Text as Text24,
   Toolbar as Toolbar16,
   Tree as Tree5,
-  update as update10
+  update as update11
 } from "orca";
 import { jsx as jsx25, jsxs as jsxs24 } from "orca/jsx-runtime";
 var ICONS = {
@@ -11856,7 +11937,7 @@ function TreeView() {
           ...sel ? { selected: sel } : {},
           maxHeight: "lg",
           onToggle: ({ key: key2, expanded: open }) => {
-            if (rootKeys().includes(key2)) update10(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key2) : [...prev, key2]);
+            if (rootKeys().includes(key2)) update11(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key2) : [...prev, key2]);
             else void act(() => toggleNode(key2, open))();
           },
           onSelect: ({ key: key2 }) => void act(() => selectNode(key2))(),
@@ -11891,35 +11972,37 @@ function rootKeys() {
 }
 
 // src/panel/settings-view.tsx
-import { Box as Box23, Button as Button23, Card as Card7, Checkbox as Checkbox11, IconButton as IconButton18, Row as Row25, Select as Select15, Stack, Text as Text25 } from "orca";
+import { Box as Box23, Button as Button23, Callout as Callout23, Card as Card7, Checkbox as Checkbox11, IconButton as IconButton18, read as read29, Row as Row25, Select as Select15, Stack, Text as Text25 } from "orca";
 import { jsx as jsx26, jsxs as jsxs25 } from "orca/jsx-runtime";
 var LAST = { value: "last", label: "Last used" };
 function choices(labels) {
   return [LAST, ...Object.entries(labels).map(([value, label]) => ({ value, label }))];
 }
 function Toggle({ s, name, label, description }) {
-  return /* @__PURE__ */ jsx26(Checkbox11, { label, description, checked: s[name], onChange: (on) => changeSettings({ [name]: on }) });
+  return /* @__PURE__ */ jsx26(Checkbox11, { label, description, checked: s[name], onChange: (on) => void changeSettings({ [name]: on }) });
 }
 function SettingsView() {
   const s = settings();
+  const error = read29(settingsError);
   return /* @__PURE__ */ jsxs25(Box23, { gap: "sm", children: [
     /* @__PURE__ */ jsxs25(Row25, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsxs25(Box23, { gap: "none", grow: true, children: [
         /* @__PURE__ */ jsx26(Text25, { weight: "semibold", children: "Settings" }),
-        /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "Kept on this computer across reloads and restarts. Saved connections are kept apart and never change here." })
+        /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "Kept across reloads and restarts, apart from your saved connections, which never change here. Orca's Settings shows them under Mongo Studio too." })
       ] }),
       /* @__PURE__ */ jsx26(IconButton18, { icon: "close", label: "Close settings", variant: "ghost", size: "sm", onPress: closeSettings })
     ] }),
-    /* @__PURE__ */ jsx26(Card7, { title: "Results", description: "How new tabs and opened documents start. Tabs already open keep their own.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
-      /* @__PURE__ */ jsx26(Select15, { label: "Results view", value: s.resultView, options: choices(RESULT_VIEWS), onChange: (v) => changeSettings({ resultView: v }) }),
-      /* @__PURE__ */ jsx26(Select15, { label: "Document view", value: s.docView, options: choices(DOC_VIEWS), onChange: (v) => changeSettings({ docView: v }) }),
+    error ? /* @__PURE__ */ jsx26(Callout23, { tone: "danger", icon: "error", title: "Setting not saved", children: error }) : null,
+    /* @__PURE__ */ jsx26(Card7, { title: "Results", description: "How new tabs, opened documents and new JSON exports start. Tabs already open keep their own.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsx26(Select15, { label: "Results view", value: s.resultView, options: choices(RESULT_VIEWS), onChange: (v) => void changeSettings({ resultView: oneOf(v, ["last", ...RESULT_VIEW_KEYS], s.resultView) }) }),
+      /* @__PURE__ */ jsx26(Select15, { label: "Document view", value: s.docView, options: choices(DOC_VIEWS), onChange: (v) => void changeSettings({ docView: oneOf(v, ["last", ...DOC_VIEW_KEYS], s.docView) }) }),
       /* @__PURE__ */ jsx26(
         Select15,
         {
           label: "Page size",
           value: String(s.pageSize),
-          options: [LAST, ...PAGE_SIZE_OPTIONS.map((n2) => ({ value: String(n2), label: `${n2} per page` }))],
-          onChange: (v) => changeSettings({ pageSize: v === "last" ? "last" : Number(v) })
+          options: [LAST, ...PAGE_SIZES.map((n2) => ({ value: String(n2), label: `${n2} per page` }))],
+          onChange: (v) => void changeSettings({ pageSize: v === "last" ? "last" : oneOf(Number(v), PAGE_SIZES, s.pageSize === "last" ? PAGE_SIZES[1] : s.pageSize) })
         }
       ),
       /* @__PURE__ */ jsx26(
@@ -11931,20 +12014,22 @@ function SettingsView() {
             { value: "relaxed", label: "Relaxed: numbers and dates as plain JSON" },
             { value: "canonical", label: "Canonical: every BSON type exact" }
           ],
-          onChange: (v) => changeSettings({ ejson: v })
+          onChange: (v) => void changeSettings({ ejson: oneOf(v, ["relaxed", "canonical"], s.ejson) })
         }
-      )
+      ),
+      /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "Extended JSON applies to result and document JSON views, shell results, and the Relaxed option of new JSON exports." })
     ] }) }),
     /* @__PURE__ */ jsx26(Card7, { title: "Query bar", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
       /* @__PURE__ */ jsx26(Toggle, { s, name: "liveCheck", label: "Check fields as you type", description: "Say what doesn't parse while it is typed. Off, errors wait for Run." }),
       /* @__PURE__ */ jsx26(Toggle, { s, name: "formatButtons", label: "Format buttons", description: "Format a filter, projection, sort or collation onto several lines." })
     ] }) }),
-    /* @__PURE__ */ jsx26(Card7, { title: "Confirmations", description: "Read-only connections refuse every write whatever these say. Deleting a connection, $out and $merge, and copies, renames and tasks that replace a collection always ask.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
+    /* @__PURE__ */ jsx26(Card7, { title: "Confirmations", description: "Read-only connections refuse every write whatever these say.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
       /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmDeleteDocs", label: "Ask before deleting documents", description: "The selected rows, or the open document." }),
-      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmDrop", label: "Ask before dropping", description: "A collection, a view or an index, or deleting all of a collection's documents." }),
-      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmByName", label: "Type the name to confirm", description: "Before dropping a database, or updating every document of a collection." })
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmDrop", label: "Ask before dropping collections and indexes", description: "Dropping a collection, a view or an index, or deleting all of a collection's documents." }),
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmByName", label: "Type the name to confirm", description: "Before dropping a database, or updating every document of a collection." }),
+      /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "These always ask: deleting a saved connection, dropping a user or a role, deleting a GridFS file, killing an operation, $out and $merge, and imports, copies, renames and tasks that drop or replace a collection." })
     ] }) }),
-    /* @__PURE__ */ jsx26(Row25, { children: /* @__PURE__ */ jsx26(Button23, { icon: "refresh", variant: "ghost", disabled: isDefault(s), onPress: resetSettings, children: "Reset to defaults" }) })
+    /* @__PURE__ */ jsx26(Row25, { children: /* @__PURE__ */ jsx26(Button23, { icon: "refresh", variant: "ghost", disabled: isDefault(s), onPress: () => void resetSettings(), children: "Reset to defaults" }) })
   ] });
 }
 
@@ -11959,7 +12044,7 @@ function setup(ctx) {
       else if (target === "tasks") openTasks();
       else if (target === "settings") openSettings();
       else if (target === "shell") {
-        if (read29(shellRun)) set15(view, SHELL_TAB);
+        if (read30(shellRun)) set15(view, SHELL_TAB);
       } else if (target === "import" || target === "export") {
         set15(view, "transfer");
         void refreshExport();
@@ -11971,7 +12056,9 @@ function setup(ctx) {
     plugin18.on("tasks.changed", (state) => setTasks(state))
   );
   void loadLatestRun();
-  refreshState().catch((error) => set15(notice, { tone: "danger", text: `Mongo Studio could not start: ${errorText(error)}` })).finally(() => void restoreLayout());
+  const listening = loadSettings();
+  ctx.subscriptions.push({ dispose: () => void listening.then((l) => l.dispose()) });
+  Promise.all([refreshState(), listening]).catch((error) => set15(notice, { tone: "danger", text: `Mongo Studio could not start: ${errorText(error)}` })).finally(() => void restoreLayout());
 }
 function changeView(next) {
   const v = next;
@@ -11980,25 +12067,25 @@ function changeView(next) {
 }
 var TAB_ICONS = { view: "filter", timeseries: "activity" };
 function Panel() {
-  const current = read29(view);
-  const def = read29(formDef);
-  read29(expanded);
-  read29(selected);
-  read29(connections);
+  const current = read30(view);
+  const def = read30(formDef);
+  read30(expanded);
+  read30(selected);
+  read30(connections);
   scheduleLayoutSave();
   return /* @__PURE__ */ jsxs26(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
     /* @__PURE__ */ jsx27(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx27(TreeView, {}) }),
-    def ? /* @__PURE__ */ jsx27(Tab, { value: "form", label: read29(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx27(ConnectionForm, {}) }) : null,
+    def ? /* @__PURE__ */ jsx27(Tab, { value: "form", label: read30(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx27(ConnectionForm, {}) }) : null,
     current === "transfer" ? /* @__PURE__ */ jsx27(Tab, { value: "transfer", label: "Import / export", icon: "upload", children: /* @__PURE__ */ jsx27(TransferView, {}) }) : null,
-    read29(tasksOpen) ? /* @__PURE__ */ jsx27(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx27(TasksView, {}) }) : null,
-    read29(settingsOpen) ? /* @__PURE__ */ jsx27(Tab, { value: SETTINGS_TAB, label: "Settings", icon: "settings", children: /* @__PURE__ */ jsx27(SettingsView, {}) }) : null,
-    read29(shellRun) ? /* @__PURE__ */ jsx27(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx27(ShellTab, {}) }) : null,
-    read29(tabOrder).map((id) => {
-      const t = read29(collTabs)[id];
+    read30(tasksOpen) ? /* @__PURE__ */ jsx27(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx27(TasksView, {}) }) : null,
+    read30(settingsOpen) ? /* @__PURE__ */ jsx27(Tab, { value: SETTINGS_TAB, label: "Settings", icon: "settings", children: /* @__PURE__ */ jsx27(SettingsView, {}) }) : null,
+    read30(shellRun) ? /* @__PURE__ */ jsx27(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx27(ShellTab, {}) }) : null,
+    read30(tabOrder).map((id) => {
+      const t = read30(collTabs)[id];
       if (t) {
         return /* @__PURE__ */ jsx27(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: t.agg ? /* @__PURE__ */ jsx27(AggregationTab, { id }) : /* @__PURE__ */ jsx27(CollectionTab, { id }) }, id);
       }
-      const a = read29(adminTabs)[id];
+      const a = read30(adminTabs)[id];
       return a ? /* @__PURE__ */ jsx27(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: /* @__PURE__ */ jsx27(AdminTabView, { id }) }, id) : null;
     })
   ] });

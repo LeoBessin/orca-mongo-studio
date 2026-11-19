@@ -23,6 +23,7 @@ import {
 } from 'orca'
 import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, toShellInline, valueAt, valueText, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { QUERY_TEXT_MAX } from '../shared/host-size'
+import { PAGE_SIZES } from '../shared/settings'
 import { filterablePath, filterFromRows, projectionKeeps } from '../shared/table-filter'
 import {
   addField,
@@ -43,7 +44,6 @@ import {
   nextPage,
   openDocument,
   openDocumentTab,
-  PAGE_SIZE_OPTIONS,
   parseTreeKey,
   previousPage,
   recount,
@@ -94,7 +94,7 @@ export function Pager({ t }: { t: CollTab }): OrcaNode {
         <IconButton icon="refresh" label="Count again" size="sm" variant="ghost" disabled={!(t.spec || t.agg?.ran) || c === 'counting'} onPress={guard(t.id, () => recount(t.id))} />
       </Toolbar>
       <Text size="xs" muted={total === undefined}>{countText(t)}</Text>
-      <Select label="Page size" labelHidden value={String(t.pageSize)} options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: `${n} per page` }))} onChange={(v) => void guard(t.id, () => setPageSize(t.id, Number(v)))()} />
+      <Select label="Page size" labelHidden value={String(t.pageSize)} options={PAGE_SIZES.map((n) => ({ value: String(n), label: `${n} per page` }))} onChange={(v) => void guard(t.id, () => setPageSize(t.id, Number(v)))()} />
     </Row>
   )
 }

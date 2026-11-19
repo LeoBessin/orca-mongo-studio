@@ -14,9 +14,9 @@ import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '.
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
-import { DOC_VIEW_KEYS, PAGE_SIZES, RESULT_VIEW_KEYS, startView, type DocView, type ResultView } from '../shared/settings'
+import { DEFAULT_PAGE_SIZE, DOC_VIEW_KEYS, PAGE_SIZES, RESULT_VIEW_KEYS, startValue, type DocView, type PageSize, type ResultView } from '../shared/settings'
 import { followJob, type JobBox } from './data-state'
-import { settings } from './settings-state'
+import { settings, startRelaxed } from './settings-state'
 import { errorText, nodeIndex, view } from './state'
 
 export type { DocView, ResultView }
@@ -183,11 +183,9 @@ export type CollTab = {
   docTab?: { id: JsonValue }
 }
 
-export const PAGE_SIZE_OPTIONS: readonly number[] = PAGE_SIZES
-
 export const collTabs = atom<Record<string, CollTab>>({})
 export const tabOrder = atom<string[]>([])
-export const defaultPageSize = atom<number>('mongo-studio.pageSize', 50, { persist: 'plugin' })
+export const defaultPageSize = atom<number>('mongo-studio.pageSize', DEFAULT_PAGE_SIZE, { persist: 'plugin' })
 /** The results view and document view chosen last. Newly opened tabs and documents start in
  *  them; tabs brought back from the saved layout keep their own. They live in the plugin's
  *  storage rather than the `plugin` scope so that panels open in other windows follow along. */
@@ -202,24 +200,16 @@ export const DOC_VIEWS: Record<DocView, string> = { tree: 'Tree', json: 'JSON', 
  *  ones, falling back to the defaults if storage holds something unknown (`storage` values are
  *  kept as written, with no `migrate` step). */
 export function startResultView(): ResultView {
-  return startView(settings().resultView, read(lastResultView), RESULT_VIEW_KEYS, 'table')
+  return startValue(settings().resultView, read(lastResultView), RESULT_VIEW_KEYS, 'table')
 }
 
 export function startDocView(): DocView {
-  return startView(settings().docView, read(lastDocView), DOC_VIEW_KEYS, 'tree')
+  return startValue(settings().docView, read(lastDocView), DOC_VIEW_KEYS, 'tree')
 }
 
 /** Documents per page in a new tab: the size chosen in Settings, or the one used last. */
-export function startPageSize(): number {
-  const s = settings().pageSize
-  if (s !== 'last') return s
-  const n = read(defaultPageSize)
-  return PAGE_SIZES.includes(n as (typeof PAGE_SIZES)[number]) ? n : 50
-}
-
-/** Whether new tabs and documents show relaxed Extended JSON. */
-export function startRelaxed(): boolean {
-  return settings().ejson === 'relaxed'
+export function startPageSize(): PageSize {
+  return startValue(settings().pageSize, read(defaultPageSize), PAGE_SIZES, DEFAULT_PAGE_SIZE)
 }
 
 const emptyText: QueryText = { filter: '', projection: '', sort: '', collation: '', skip: '', limit: '' }
@@ -424,9 +414,7 @@ export function setFocus(id: string, values: Partial<DocFocus>): void {
 /** Asks before deleting the open document. */
 export function askDeleteFocused(id: string): Promise<void> {
   const f = tab(id)?.focus
-  if (!f) return Promise.resolve()
-  patch(id, { confirmDelete: { ids: [f.id] }, editor: undefined })
-  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id)
+  return f ? askDeleteIds(id, [f.id]) : Promise.resolve()
 }
 
 export function setText(id: string, field: QueryField, value: string): void {
@@ -899,15 +887,32 @@ export function askDelete(id: string): Promise<void> {
   const t = tab(id)
   if (!t) return Promise.resolve()
   const docs = selectedDocs(t).filter((d) => '_id' in d)
-  if (docs.length === 0) return Promise.resolve()
-  patch(id, { confirmDelete: { ids: docs.map((d) => d._id!) }, editor: undefined })
-  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id)
+  return docs.length ? askDeleteIds(id, docs.map((d) => d._id!)) : Promise.resolve()
 }
 
-export async function confirmDeletion(id: string): Promise<void> {
+/** Asks first, or deletes at once when Settings says not to ask: then no confirmation shows, so
+ *  nothing on screen can cancel or repeat it while it runs. */
+function askDeleteIds(id: string, ids: JsonValue[]): Promise<void> {
+  if (!settings().confirmDeleteDocs) {
+    patch(id, { editor: undefined })
+    return deleteDocuments(id, ids)
+  }
+  patch(id, { confirmDelete: { ids }, editor: undefined })
+  return Promise.resolve()
+}
+
+export function confirmDeletion(id: string): Promise<void> {
+  const ids = tab(id)?.confirmDelete?.ids
+  return ids ? deleteDocuments(id, ids) : Promise.resolve()
+}
+
+/** Tabs with a deletion running: pressing Delete again meanwhile does nothing. */
+const deleting = new Set<string>()
+
+async function deleteDocuments(id: string, ids: JsonValue[]): Promise<void> {
   const t = tab(id)
-  const ids = t?.confirmDelete?.ids
-  if (!t || !ids) return
+  if (!t || deleting.has(id)) return
+  deleting.add(id)
   try {
     const r = await plugin.request('doc.deleteMany', { ns: t.ns, ids }, { timeoutMs: 120000 })
     patch(id, { confirmDelete: undefined, selectedRows: [] })
@@ -919,6 +924,8 @@ export async function confirmDeletion(id: string): Promise<void> {
   } catch (error) {
     patch(id, { confirmDelete: undefined })
     say(id, 'danger', errorText(error))
+  } finally {
+    deleting.delete(id)
   }
 }
 

@@ -176,21 +176,43 @@ export async function saveTtl(id: string, name: string): Promise<void> {
   await loadManage(id)
 }
 
-/** Asks before dropping an index, or drops it at once when Settings says not to ask. */
-export function askDropIndex(id: string, name: string): Promise<void> {
-  changeAdmin(id, 'manage', () => ({ confirmDropIndex: name }))
-  return settings().confirmDrop ? Promise.resolve() : dropIndexConfirmed(id)
+/** Manage tabs with a drop or clear running: pressing again meanwhile does nothing. */
+const busy = new Set<string>()
+
+async function once(id: string, run: () => Promise<void>): Promise<void> {
+  if (busy.has(id)) return
+  busy.add(id)
+  try {
+    await run()
+  } finally {
+    busy.delete(id)
+  }
 }
 
-export async function dropIndexConfirmed(id: string): Promise<void> {
-  const t = tabOf(id, 'manage')
-  const name = t?.confirmDropIndex
-  if (!t || !name) return
-  await plugin.request('admin.dropIndex', { ns: t.ns, name })
-  changeAdmin(id, 'manage', () => ({ confirmDropIndex: undefined, indexSelected: undefined }))
-  sayAdmin(id, 'success', `Index ${name} dropped.`)
-  await loadManage(id)
-  await refreshTree(t.connectionId, t.ns.db)
+/** Asks before dropping an index, or drops it at once when Settings says not to ask: then no
+ *  confirmation shows, so nothing on screen can cancel or repeat it while it runs, or linger if
+ *  it fails. */
+export function askDropIndex(id: string, name: string): Promise<void> {
+  if (!settings().confirmDrop) return dropIndex(id, name)
+  changeAdmin(id, 'manage', () => ({ confirmDropIndex: name }))
+  return Promise.resolve()
+}
+
+export function dropIndexConfirmed(id: string): Promise<void> {
+  const name = tabOf(id, 'manage')?.confirmDropIndex
+  return name ? dropIndex(id, name) : Promise.resolve()
+}
+
+function dropIndex(id: string, name: string): Promise<void> {
+  return once(id, async () => {
+    const t = tabOf(id, 'manage')
+    if (!t) return
+    await plugin.request('admin.dropIndex', { ns: t.ns, name })
+    changeAdmin(id, 'manage', () => ({ confirmDropIndex: undefined, indexSelected: undefined }))
+    sayAdmin(id, 'success', `Index ${name} dropped.`)
+    await loadManage(id)
+    await refreshTree(t.connectionId, t.ns.db)
+  })
 }
 
 // ---- Validation ----
@@ -287,17 +309,27 @@ export async function convertToCapped(id: string): Promise<void> {
 }
 
 /** Asks before dropping or clearing the collection, or goes ahead at once when Settings says not
- *  to ask. `undefined` cancels. */
+ *  to ask (with no confirmation shown, as for an index). `undefined` cancels. */
 export function askConfirm(id: string, confirm: ManageTab['confirm']): Promise<void> {
+  if (confirm && !settings().confirmDrop) return clearOrDrop(id, confirm)
   changeAdmin(id, 'manage', () => ({ confirm }))
-  return confirm && !settings().confirmDrop ? confirmed(id) : Promise.resolve()
+  return Promise.resolve()
 }
 
-export async function confirmed(id: string): Promise<void> {
+export function confirmed(id: string): Promise<void> {
+  const kind = tabOf(id, 'manage')?.confirm
+  return kind ? clearOrDrop(id, kind) : Promise.resolve()
+}
+
+function clearOrDrop(id: string, kind: NonNullable<ManageTab['confirm']>): Promise<void> {
+  return once(id, () => clearOrDropNow(id, kind))
+}
+
+async function clearOrDropNow(id: string, kind: NonNullable<ManageTab['confirm']>): Promise<void> {
   const t = tabOf(id, 'manage')
-  if (!t?.confirm) return
+  if (!t) return
   const what = nsLabel(t.ns)
-  if (t.confirm === 'clear') {
+  if (kind === 'clear') {
     const { deleted } = await plugin.request('admin.clearCollection', { ns: t.ns }, { timeoutMs: 120000 })
     changeAdmin(id, 'manage', () => ({ confirm: undefined }))
     sayAdmin(id, 'success', `Deleted ${numberText(deleted)} document${deleted === 1 ? '' : 's'} from ${what}. Its indexes and options stay.`)

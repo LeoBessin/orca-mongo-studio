@@ -341,6 +341,13 @@ describe('saved tasks', () => {
     assert.deepEqual(worker.posts.at(-1), { event: 'ui.navigate', payload: { view: 'tasks' } })
     await worker.deactivate()
   })
+
+  test('"Settings" posts to open panels', async () => {
+    const worker = await mountWorker(main, { host: mockHost() })
+    await worker.command('mongoStudio.showSettings')
+    assert.deepEqual(worker.posts.at(-1), { event: 'ui.navigate', payload: { view: 'settings' } })
+    await worker.deactivate()
+  })
 })
 
 describe('the manifest\'s keybindings', () => {
