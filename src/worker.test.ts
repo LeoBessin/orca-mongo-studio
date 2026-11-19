@@ -203,6 +203,8 @@ describe('read-only connections', () => {
       ['doc.replace', { ns, id: 1, doc: {} }],
       ['doc.insert', { ns, docs: [{}] }],
       ['doc.deleteMany', { ns, ids: [1] }],
+      ['doc.updatePreview', { ns, scope: { kind: 'all' }, update: { $set: { a: 1 } } }],
+      ['doc.updateMany', { ns, scope: { kind: 'ids', ids: [1] }, update: { $set: { a: 1 } } }],
       ['agg.run', { ns, pipeline: [{ $match: {} }, { $out: 'copy' }], options: {}, pageSize: 20 }],
       ['agg.page', { queryId: 'q', ns, pipeline: [{ $merge: { into: 'copy' } }], options: {}, offset: 20, pageSize: 20 }],
       ['view.create', { ns, name: 'v', pipeline: [] }],

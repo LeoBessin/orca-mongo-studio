@@ -33,6 +33,8 @@ import {
   collTabs,
   deleteSaved,
   insertDocument,
+  canUpdateMany,
+  openUpdateMany,
   loadBuilderFromFilter,
   nsLabel,
   resetQuery,
@@ -49,6 +51,7 @@ import {
 import { openAggregation } from './aggregate-state'
 import { DocumentView } from './document-view'
 import { Editors } from './editors-view'
+import { UpdateMany } from './update-view'
 import { ExplainSection } from './explain-view'
 import { runExplain } from './explain-state'
 import { guard } from './guard'
@@ -294,6 +297,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
         {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
         {!t.readOnly ? <Button icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
+        {canUpdateMany(t) ? <Button icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id)}>Update many</Button> : null}
         {t.shell ? null : <IconButton icon="download" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
         {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" onPress={() => openImport(t.ns)} />}
         {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
@@ -303,6 +307,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
       {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
       <Results t={t} />
       <Editors t={t} />
+      <UpdateMany t={t} />
       <ExplainSection t={t} />
       <Library t={t} />
       <CodeSection op={tabOperation(t)} description="The query in the bar as driver code." />

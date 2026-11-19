@@ -61,6 +61,10 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   next to its collection.
 - Edit fields with inputs that match their BSON type, or edit whole documents. Insert, clone and
   delete documents, one at a time or in bulk.
+- **Update many:** apply update operators (`{ $set: { status: 'archived' } }`) or an update
+  pipeline to the selected rows, every match of the query (not only the page shown), or the whole
+  collection. A preview counts the documents and shows one before and after, saving nothing; an
+  update of every document asks for the collection's name.
 - Per-collection query history and saved queries.
 
 ![The connection tree beside a collection tab with results as a table](media/browse.webp)

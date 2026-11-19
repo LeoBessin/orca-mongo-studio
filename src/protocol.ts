@@ -9,6 +9,7 @@ import type { StageText } from './shared/pipeline'
 import type { CsvColumn } from './shared/csv'
 import type { CompareRules, FieldDiff } from './shared/compare'
 import type { Task, TaskRequest } from './shared/tasks'
+import type { UpdateScope, UpdateSpec } from './shared/update-spec'
 
 export type ConnectionSummary = {
   id: string
@@ -118,6 +119,30 @@ export type QueryPage = {
 export type CountResult = { count: number | null; approximate: boolean; ms: number; error?: string }
 
 export type WriteResult = { matched: number; modified: number }
+
+/** What an update many would do, before it runs. */
+export type UpdatePreview = {
+  /** Documents the scope reaches now; null when counting failed or took too long. */
+  count: number | null
+  /** From the collection's metadata (the whole collection), so it may be off a little. */
+  approximate: boolean
+  countError?: string
+  /** The first document the scope reaches, before and after the change. Missing when none match. */
+  sample?: {
+    /** Canonical Extended JSON, shrunk like a page. */
+    before: JsonObject
+    /** Missing when the change couldn't be tried (`note`) or the server refused it (`error`). */
+    after?: JsonObject
+    diffs: FieldDiff[]
+    capped: boolean
+    note?: string
+    /** The server's reason the change fails on this document: it would fail on the run too. */
+    error?: string
+    /** The documents were too big to send together, so one or both are cut down to their `_id`. */
+    tooBig?: boolean
+  }
+  ms: number
+}
 
 // ---- Aggregation and explain ----
 
@@ -355,7 +380,7 @@ export type ImportPreview = {
   gzip?: boolean
 }
 
-export type JobKind = 'import' | 'export' | 'copy' | 'compare' | 'sync' | 'gridfs-upload' | 'gridfs-download'
+export type JobKind = 'import' | 'export' | 'copy' | 'compare' | 'sync' | 'gridfs-upload' | 'gridfs-download' | 'update'
 export type JobStatus = 'running' | 'done' | 'failed' | 'cancelled'
 export type JobError = { record?: number; ns?: string; message: string }
 
@@ -388,7 +413,8 @@ export type CompareResult = {
 }
 export type SyncResult = { kind: 'sync'; inserted: number; replaced: number; deleted: number; failed: number }
 export type GridUploadResult = { kind: 'gridfs-upload'; id: JsonValue; bytes: number }
-export type JobResult = ImportResult | ExportResult | CompareResult | SyncResult | GridUploadResult
+export type UpdateResult = { kind: 'update' } & WriteResult
+export type JobResult = ImportResult | ExportResult | CompareResult | SyncResult | GridUploadResult | UpdateResult
 
 export type JobState = {
   jobId: string
@@ -537,6 +563,11 @@ declare module 'orca' {
     'doc.replace': { input: { ns: Namespace; id: JsonValue; doc: JsonObject }; output: WriteResult }
     'doc.insert': { input: { ns: Namespace; docs: JsonObject[] }; output: { insertedIds: JsonValue[] } }
     'doc.deleteMany': { input: { ns: Namespace; ids: JsonValue[] }; output: { deleted: number } }
+    /** Counts what an update many reaches and tries it on one document, saving nothing. */
+    'doc.updatePreview': { input: { ns: Namespace; scope: UpdateScope; update: UpdateSpec }; output: UpdatePreview }
+    /** Starts `updateMany` on the documents of a scope (these `_id`s, a filter, or the whole
+     *  collection) as a job: a long one runs past Orca's request limit. It ends with an UpdateResult. */
+    'doc.updateMany': { input: { ns: Namespace; scope: UpdateScope; update: UpdateSpec }; output: { jobId: string } }
     'history.list': { input: { ns: Namespace }; output: QueryLibrary }
     'history.clear': { input: { ns: Namespace }; output: QueryLibrary }
     'saved.save': { input: { ns: Namespace; name: string; query: QueryText }; output: QueryLibrary }

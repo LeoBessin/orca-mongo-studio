@@ -75758,6 +75758,8 @@ function resultSummary(result) {
       return `${n(result.inserted)} inserted, ${n(result.replaced)} replaced, ${n(result.deleted)} deleted${result.failed ? `, ${n(result.failed)} failed` : ""}.`;
     case "gridfs-upload":
       return `Uploaded ${n(result.bytes)} bytes.`;
+    case "update":
+      return `${n(result.matched)} matched, ${n(result.modified)} modified.`;
   }
 }
 function fail(message) {
@@ -76742,8 +76744,8 @@ function pageCanonical(canonical) {
   const shrunk = value;
   const size = hostSize(shrunk);
   if (size.bytes <= PAGE_BYTE_BUDGET && size.objects <= PAGE_OBJECT_BUDGET) return { doc: shrunk, cut, bytes: size.bytes, objects: size.objects };
-  const stub = { $msTruncated: { kind: "object", size: Object.keys(shrunk).length, preview: null } };
-  const out = "_id" in shrunk ? { _id: shrunk._id, "(document)": stub } : { "(document)": stub };
+  const stub2 = { $msTruncated: { kind: "object", size: Object.keys(shrunk).length, preview: null } };
+  const out = "_id" in shrunk ? { _id: shrunk._id, "(document)": stub2 } : { "(document)": stub2 };
   const small = hostSize(out);
   return { doc: out, cut: true, bytes: small.bytes, objects: small.objects };
 }
@@ -76885,34 +76887,8 @@ var QuerySessions = class {
   }
   async count(ns, spec) {
     checkSpec(spec, 1);
-    const started = Date.now();
     const client = await this.client(ns.connectionId);
-    const coll = client.db(ns.db).collection(ns.collection);
-    const within = (total) => {
-      const after = Math.max(total - spec.skip, 0);
-      return spec.limit > 0 ? Math.min(after, spec.limit) : after;
-    };
-    try {
-      if (Object.keys(spec.filter).length === 0) {
-        try {
-          const n6 = await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS });
-          return { count: within(n6), approximate: true, ms: Date.now() - started };
-        } catch {
-        }
-      }
-      const options = { maxTimeMS: COUNT_MAX_TIME_MS };
-      if (spec.skip) options.skip = spec.skip;
-      if (spec.limit) options.limit = spec.limit;
-      if (spec.collation && Object.keys(spec.collation).length) options.collation = toBson(spec.collation);
-      const n5 = await coll.countDocuments(toBson(spec.filter), options);
-      return { count: n5, approximate: false, ms: Date.now() - started };
-    } catch (error) {
-      const e6 = error;
-      if (e6.code === 50 || e6.codeName === "MaxTimeMSExpired") {
-        return { count: null, approximate: false, ms: Date.now() - started, error: `Counting took longer than ${COUNT_MAX_TIME_MS / 1e3} s, so it stopped.` };
-      }
-      return { count: null, approximate: false, ms: Date.now() - started, error: e6.message ?? String(error) };
-    }
+    return countMatching(client.db(ns.db).collection(ns.collection), spec.filter, spec);
   }
   async close(queryId) {
     const s2 = this.sessions.get(queryId);
@@ -76942,6 +76918,37 @@ var QuerySessions = class {
     this.sweeper = void 0;
   }
 };
+async function countMatching(coll, filter, options = {}) {
+  const started = Date.now();
+  const skip = options.skip ?? 0;
+  const limit = options.limit ?? 0;
+  const read = options.primary ? { readPreference: "primary" } : {};
+  const within = (total) => {
+    const after = Math.max(total - skip, 0);
+    return limit > 0 ? Math.min(after, limit) : after;
+  };
+  try {
+    if (Object.keys(filter).length === 0) {
+      try {
+        const n6 = await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS, ...read });
+        return { count: within(n6), approximate: true, ms: Date.now() - started };
+      } catch {
+      }
+    }
+    const countOptions = { maxTimeMS: COUNT_MAX_TIME_MS, ...read };
+    if (skip) countOptions.skip = skip;
+    if (limit) countOptions.limit = limit;
+    if (options.collation && Object.keys(options.collation).length) countOptions.collation = toBson(options.collation);
+    const n5 = await coll.countDocuments(toBson(filter), countOptions);
+    return { count: n5, approximate: false, ms: Date.now() - started };
+  } catch (error) {
+    const e6 = error;
+    if (e6.code === 50 || e6.codeName === "MaxTimeMSExpired") {
+      return { count: null, approximate: false, ms: Date.now() - started, error: `Counting took longer than ${COUNT_MAX_TIME_MS / 1e3} s, so it stopped.` };
+    }
+    return { count: null, approximate: false, ms: Date.now() - started, error: e6.message ?? String(error) };
+  }
+}
 function sameId(a6, b6) {
   return JSON.stringify(toCanonical({ v: toBson({ v: a6 }).v })) === JSON.stringify(toCanonical({ v: toBson({ v: b6 }).v }));
 }
@@ -79361,6 +79368,224 @@ async function analyzeSchema(client, ns, size, filter) {
   }
 }
 
+// src/shared/compare.ts
+function isPlain(v) {
+  return isObject(v) && bsonType(v) === "object";
+}
+function comparable(doc, rules) {
+  const ignore = rules.ignoreFields.map((f6) => f6.split("."));
+  const walk = (v, path) => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, path));
+    if (!isPlain(v)) return v;
+    const keys = Object.keys(v).filter((k6) => !ignore.some((p3) => p3.length === path.length + 1 && p3[path.length] === k6 && path.every((s2, i6) => p3[i6] === s2)));
+    if (rules.ignoreOrder) keys.sort();
+    const out2 = {};
+    for (const k6 of keys) setOwn(out2, k6, walk(v[k6], [...path, k6]));
+    return out2;
+  };
+  const out = walk(doc, []);
+  delete out._id;
+  return out;
+}
+function compareKey(doc, rules) {
+  return JSON.stringify(comparable(doc, rules));
+}
+function diffDocuments(a6, b6, rules, max = 500) {
+  const ca = comparable(a6, rules);
+  const cb = comparable(b6, rules);
+  const diffs = [];
+  let capped = false;
+  const push = (d6) => {
+    if (diffs.length >= max) capped = true;
+    else diffs.push(d6);
+  };
+  const walk = (x, y, path) => {
+    if (x === void 0 && y === void 0) return;
+    if (x === void 0) return push({ path, kind: "added", b: valueText(y, 80) });
+    if (y === void 0) return push({ path, kind: "removed", a: valueText(x, 80) });
+    if (isPlain(x) && isPlain(y)) {
+      const keys = [.../* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])];
+      for (const k6 of keys) walk(x[k6], y[k6], path ? `${path}.${k6}` : k6);
+      if (!rules.ignoreOrder && keys.every((k6) => k6 in x && k6 in y) && JSON.stringify(Object.keys(x)) !== JSON.stringify(Object.keys(y)) && keys.every((k6) => JSON.stringify(x[k6]) === JSON.stringify(y[k6]))) {
+        push({ path: path || "(document)", kind: "changed", a: `fields ${Object.keys(x).join(", ")}`, b: `fields ${Object.keys(y).join(", ")}` });
+      }
+      return;
+    }
+    if (Array.isArray(x) && Array.isArray(y)) {
+      for (let i6 = 0; i6 < Math.max(x.length, y.length); i6++) walk(x[i6], y[i6], `${path}.${i6}`);
+      return;
+    }
+    if (JSON.stringify(x) === JSON.stringify(y)) return;
+    const tx = bsonType(x);
+    const ty = bsonType(y);
+    push({ path, kind: "changed", a: valueText(x, 80), b: valueText(y, 80), ...tx !== ty ? { types: [tx, ty] } : {} });
+  };
+  walk(ca, cb, "");
+  return { diffs, capped };
+}
+
+// src/shared/update-spec.ts
+var UPDATE_IDS_MAX = 1e4;
+var UPDATE_OPERATORS = ["$set", "$unset", "$inc", "$mul", "$rename", "$min", "$max", "$currentDate", "$push", "$addToSet", "$pop", "$pull", "$pullAll", "$bit"];
+var UPDATE_STAGES = ["$set", "$addFields", "$unset", "$project", "$replaceWith", "$replaceRoot"];
+function updateProblem(value) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "An update pipeline needs at least one stage.";
+    for (const [i6, stage] of value.entries()) {
+      const keys2 = isObject(stage) && bsonType(stage) === "object" ? Object.keys(stage) : [];
+      if (keys2.length !== 1 || !keys2[0].startsWith("$")) return `Stage ${i6 + 1} must be a document with one stage name, like { $set: { … } }.`;
+      if (!UPDATE_STAGES.includes(keys2[0])) return `${keys2[0]} can't be used in an update pipeline. Use ${UPDATE_STAGES.join(", ")}.`;
+    }
+    return void 0;
+  }
+  if (!isObject(value) || bsonType(value) !== "object") return 'An update is a document of operators, like { $set: { status: "archived" } }, or a pipeline in [ ].';
+  const keys = Object.keys(value);
+  if (keys.length === 0) return 'Write the change, like { $set: { status: "archived" } }.';
+  const plain = keys.find((k6) => !k6.startsWith("$"));
+  if (plain !== void 0) {
+    return `"${plain}" is not an update operator. To change fields, name them under one, like { $set: { ${plain}: … } }; replacing whole documents isn't done in bulk.`;
+  }
+  for (const k6 of keys) {
+    if (!UPDATE_OPERATORS.includes(k6)) return `${k6} is not an update operator. Use ${UPDATE_OPERATORS.join(", ")}.`;
+    const body = value[k6];
+    if (!isObject(body) || bsonType(body) !== "object") return `${k6} takes a document of fields, like { ${k6}: { field: … } }.`;
+    if (Object.keys(body).length === 0) return `${k6} names no fields.`;
+  }
+  return void 0;
+}
+function scopeProblem(scope) {
+  if (!isObject(scope)) return "Choose which documents to update.";
+  switch (scope.kind) {
+    case "ids":
+      if (!Array.isArray(scope.ids) || scope.ids.length === 0) return "Select the documents to update.";
+      if (scope.ids.length > UPDATE_IDS_MAX) return `Update at most ${UPDATE_IDS_MAX.toLocaleString("en-US")} selected documents at a time.`;
+      return void 0;
+    case "filter":
+      if (!isObject(scope.filter)) return "The filter must be a document.";
+      if (scope.collation !== void 0 && !isObject(scope.collation)) return "The collation must be a document.";
+      return void 0;
+    case "all":
+      return void 0;
+    default:
+      return "Choose which documents to update.";
+  }
+}
+function scopeFilter(scope) {
+  if (scope.kind === "ids") return { _id: { $in: scope.ids } };
+  if (scope.kind === "filter") return scope.filter;
+  return {};
+}
+
+// src/worker/update.ts
+var DIFFS_MAX = 100;
+var PRIMARY = { readPreference: "primary" };
+function checkUpdate(scope, update) {
+  const s2 = scopeProblem(scope);
+  if (s2) throw invalid(s2);
+  const u = updateProblem(update);
+  if (u) throw invalid(u);
+}
+function filterOf(scope) {
+  return toBson(scopeFilter(scope));
+}
+function collationOf(scope) {
+  return scope.kind === "filter" && scope.collation && Object.keys(scope.collation).length ? toBson(scope.collation) : void 0;
+}
+function updateOf(update) {
+  return Array.isArray(update) ? update.map((s2) => toBson(s2)) : toBson(update);
+}
+function messageOf(error) {
+  return error.message ?? String(error);
+}
+function noTransaction(error) {
+  const e6 = error;
+  return e6.code === 20 || e6.code === 263 || e6.codeName === "OperationNotSupportedInTransaction" || /Transaction numbers are only allowed|transactions are not supported|not supported in (a )?(multi-document )?transaction/i.test(e6.message ?? "");
+}
+var GONE = "The document was deleted while previewing.";
+async function tryInTransaction(client, ns, id, update, collation) {
+  const coll = client.db(ns.db).collection(ns.collection);
+  let session;
+  try {
+    session = client.startSession();
+    session.startTransaction({ ...PRIMARY, readConcern: { level: "snapshot" }, writeConcern: { w: "majority" } });
+    const r6 = await coll.updateOne({ _id: id }, updateOf(update), { session, ...collation ? { collation } : {} });
+    if (r6.matchedCount === 0) return { error: GONE };
+    const after = await coll.findOne({ _id: id }, { ...EXACT, session });
+    return after ? { after } : { error: GONE };
+  } catch (error) {
+    return noTransaction(error) ? "no-transaction" : { error: messageOf(error) };
+  } finally {
+    if (session) {
+      if (session.inTransaction()) await session.abortTransaction().catch(() => void 0);
+      await session.endSession().catch(() => void 0);
+    }
+  }
+}
+async function sampleAfter(client, ns, before, update, collation) {
+  const tried = await tryInTransaction(client, ns, before._id, update, collation);
+  if (tried !== "no-transaction") return tried;
+  if (!Array.isArray(update)) {
+    return { note: "This server can't try the change in a transaction (a standalone server, or a collection that refuses them), so only the document before is shown. Check the update, then run it." };
+  }
+  const note = "This server can't try the change in a transaction, so the pipeline ran as an aggregation on the document instead.";
+  try {
+    const [after] = await client.db(ns.db).collection(ns.collection).aggregate([{ $match: { _id: before._id } }, ...updateOf(update)], { ...EXACT, ...PRIMARY, maxTimeMS: FIND_MAX_TIME_MS, ...collation ? { collation } : {} }).toArray();
+    if (!after) return { note, error: GONE };
+    if (JSON.stringify(toCanonical({ v: after._id })) !== JSON.stringify(toCanonical({ v: before._id }))) {
+      return { note, error: "This update changes the document's _id, which can't change: the server refuses it." };
+    }
+    return { note, after };
+  } catch (error) {
+    return { note, error: messageOf(error) };
+  }
+}
+function stub(doc) {
+  const marker = { $msTruncated: { kind: "object", size: Object.keys(doc).length, preview: null } };
+  return "_id" in doc ? { _id: doc._id, "(document)": marker } : { "(document)": marker };
+}
+async function previewUpdate(client, ns, scope, update) {
+  checkUpdate(scope, update);
+  const started = Date.now();
+  const coll = client.db(ns.db).collection(ns.collection);
+  const collation = collationOf(scope);
+  const [counted2, first] = await Promise.all([
+    countMatching(coll, scopeFilter(scope), { ...scope.kind === "filter" && scope.collation ? { collation: scope.collation } : {}, primary: true }),
+    coll.findOne(filterOf(scope), { ...EXACT, ...PRIMARY, maxTimeMS: FIND_MAX_TIME_MS, ...collation ? { collation } : {} })
+  ]);
+  const preview = { count: counted2.count, approximate: counted2.approximate, ...counted2.error ? { countError: counted2.error } : {}, ms: 0 };
+  if (first) {
+    const before = toCanonical(first);
+    const r6 = "_id" in first ? await sampleAfter(client, ns, first, update, collation) : { note: "This document has no _id, so the change is not tried on it." };
+    const sample2 = { before: pageCanonical(before).doc, diffs: [], capped: false };
+    if (r6.after) {
+      const after = toCanonical(r6.after);
+      const { diffs, capped } = diffDocuments(before, after, { ignoreFields: [], ignoreOrder: false }, DIFFS_MAX);
+      sample2.after = pageCanonical(after).doc;
+      sample2.diffs = diffs;
+      sample2.capped = capped;
+    }
+    if (r6.note) sample2.note = r6.note;
+    if (r6.error) sample2.error = r6.error;
+    preview.sample = sample2;
+    if (!fitsHost(preview) && sample2.after) {
+      sample2.after = stub(sample2.after);
+      sample2.tooBig = true;
+    }
+    if (!fitsHost(preview)) {
+      sample2.before = stub(sample2.before);
+      sample2.tooBig = true;
+    }
+  }
+  preview.ms = Date.now() - started;
+  return preview;
+}
+async function updateMany(client, ns, scope, update) {
+  checkUpdate(scope, update);
+  const collation = collationOf(scope);
+  const r6 = await client.db(ns.db).collection(ns.collection).updateMany(filterOf(scope), updateOf(update), collation ? { collation } : {});
+  return { matched: r6.matchedCount, modified: r6.modifiedCount };
+}
+
 // src/worker/server.ts
 var OPS_MAX = 200;
 function sleep2(ms, signal) {
@@ -80845,62 +81070,6 @@ async function dropRole(client, ref, role) {
 
 // src/worker/compare.ts
 var import_mongodb7 = __toESM(require_lib2(), 1);
-
-// src/shared/compare.ts
-function isPlain(v) {
-  return isObject(v) && bsonType(v) === "object";
-}
-function comparable(doc, rules) {
-  const ignore = rules.ignoreFields.map((f6) => f6.split("."));
-  const walk = (v, path) => {
-    if (Array.isArray(v)) return v.map((x) => walk(x, path));
-    if (!isPlain(v)) return v;
-    const keys = Object.keys(v).filter((k6) => !ignore.some((p3) => p3.length === path.length + 1 && p3[path.length] === k6 && path.every((s2, i6) => p3[i6] === s2)));
-    if (rules.ignoreOrder) keys.sort();
-    const out2 = {};
-    for (const k6 of keys) setOwn(out2, k6, walk(v[k6], [...path, k6]));
-    return out2;
-  };
-  const out = walk(doc, []);
-  delete out._id;
-  return out;
-}
-function compareKey(doc, rules) {
-  return JSON.stringify(comparable(doc, rules));
-}
-function diffDocuments(a6, b6, rules, max = 500) {
-  const ca = comparable(a6, rules);
-  const cb = comparable(b6, rules);
-  const diffs = [];
-  let capped = false;
-  const push = (d6) => {
-    if (diffs.length >= max) capped = true;
-    else diffs.push(d6);
-  };
-  const walk = (x, y, path) => {
-    if (x === void 0 && y === void 0) return;
-    if (x === void 0) return push({ path, kind: "added", b: valueText(y, 80) });
-    if (y === void 0) return push({ path, kind: "removed", a: valueText(x, 80) });
-    if (isPlain(x) && isPlain(y)) {
-      const keys = [.../* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])];
-      for (const k6 of keys) walk(x[k6], y[k6], path ? `${path}.${k6}` : k6);
-      if (!rules.ignoreOrder && keys.every((k6) => k6 in x && k6 in y) && JSON.stringify(Object.keys(x)) !== JSON.stringify(Object.keys(y)) && keys.every((k6) => JSON.stringify(x[k6]) === JSON.stringify(y[k6]))) {
-        push({ path: path || "(document)", kind: "changed", a: `fields ${Object.keys(x).join(", ")}`, b: `fields ${Object.keys(y).join(", ")}` });
-      }
-      return;
-    }
-    if (Array.isArray(x) && Array.isArray(y)) {
-      for (let i6 = 0; i6 < Math.max(x.length, y.length); i6++) walk(x[i6], y[i6], `${path}.${i6}`);
-      return;
-    }
-    if (JSON.stringify(x) === JSON.stringify(y)) return;
-    const tx = bsonType(x);
-    const ty = bsonType(y);
-    push({ path, kind: "changed", a: valueText(x, 80), b: valueText(y, 80), ...tx !== ty ? { types: [tx, ty] } : {} });
-  };
-  walk(ca, cb, "");
-  return { diffs, capped };
-}
 
 // src/worker/jobs.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
@@ -83066,6 +83235,21 @@ function activate(orca) {
   orca.panels.handle("doc.deleteMany", async ({ ns, ids }) => {
     await writable(ns.connectionId, "deleting documents");
     return deleteDocuments(await clientFor(ns.connectionId), ns, ids);
+  });
+  orca.panels.handle("doc.updatePreview", async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, "updating documents");
+    return previewUpdate(await clientFor(ns.connectionId), ns, scope, update);
+  });
+  orca.panels.handle("doc.updateMany", async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, "updating documents");
+    checkUpdate(scope, update);
+    const client = await clientFor(ns.connectionId);
+    return {
+      jobId: running.start("update", "documents", async (job) => {
+        job.progress({ phase: `Updating ${ns.db}.${ns.collection}` });
+        return { kind: "update", ...await updateMany(client, ns, scope, update) };
+      })
+    };
   });
   orca.panels.handle("query.explain", async ({ ns, spec, verbosity }) => explainFind(await clientFor(ns.connectionId), ns, spec, verbosity));
   const pipelineWritable = async (ns, pipeline) => {
