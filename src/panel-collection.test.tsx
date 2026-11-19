@@ -958,3 +958,106 @@ describe('switching sidebar tabs', () => {
     assert.ok(after.find({ text: /This connection is not open/ }))
   })
 })
+
+/** Settings as storage holds them: one key each. */
+const prefs = (values: Record<string, JsonValue>): Record<string, JsonValue> =>
+  Object.fromEntries(Object.entries(values).map(([k, v]) => [`mongo-studio.settings.${k}`, v]))
+
+describe('settings', () => {
+  test('the Settings tab opens from the tree, saves each change in storage and resets to the defaults', async () => {
+    const { host } = setup({}, 'coll', { 'connections.v1': { items: [] } })
+    const view = await mount(panel, { host })
+    await view.press({ type: 'IconButton', label: 'Settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
+    const reset = { type: 'Button', text: 'Reset to defaults' }
+    assert.equal(view.find(reset)!.props.disabled, true, 'nothing to reset yet')
+    await view.select({ type: 'Select', label: 'Results view' }, 'json')
+    await view.select({ type: 'Select', label: 'Page size' }, '200')
+    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping' })
+    const stored = host.data().storage
+    assert.equal(stored['mongo-studio.settings.resultView'], 'json')
+    assert.equal(stored['mongo-studio.settings.pageSize'], 200)
+    assert.equal(stored['mongo-studio.settings.confirmDrop'], false)
+    // Storage echoes each write back after the act settles; a person can't press Reset sooner.
+    await view.settled()
+    await view.press(reset)
+    assert.equal(view.valueOf({ type: 'Select', label: 'Results view' }), 'last')
+    assert.equal(view.valueOf({ type: 'Checkbox', label: 'Ask before dropping' }), true)
+    assert.deepEqual(host.data().storage['connections.v1'], { items: [] }, 'connections are kept apart')
+    await view.press({ label: 'Close settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'tree')
+    assert.deepEqual(view.errors, [])
+    assert.deepEqual(view.warnings, [])
+  })
+
+  test('the Settings command opens the tab', async () => {
+    const { host } = setup()
+    const view = await mount(panel, { host })
+    await view.post('ui.navigate', { view: 'settings' })
+    assert.equal(view.valueOf({ type: 'Tabs' }), 'settings')
+  })
+
+  test('new tabs start in the chosen view, page size and Extended JSON, whatever was used last', async () => {
+    const { host, calls } = setup({}, 'coll', {
+      [RESULT_VIEW]: 'tree',
+      [DOC_VIEW]: 'tree',
+      ...prefs({ resultView: 'json', docView: 'shell', pageSize: 20, ejson: 'canonical' })
+    })
+    const view = await openOrders(host)
+    assert.equal(calls.runs[0]!.pageSize, 20)
+    const code = view.find({ type: 'CodeView', label: 'Documents as Extended JSON' })!.props.code as string
+    assert.match(code, /"\$numberDecimal": "10.5"/, 'canonical keeps the type')
+    assert.match(code, /"\$numberInt": "1"/)
+    await view.press({ text: 'Table' })
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ text: 'Open' })
+    assert.ok(view.find({ type: 'CodeView', label: 'Document in shell syntax' }), 'documents open in Shell, not the Tree used last')
+    await view.press({ type: 'Button', text: 'JSON' })
+    assert.equal(view.valueOf({ type: 'Switch', label: 'Relaxed Extended JSON' }), false)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('"Last used" page size and views follow what was chosen last', async () => {
+    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree', ...prefs({ pageSize: 'last' }) })
+    const view = await openOrders(host, 'coll', { plugin: { 'mongo-studio.pageSize': 100 } })
+    assert.equal(calls.runs[0]!.pageSize, 100)
+    assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
+  })
+
+  test('with confirmations off, deleting documents and updating every document go ahead', async () => {
+    const { host, calls } = setup({
+      'doc.updatePreview': () => ({ count: 4, approximate: false, ms: 2 }),
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 4, 4)
+    }, 'coll', prefs({ confirmDeleteDocs: false, confirmByName: false }))
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    await view.press({ text: 'Delete' })
+    assert.deepEqual((calls.deletes![0] as { ids: JsonValue[] }).ids, [oid(2)])
+    assert.equal(view.find({ type: 'Callout', label: 'Delete 1 document from shop.orders?' }), null)
+    assert.ok(view.find({ text: 'Deleted 1 document from shop.orders.' }))
+    await view.press({ text: 'Update many' })
+    await view.select({ type: 'RadioGroup', label: 'Documents' }, 'all')
+    await view.type({ label: 'Update' }, '{ $set: { n: 1 } }')
+    await view.press({ text: 'Preview' })
+    assert.equal(view.find({ label: 'Type orders to confirm' }), null)
+    await view.press({ type: 'Button', text: 'Update every document' })
+    assert.equal(calls.updates!.length, 1)
+  })
+
+  test('with checking while typing off, errors wait for Run; with Format buttons off, there are none', async () => {
+    const { host, calls } = setup({}, 'coll', prefs({ liveCheck: false, formatButtons: false }))
+    const view = await openOrders(host)
+    assert.equal(view.find({ type: 'IconButton', label: 'Format the filter on several lines' }), null)
+    await view.type({ label: 'Filter' }, '{ a: 1 ]')
+    assert.equal(view.find({ type: 'Field', label: 'Filter' })!.props.error, undefined)
+    await view.submit({ label: 'Filter' })
+    assert.ok(view.find({ type: 'Field', label: 'Filter' })!.props.error, 'Run still says what is wrong')
+    assert.equal(calls.runs.length, 1)
+    await view.type({ label: 'Filter' }, '{\n  a: 1\n}', { replace: true })
+    assert.ok(view.find({ type: 'IconButton', label: 'Put the filter on one line' }), 'a multi-line box can always go back')
+  })
+})

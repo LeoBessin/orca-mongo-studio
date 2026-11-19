@@ -14,10 +14,12 @@ import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '.
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
+import { DOC_VIEW_KEYS, PAGE_SIZES, RESULT_VIEW_KEYS, startView, type DocView, type ResultView } from '../shared/settings'
 import { followJob, type JobBox } from './data-state'
+import { settings } from './settings-state'
 import { errorText, nodeIndex, view } from './state'
 
-export type ResultView = 'table' | 'tree' | 'json'
+export type { DocView, ResultView }
 export type QueryField = keyof QueryText
 export type Path = (string | number)[]
 
@@ -46,7 +48,6 @@ export type DocEditor = {
 export type Editor = FieldEditor | DocEditor
 export type TabNotice = { tone: 'success' | 'danger' | 'neutral'; text: string }
 
-export type DocView = 'tree' | 'json' | 'shell'
 /** One document, read whole from the server, shown on its own: over a tab's results (opened
  *  from them, closed with Back), or as a document tab's whole content. */
 export type DocFocus = {
@@ -182,7 +183,7 @@ export type CollTab = {
   docTab?: { id: JsonValue }
 }
 
-export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500]
+export const PAGE_SIZE_OPTIONS: readonly number[] = PAGE_SIZES
 
 export const collTabs = atom<Record<string, CollTab>>({})
 export const tabOrder = atom<string[]>([])
@@ -197,16 +198,28 @@ export const lastDocView = atom<DocView>('mongo-studio.docView', 'tree', { persi
 export const RESULT_VIEWS: Record<ResultView, string> = { table: 'Table', tree: 'Tree', json: 'JSON' }
 export const DOC_VIEWS: Record<DocView, string> = { tree: 'Tree', json: 'JSON', shell: 'Shell' }
 
-/** The remembered views, falling back to the defaults if storage holds something unknown:
- *  `storage` values are kept as written, with no `migrate` step. */
+/** The views new tabs and documents start in: the ones chosen in Settings, or the remembered
+ *  ones, falling back to the defaults if storage holds something unknown (`storage` values are
+ *  kept as written, with no `migrate` step). */
 export function startResultView(): ResultView {
-  const v = read(lastResultView)
-  return typeof v === 'string' && Object.hasOwn(RESULT_VIEWS, v) ? v : 'table'
+  return startView(settings().resultView, read(lastResultView), RESULT_VIEW_KEYS, 'table')
 }
 
 export function startDocView(): DocView {
-  const v = read(lastDocView)
-  return typeof v === 'string' && Object.hasOwn(DOC_VIEWS, v) ? v : 'tree'
+  return startView(settings().docView, read(lastDocView), DOC_VIEW_KEYS, 'tree')
+}
+
+/** Documents per page in a new tab: the size chosen in Settings, or the one used last. */
+export function startPageSize(): number {
+  const s = settings().pageSize
+  if (s !== 'last') return s
+  const n = read(defaultPageSize)
+  return PAGE_SIZES.includes(n as (typeof PAGE_SIZES)[number]) ? n : 50
+}
+
+/** Whether new tabs and documents show relaxed Extended JSON. */
+export function startRelaxed(): boolean {
+  return settings().ejson === 'relaxed'
 }
 
 const emptyText: QueryText = { filter: '', projection: '', sort: '', collation: '', skip: '', limit: '' }
@@ -308,11 +321,11 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     text: { ...emptyText },
     fieldErrors: {},
     multiline: {},
-    pageSize: read(defaultPageSize),
+    pageSize: startPageSize(),
     loading: false,
     runToken: 0,
     resultView: 'table',
-    relaxed: true,
+    relaxed: startRelaxed(),
     selectedRows: [],
     treeExpanded: [],
     flattened: [],
@@ -354,7 +367,7 @@ export function canOpenDocuments(t: CollTab): boolean {
 }
 
 export function newFocus(docId: JsonValue, view: DocView = 'tree'): DocFocus {
-  return { id: docId, loading: true, view, relaxed: true, expanded: [treeKey(0, [])] }
+  return { id: docId, loading: true, view, relaxed: startRelaxed(), expanded: [treeKey(0, [])] }
 }
 
 /** Reads the open document again, whole, from the server. */
@@ -409,9 +422,11 @@ export function setFocus(id: string, values: Partial<DocFocus>): void {
 }
 
 /** Asks before deleting the open document. */
-export function askDeleteFocused(id: string): void {
+export function askDeleteFocused(id: string): Promise<void> {
   const f = tab(id)?.focus
-  if (f) patch(id, { confirmDelete: { ids: [f.id] }, editor: undefined })
+  if (!f) return Promise.resolve()
+  patch(id, { confirmDelete: { ids: [f.id] }, editor: undefined })
+  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id)
 }
 
 export function setText(id: string, field: QueryField, value: string): void {
@@ -445,7 +460,8 @@ export function liveProblem(field: QueryField, value: string, now = Date.now()):
 
 function withLiveProblem(errors: CollTab['fieldErrors'], field: QueryField, value: string): CollTab['fieldErrors'] {
   const out = { ...errors }
-  const problem = liveProblem(field, value)
+  // With checking while typing turned off, an error waits for Run, and typing clears it.
+  const problem = settings().liveCheck ? liveProblem(field, value) : undefined
   if (problem) out[field] = problem
   else delete out[field]
   return out
@@ -877,12 +893,15 @@ export async function saveDocument(id: string): Promise<void> {
   }
 }
 
-export function askDelete(id: string): void {
+/** Asks before deleting the selected documents, or deletes them at once when Settings says not
+ *  to ask. */
+export function askDelete(id: string): Promise<void> {
   const t = tab(id)
-  if (!t) return
+  if (!t) return Promise.resolve()
   const docs = selectedDocs(t).filter((d) => '_id' in d)
-  if (docs.length === 0) return
+  if (docs.length === 0) return Promise.resolve()
   patch(id, { confirmDelete: { ids: docs.map((d) => d._id!) }, editor: undefined })
+  return settings().confirmDeleteDocs ? Promise.resolve() : confirmDeletion(id)
 }
 
 export async function confirmDeletion(id: string): Promise<void> {
@@ -999,11 +1018,11 @@ export async function previewUpdateMany(id: string): Promise<void> {
 
 /** Whether the update can run: a preview of what the card holds, where the server didn't refuse
  *  the change on the first document (updateMany would stop partway, after changing others), and
- *  for every document, the collection's name typed exactly. */
+ *  for every document, the collection's name typed exactly, unless Settings turned that off. */
 export function bulkConfirmed(t: CollTab, plan: BulkPlan = bulkPlan(t)): boolean {
   const p = currentPreview(t, plan)
   if (!t.bulk || t.bulk.running || !p?.result || p.result.sample?.error) return false
-  return !scopeIsEverything(p.scope) || t.bulk.confirmName === t.ns.collection
+  return !scopeIsEverything(p.scope) || !settings().confirmByName || t.bulk.confirmName === t.ns.collection
 }
 
 /** Runs exactly what was previewed, as a worker job, and follows it to its end. */

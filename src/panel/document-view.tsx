@@ -139,7 +139,7 @@ export function DocumentView({ t }: { t: CollTab }): OrcaNode {
               <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, f.id))}>Edit document</Button>
               <Button size="sm" icon="add" variant="ghost" onPress={() => addField(t.id, f.id)}>Add field</Button>
               <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => cloneDocument(t.id, f.id))}>Clone</Button>
-              <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => askDeleteFocused(t.id)}>Delete</Button>
+              <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={guard(t.id, () => askDeleteFocused(t.id))}>Delete</Button>
             </Toolbar>
           ) : null}
         </Box>

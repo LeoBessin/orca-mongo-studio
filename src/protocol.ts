@@ -34,7 +34,7 @@ export type ConnectionsState = {
 }
 
 /** What a palette command asks the panel to show. */
-export type NavigateView = 'new' | 'import' | 'export' | 'tree' | 'shell' | 'tasks'
+export type NavigateView = 'new' | 'import' | 'export' | 'tree' | 'shell' | 'tasks' | 'settings'
 
 export type FavouriteNode = { key: string; label: string; kind: NodeKind; path: string }
 

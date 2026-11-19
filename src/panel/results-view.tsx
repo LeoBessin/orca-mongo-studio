@@ -341,7 +341,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
           <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id, 'selection')}>{`Update ${docs.length}`}</Button>
         ) : null}
         {hasId ? (
-          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => askDelete(t.id)}>
+          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={guard(t.id, () => askDelete(t.id))}>
             {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}
           </Button>
         ) : null}

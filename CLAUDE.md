@@ -76,6 +76,12 @@ Skills: `/dev-plugin` (load, reload, inspect, screenshot), `/test` (which tests,
 - **Worker requests can write to real databases.** `orca plugin dev request` calls the same
   handlers the panel does, against the user's saved connections. Read-only methods are fine;
   anything that writes, deletes or runs shell code needs a scratch database and the user's say-so.
+- **The dev plugin runs from the main checkout**, `/home/nexus/dev/orca-mongo-studio`, kept on a
+  detached HEAD; worktrees are never loaded. To try a worktree's work in Orca, detach the main
+  checkout onto that commit (an unpushed snapshot made with `git commit-tree` works for
+  uncommitted changes) and `orca plugin dev reload .` there. Leave its own uncommitted edits
+  alone. A change to the manifest's commands, keybindings or access needs the user to approve the
+  new fingerprint; don't pass `--approve` yourself.
 - **Screenshots on niri:** `orca plugin shot --act`, `--scenario` and `--theme` are refused (Orca's
   window can't be hidden), so `dev/shots.sh` doesn't run here. Plain and `--editor` shots work;
   drive the panel into a view from the worker instead (see `/dev-plugin`).
@@ -95,4 +101,15 @@ Skills: `/dev-plugin` (load, reload, inspect, screenshot), `/test` (which tests,
   `Mongo Studio X.Y.Z: <headline>`.
 - Read-only connections are enforced by Mongo Studio, not the server: every handler that writes
   calls `writable(connectionId, action)` in `src/worker.ts` first, and the shell checks commands
-  against `src/shared/read-only.ts`. A new write path must do the same.
+  against `src/shared/read-only.ts`. A new write path must do the same. No setting may weaken
+  this.
+- User preferences live in the Settings tab. A new one goes in `src/shared/settings.ts` (type,
+  default, `normalizeSettings`, with a test) and gets a control in `src/panel/settings-view.tsx`.
+  Panel code reads them with `settings()` from `src/panel/settings-state.ts`, never the atoms:
+  storage keeps values as written, with no migration. Each setting is its own `storage` key
+  (`mongo-studio.settings.<name>`), because storage echoes writes back to the atom, and with one
+  object the echo of one change can undo the next. Keep them out of `connections.v1`, so
+  **Reset to defaults** never touches connections. Panel tests seed them as plain storage keys.
+- A confirmation that a setting can turn off is a function that asks, then runs the action at
+  once when `settings()` says not to ask (`askDelete`, `askConfirm`, `askDropIndex`). Its button
+  must go through `guard`/`aguard`, since the action may now run and fail from that press.

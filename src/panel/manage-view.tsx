@@ -32,6 +32,7 @@ import { openNamespace } from './collection-state'
 import {
   addKey,
   askConfirm,
+  askDropIndex,
   cancelIndex,
   checkValidation,
   confirmed,
@@ -95,7 +96,7 @@ function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
           <Button size="sm" icon={i.hidden ? 'play' : 'pause'} variant="ghost" onPress={aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden))}>
             {i.hidden ? 'Unhide' : 'Hide'}
           </Button>
-          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => changeAdmin(t.id, 'manage', () => ({ confirmDropIndex: i.name }))}>
+          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={aguard(t.id, () => askDropIndex(t.id, i.name))}>
             Drop
           </Button>
         </Toolbar>
@@ -326,9 +327,9 @@ function Operations({ t }: { t: ManageTab }): OrcaNode {
         )}
         <Toolbar label="Remove" gap="xs">
           {view || t.info?.capped ? null : (
-            <Button size="sm" icon="remove" variant="ghost" tone="danger" onPress={() => askConfirm(t.id, 'clear')}>Delete all documents</Button>
+            <Button size="sm" icon="remove" variant="ghost" tone="danger" onPress={aguard(t.id, () => askConfirm(t.id, 'clear'))}>Delete all documents</Button>
           )}
-          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => askConfirm(t.id, 'drop')}>{view ? 'Drop view' : 'Drop collection'}</Button>
+          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={aguard(t.id, () => askConfirm(t.id, 'drop'))}>{view ? 'Drop view' : 'Drop collection'}</Button>
         </Toolbar>
         {t.confirm ? (
           <Callout tone="danger" icon="warning" title={t.confirm === 'clear' ? `Delete every document in ${what}?` : `Drop ${what}?`}>
@@ -342,7 +343,7 @@ function Operations({ t }: { t: ManageTab }): OrcaNode {
               </Text>
               <Row gap="xs">
                 <Button variant="solid" tone="danger" onPress={aguard(t.id, () => confirmed(t.id))}>{t.confirm === 'clear' ? 'Delete documents' : view ? 'Drop view' : 'Drop collection'}</Button>
-                <Button variant="ghost" onPress={() => askConfirm(t.id, undefined)}>Cancel</Button>
+                <Button variant="ghost" onPress={() => void askConfirm(t.id, undefined)}>Cancel</Button>
               </Row>
             </Box>
           </Callout>

@@ -659,3 +659,23 @@ describe('closing', () => {
     assert.equal(view.find({ type: 'Tab', label: 'orders' }), null)
   })
 })
+
+describe('settings for dropping', () => {
+  test('with "Ask before dropping" off, Drop and Delete all documents go ahead at once', async () => {
+    const { host, calls } = setup()
+    const view = await atCollection(host)
+    await view.press({ type: 'IconButton', label: 'Settings' })
+    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping' })
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.press({ label: 'Manage the collection: indexes, validation, rename, drop' })
+    const table = { type: 'Table', label: 'Indexes' }
+    await view.selectRows(table, ['i:ttl_at'])
+    await view.press({ text: 'Drop' })
+    assert.deepEqual(calls.dropIndex, [{ ns, name: 'ttl_at' }])
+    assert.equal(view.find({ type: 'Callout', label: 'Drop ttl_at from shop.orders?' }), null)
+    await view.toggle({ type: 'Collapsible', label: 'Rename, clear and drop' })
+    await view.press({ text: 'Delete all documents' })
+    assert.deepEqual(calls.clearCollection, [{ ns }])
+    assert.deepEqual(view.errors, [])
+  })
+})

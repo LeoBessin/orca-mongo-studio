@@ -21,6 +21,7 @@ import {
   type CollTab
 } from './collection-state'
 import { guard } from './guard'
+import { settings } from './settings-state'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${numberText(n)} ${n === 1 ? one : many}`
 
@@ -100,7 +101,7 @@ function Confirm({ t, p, plan }: { t: CollTab; p: NonNullable<BulkUpdate['previe
     <Callout tone={everything ? 'danger' : 'warning'} icon="warning" title={title}>
       <Box gap="sm">
         <Text>{`This changes ${everything ? 'the whole collection' : what}. It can't be undone.`}</Text>
-        {everything ? (
+        {everything && settings().confirmByName ? (
           <Input label={`Type ${t.ns.collection} to confirm`} value={b.confirmName} onChange={(confirmName) => setBulk(t.id, { confirmName })} onSubmit={() => void guard(t.id, () => runUpdateMany(t.id))()} />
         ) : null}
         <Row gap="xs">

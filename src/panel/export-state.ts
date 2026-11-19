@@ -10,6 +10,7 @@ import { parseShellDocument, ShellParseError } from '../shared/shell-parse'
 import { adminTabId, changeAdmin, connectionName, numberText, refreshTree, sayAdmin, showOrAdd, tabOf } from './admin-state'
 import { cancelJob, dropDownload, followJob, saveDownload, type Clip, type JobBox } from './data-state'
 import type { Place } from './place-view'
+import { settings } from './settings-state'
 import { errorText } from './state'
 
 export type ExportFrom =
@@ -63,7 +64,7 @@ function newTab(from: ExportFrom, query?: Partial<ExportTab['query']>): ExportTa
     query: { filter: '', projection: '', sort: '', limit: '', ...query },
     queryErrors: {},
     format: 'json',
-    json: { layout: 'lines', relaxed: true, pretty: false },
+    json: { layout: 'lines', relaxed: settings().ejson === 'relaxed', pretty: false },
     csv: { fields: [], delimiter: ',', header: true, loading: false, add: '', selected: [] },
     bsonMetadata: true,
     target: { connectionId, db: from.kind === 'database' ? `${db}_copy` : db, collection: from.kind === 'database' ? '' : `${from.ns.collection}_copy`, mode: 'insert', indexes: true, options: true },

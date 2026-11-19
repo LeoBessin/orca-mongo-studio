@@ -63,6 +63,7 @@ import { CodeSection, tabOperation } from './shell-view'
 import { Results } from './results-view'
 import { connections } from './state'
 import { PlaceLine } from './place-view'
+import { settings } from './settings-state'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -71,11 +72,14 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
   // Skip and limit are numbers: nothing to format.
   const formats = field !== 'skip' && field !== 'limit'
   const multi = formats && isMultiline(t, field)
+  // With the Format buttons turned off in Settings, a one-line field has none; a multi-line one
+  // keeps "one line", so it can always be put back.
+  const button = formats && (multi || settings().formatButtons)
   const name = label.toLowerCase()
   const input = multi ? <Textarea {...box} rows={Math.min(12, Math.max(3, value.split('\n').length))} /> : <Input {...box} />
   return (
     <Field label={label} {...(error ? { error } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
-      {formats ? (
+      {button ? (
         <Box direction="row" gap="xs" align="start">
           <Box grow>{input}</Box>
           {multi ? (

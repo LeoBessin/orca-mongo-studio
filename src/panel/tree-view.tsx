@@ -38,6 +38,7 @@ import { openExport, paste, type PasteTarget } from './export-state'
 import { openGridfs } from './gridfs-state'
 import { openImport } from './import-state'
 import { openTasks } from './tasks-state'
+import { openSettings } from './settings-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
   busy,
@@ -357,6 +358,7 @@ export function TreeView(): OrcaNode {
         <IconButton icon="upload" label="Import connections" onPress={() => set(view, 'transfer')} />
         <IconButton icon="download" label="Export connections" onPress={() => set(view, 'transfer')} />
         <IconButton icon="rocket" label="Saved tasks" onPress={() => openTasks()} />
+        <IconButton icon="settings" label="Settings" onPress={() => openSettings()} />
         <IconButton icon="refresh" label="Refresh all" onPress={act(async () => {
           await refreshState()
           for (const key of read(expanded)) if (/^conn:[^/]+$/.test(key)) await refreshNode(key)

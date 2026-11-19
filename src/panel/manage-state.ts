@@ -19,6 +19,7 @@ import {
   type ManageTab
 } from './admin-state'
 import { nsLabel } from './collection-state'
+import { settings } from './settings-state'
 import { errorText } from './state'
 
 export type ManageSection = keyof ManageTab['open']
@@ -175,6 +176,12 @@ export async function saveTtl(id: string, name: string): Promise<void> {
   await loadManage(id)
 }
 
+/** Asks before dropping an index, or drops it at once when Settings says not to ask. */
+export function askDropIndex(id: string, name: string): Promise<void> {
+  changeAdmin(id, 'manage', () => ({ confirmDropIndex: name }))
+  return settings().confirmDrop ? Promise.resolve() : dropIndexConfirmed(id)
+}
+
 export async function dropIndexConfirmed(id: string): Promise<void> {
   const t = tabOf(id, 'manage')
   const name = t?.confirmDropIndex
@@ -279,8 +286,11 @@ export async function convertToCapped(id: string): Promise<void> {
   await refreshTree(t.connectionId, t.ns.db)
 }
 
-export function askConfirm(id: string, confirm: ManageTab['confirm']): void {
+/** Asks before dropping or clearing the collection, or goes ahead at once when Settings says not
+ *  to ask. `undefined` cancels. */
+export function askConfirm(id: string, confirm: ManageTab['confirm']): Promise<void> {
   changeAdmin(id, 'manage', () => ({ confirm }))
+  return confirm && !settings().confirmDrop ? confirmed(id) : Promise.resolve()
 }
 
 export async function confirmed(id: string): Promise<void> {

@@ -45,6 +45,10 @@
       {
         "id": "mongoStudio.showTasks",
         "title": "Mongo Studio: Show saved tasks"
+      },
+      {
+        "id": "mongoStudio.showSettings",
+        "title": "Mongo Studio: Settings"
       }
     ],
     "keybindings": [
