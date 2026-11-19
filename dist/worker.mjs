@@ -45146,8 +45146,8 @@ var require_mongocryptd_manager = __commonJS({
        */
       async spawn() {
         const cmdName = this.spawnPath || "mongocryptd";
-        const { spawn } = __require("child_process");
-        this._child = spawn(cmdName, this.spawnArgs, {
+        const { spawn: spawn2 } = __require("child_process");
+        this._child = spawn2(cmdName, this.spawnArgs, {
           stdio: "ignore",
           detached: true
         });
@@ -62848,7 +62848,7 @@ var require_agent = __commonJS({
     var { Duplex } = __require("stream");
     var { resolve } = __require("path");
     var { readFile: readFile5 } = __require("fs");
-    var { execFile, spawn } = __require("child_process");
+    var { execFile, spawn: spawn2 } = __require("child_process");
     var { isParsedKey, parseKey } = require_keyParser();
     var {
       makeBufferParser,
@@ -63025,7 +63025,7 @@ var require_agent = __commonJS({
             return cb(new Error("Unexpected multiple agent requests"));
           this.buffer = null;
           let error;
-          const proc = this.proc = spawn(EXEPATH, [data.length]);
+          const proc = this.proc = spawn2(EXEPATH, [data.length]);
           proc.stdout.on("data", (data2) => {
             this.push(data2);
           });
@@ -75511,6 +75511,9 @@ function toRelaxed(v) {
       return v;
   }
 }
+function toJsonText(v, relaxed, indent = 2) {
+  return JSON.stringify(relaxed ? toRelaxed(v) : v, null, indent);
+}
 var IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 function shellString(s2) {
   let out = "'";
@@ -77000,6 +77003,20 @@ async function getDocument(client, ns, id) {
   const canonical = toCanonical(doc);
   checkEditSize(canonical);
   return canonical;
+}
+async function getDocuments(client, ns, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) throw invalid("Choose documents to copy.");
+  if (ids.length > 1e4) throw invalid("Copy at most 10,000 documents at a time.");
+  const values = ids.map((id) => toBson({ v: id }).v);
+  const found = await client.db(ns.db).collection(ns.collection).find({ _id: { $in: values } }, { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS }).toArray();
+  const idKey2 = (bson) => JSON.stringify(toCanonical({ v: bson }).v);
+  const byId = new Map(found.map((d6) => [idKey2(d6._id), toCanonical(d6)]));
+  const out = [];
+  for (const v of values) {
+    const doc = byId.get(idKey2(v));
+    if (doc) out.push(doc);
+  }
+  return out;
 }
 async function updateField(client, ns, id, path, value, remove) {
   if (path.length === 0) throw invalid("Choose a field to change.");
@@ -83012,6 +83029,37 @@ var TaskStore = class {
   }
 };
 
+// src/worker/clipboard.ts
+import { spawn } from "node:child_process";
+function clipboardTools(platform2, env2) {
+  if (platform2 === "darwin") return [{ command: "pbcopy", args: [] }];
+  if (platform2 === "win32") {
+    return [{ command: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())"] }];
+  }
+  const wayland = { command: "wl-copy", args: [] };
+  const x11 = [
+    { command: "xclip", args: ["-selection", "clipboard"] },
+    { command: "xsel", args: ["--clipboard", "--input"] }
+  ];
+  return env2.WAYLAND_DISPLAY ? [wayland, ...x11] : env2.DISPLAY ? [...x11, wayland] : [wayland, ...x11];
+}
+var runTool = (tool, text) => new Promise((resolve, reject) => {
+  const child = spawn(tool.command, tool.args, { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => stderr += chunk);
+  child.on("error", (error) => error.code === "ENOENT" ? resolve("missing") : reject(error));
+  child.on("exit", (code) => code === 0 ? resolve("ok") : reject(new Error(`${tool.command} could not copy: ${stderr.trim() || `it ended with code ${code}`}`)));
+  child.stdin.on("error", () => void 0);
+  child.stdin.end(text, "utf8");
+});
+async function writeClipboard(text, platform2 = process.platform, env2 = process.env, run = runTool) {
+  const tools = clipboardTools(platform2, env2);
+  for (const tool of tools) if (await run(tool, text) === "ok") return;
+  throw new Error(
+    platform2 === "linux" ? "No clipboard tool was found. Install wl-clipboard (Wayland) or xclip (X11), then copy again." : `The clipboard tool (${tools.map((t) => t.command).join(", ")}) was not found.`
+  );
+}
+
 // src/worker.ts
 var pool;
 var queries;
@@ -83232,6 +83280,15 @@ function activate(orca) {
   orca.panels.handle("doc.insert", async ({ ns, docs: docs2 }) => {
     await writable(ns.connectionId, "inserting documents");
     return insertDocuments(await clientFor(ns.connectionId), ns, docs2);
+  });
+  orca.panels.handle("clipboard.copyDocuments", async ({ ns, ids, relaxed }) => {
+    const docs2 = await getDocuments(await clientFor(ns.connectionId), ns, ids);
+    if (docs2.length) await writeClipboard(toJsonText(docs2.length === 1 ? docs2[0] : docs2, relaxed === true));
+    return { copied: docs2.length, missing: ids.length - docs2.length };
+  });
+  orca.panels.handle("clipboard.write", async ({ text }) => {
+    await writeClipboard(String(text));
+    return null;
   });
   orca.panels.handle("doc.deleteMany", async ({ ns, ids }) => {
     await writable(ns.connectionId, "deleting documents");

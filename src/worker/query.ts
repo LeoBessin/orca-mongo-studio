@@ -417,6 +417,24 @@ export async function getDocument(client: MongoClient, ns: Namespace, id: JsonVa
   return canonical
 }
 
+/** Whole documents by `_id`, untruncated, in the order of `ids`; the ones no longer there are left
+ *  out. For "Copy as JSON", which copies what is stored rather than the page's shortened values. */
+export async function getDocuments(client: MongoClient, ns: Namespace, ids: JsonValue[]): Promise<JsonObject[]> {
+  if (!Array.isArray(ids) || ids.length === 0) throw invalid('Choose documents to copy.')
+  if (ids.length > 10_000) throw invalid('Copy at most 10,000 documents at a time.')
+  const values = ids.map((id) => toBson<{ v: unknown }>({ v: id } as JsonObject).v)
+  const found = await client.db(ns.db).collection(ns.collection).find({ _id: { $in: values } } as Document, { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS }).toArray()
+  // Keyed by the canonical text of each _id, read back from BSON the same way for both sides.
+  const idKey = (bson: unknown): string => JSON.stringify(toCanonical({ v: bson }).v)
+  const byId = new Map(found.map((d) => [idKey(d._id), toCanonical(d)] as const))
+  const out: JsonObject[] = []
+  for (const v of values) {
+    const doc = byId.get(idKey(v))
+    if (doc) out.push(doc)
+  }
+  return out
+}
+
 export async function updateField(
   client: MongoClient,
   ns: Namespace,

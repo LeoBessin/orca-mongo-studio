@@ -28,7 +28,7 @@ import {
 import { createView, explainAggregate, explainFind, PipelineLibraryStore, previewStage } from './worker/aggregate'
 import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
-import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
+import { deleteDocuments, getDocument, getDocuments, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
 import { analyzeSchema } from './worker/schema'
 import { checkUpdate, previewUpdate, updateMany } from './worker/update'
 import { currentOps, killOp, serverStatus, sleep } from './worker/server'
@@ -42,6 +42,8 @@ import { deleteFile, downloadFile, listFiles, previewFile, renameFile, uploadFil
 import { previewImport, runImport } from './worker/import'
 import { Jobs, Uploads } from './worker/jobs'
 import { TaskStore } from './worker/tasks'
+import { writeClipboard } from './worker/clipboard'
+import { toJsonText } from './shared/ejson-view'
 import { readOnlyMessage, writeStageOf } from './shared/read-only'
 import { resultSummary, type TaskRequest } from './shared/tasks'
 import type { ExportDestination, ExportOptions, ExportSource, ImportOptions, JobState, NavigateView, Namespace, DataSource } from './protocol'
@@ -296,6 +298,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('doc.insert', async ({ ns, docs }) => {
     await writable(ns.connectionId, 'inserting documents')
     return insertDocuments(await clientFor(ns.connectionId), ns, docs)
+  })
+  orca.panels.handle('clipboard.copyDocuments', async ({ ns, ids, relaxed }) => {
+    const docs = await getDocuments(await clientFor(ns.connectionId), ns, ids)
+    if (docs.length) await writeClipboard(toJsonText(docs.length === 1 ? docs[0]! : docs, relaxed === true))
+    return { copied: docs.length, missing: ids.length - docs.length }
+  })
+  orca.panels.handle('clipboard.write', async ({ text }) => {
+    await writeClipboard(String(text))
+    return null
   })
   orca.panels.handle('doc.deleteMany', async ({ ns, ids }) => {
     await writable(ns.connectionId, 'deleting documents')

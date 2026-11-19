@@ -36,6 +36,7 @@ import {
   canOpenDocuments,
   change,
   cloneDocument,
+  copyAsJson,
   currentSort,
   editDocument,
   editField,
@@ -61,7 +62,11 @@ import {
   type ResultView
 } from './collection-state'
 import { copyToClipboard } from './data-state'
-import { guard } from './guard'
+import { guardAt } from './guard'
+import { arrayText, chunkForHighlight, chunkLabel } from '../shared/code-chunks'
+
+// Errors from acting on results show under the results, where the action was pressed.
+const guard = guardAt('results')
 
 /** Orca draws a Table of at most 32 columns, and refuses the whole table past that. */
 const MAX_COLUMNS = 32
@@ -177,7 +182,7 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: sorted.direction } : undefined
   const objectColumns = topKeys(docs).filter((k) => k !== '' && k.length <= 1000 && docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
   return (
-    <Box gap="xs">
+    <Box gap="md">
       <Table
         label="Documents"
         columns={columns}
@@ -273,10 +278,19 @@ function ResultTree({ t }: { t: CollTab }): OrcaNode {
 
 function ResultJson({ t }: { t: CollTab }): OrcaNode {
   const docs = t.page?.docs ?? []
+  // Split where Orca's highlighter would stop colouring (see code-chunks): usually one view.
+  const chunks = chunkForHighlight(docs.map((d) => toJsonText(d, t.relaxed)))
   return (
-    <Box gap="xs">
-      <Switch label="Relaxed Extended JSON" checked={t.relaxed} onChange={(relaxed) => change(t.id, () => ({ relaxed }))} />
-      <CodeView label="Documents as Extended JSON" code={toJsonText(docs, t.relaxed)} language="json" lineNumbers maxHeight="lg" />
+    <Box gap="sm">
+      <Row gap="xs" align="center" justify="between" wrap>
+        <Switch label="Relaxed Extended JSON" checked={t.relaxed} onChange={(relaxed) => change(t.id, () => ({ relaxed }))} />
+        <Button size="sm" icon="copy" variant="ghost" disabled={!docs.length} onPress={guard(t.id, () => copyAsJson(t.id, docs))}>
+          {docs.length === 1 ? 'Copy as JSON' : 'Copy page as JSON'}
+        </Button>
+      </Row>
+      {chunks.map((c) => (
+        <CodeView key={c.from} label={chunkLabel('Documents as Extended JSON', c, t.page?.offset ?? 0, chunks.length)} code={arrayText(c.texts)} language="json" lineNumbers maxHeight="lg" />
+      ))}
     </Box>
   )
 }
@@ -308,10 +322,13 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   }
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
+  const copyJson = (
+    <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => copyAsJson(t.id, docs))}>Copy as JSON</Button>
+  )
   const copy = hasId && !t.shell ? (
     <IconButton icon="copy" label={`Copy ${docs.length === 1 ? 'this document' : `these ${docs.length} documents`}, to paste into another collection`} size="sm" variant="ghost" onPress={() => {
       copyToClipboard({ kind: 'documents', ns: t.ns, ids: docs.map((d) => d._id!) })
-      say(t.id, 'neutral', `Copied ${docs.length} document${docs.length === 1 ? '' : 's'}. Select a collection or database in the tree and press Paste.`)
+      say(t.id, 'neutral', `Copied ${docs.length} document${docs.length === 1 ? '' : 's'}. Select a collection or database in the tree and press Paste.`, 'results')
     }} />
   ) : null
   if (t.readOnly) {
@@ -323,6 +340,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
                 const key = treeKey(t.page!.docs.indexOf(one), [])
                 setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
               }}>Show in Tree</Button> : null}
+          {copyJson}
           {copy}
         </Toolbar>
         <FilterBySelection t={t} docs={docs} cols={cols} />
@@ -345,6 +363,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
             {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}
           </Button>
         ) : null}
+        {copyJson}
         {copy}
       </Toolbar>
       {one && hasId ? (
@@ -418,6 +437,7 @@ function TreeActions({ t }: { t: CollTab }): OrcaNode {
       {canEdit && !path.length ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, doc._id!))}>Edit document</Button> : null}
       {canEdit && !path.length ? <Button size="sm" icon="add" variant="ghost" onPress={() => addField(t.id, doc._id!)}>Add field</Button> : null}
       {!path.length ? <OpenButtons t={t} doc={doc} /> : null}
+      {!path.length ? <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => copyAsJson(t.id, [doc]))}>Copy as JSON</Button> : null}
       {path.length && !path.some((p) => typeof p === 'number') ? (
         <Button size="sm" icon="filter" variant="ghost" onPress={() => addToQuery(t.id, path, value)}>Add to query</Button>
       ) : null}

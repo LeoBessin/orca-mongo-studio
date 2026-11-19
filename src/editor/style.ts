@@ -9,24 +9,27 @@ html, body { margin: 0; height: 100%; }
 body {
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--orca-background); color: var(--orca-foreground);
-  font: 13px/1.4 system-ui, sans-serif;
+  font: 14px/1.4 var(--font-sans, system-ui, sans-serif);
 }
 button, select, input, textarea { font: inherit; color: inherit; }
 .bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  padding: 6px 8px; border-bottom: 1px solid var(--orca-border); background: var(--orca-card);
+  padding: 8px 10px; border-bottom: 1px solid var(--orca-border); background: var(--orca-card);
 }
 .bar .grow { flex: 1; }
 .bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--orca-muted-foreground); font-size: 12px; }
+/* The label text is secondary (12px); the controls inside it are page text, like the buttons. */
+.bar label .field { font-size: 14px; color: var(--orca-foreground); }
+.field[hidden] { display: none; }
 .field {
-  height: 26px; padding: 0 6px; border: 1px solid var(--orca-input); border-radius: var(--orca-radius);
+  height: 28px; padding: 0 6px; border: 1px solid var(--orca-input); border-radius: var(--orca-radius);
   background: var(--orca-background); min-width: 0;
 }
 select.field { max-width: 200px; }
-input.field { width: 140px; }
+input.field { width: 160px; }
 .field:focus-visible, .btn:focus-visible, textarea:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 1px; }
 .btn {
-  height: 26px; padding: 0 10px; border: 1px solid var(--orca-border); border-radius: var(--orca-radius);
+  height: 28px; padding: 0 10px; border: 1px solid var(--orca-border); border-radius: var(--orca-radius);
   background: var(--orca-secondary); color: var(--orca-secondary-foreground); cursor: pointer; white-space: nowrap;
 }
 .btn:hover:not(:disabled) { background: var(--orca-accent); color: var(--orca-accent-foreground); }
@@ -49,11 +52,11 @@ input.field { width: 140px; }
 .tab[aria-selected="true"] { color: var(--orca-foreground); border-bottom-color: var(--orca-primary); }
 .tabpanel { flex: 1; overflow: auto; padding: 8px; }
 .tabpanel[hidden] { display: none; }
-.mono, pre, textarea.sql { font-family: var(--ms-font, ui-monospace, monospace); font-size: var(--ms-font-size, 12px); }
+.mono, pre, textarea.sql { font-family: var(--ms-font, var(--font-mono, ui-monospace, monospace)); font-size: var(--ms-font-size, 13px); }
 pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .entry { display: grid; grid-template-columns: 44px 1fr; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--orca-border); }
 .entry:last-child { border-bottom: 0; }
-.gutter { color: var(--orca-muted-foreground); font-size: 11px; text-align: right; padding-top: 1px; }
+.gutter { color: var(--orca-muted-foreground); font-size: 12px; text-align: right; padding-top: 1px; }
 .gutter a { color: inherit; text-decoration: none; cursor: pointer; }
 .gutter a:hover { color: var(--orca-foreground); text-decoration: underline; }
 .summary { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
@@ -78,8 +81,8 @@ const mix = (a: string, pct: number, b = 'var(--orca-foreground)'): string => `c
 export function editorTheme(): Extension[] {
   const theme = EditorView.theme({
     '&': { color: 'var(--orca-foreground)', backgroundColor: 'var(--orca-background)', fontSize: 'var(--ms-font-size, 13px)' },
-    '.cm-content': { fontFamily: 'var(--ms-font, ui-monospace, monospace)', caretColor: 'var(--orca-foreground)', lineHeight: 'var(--ms-line-height, 1.5)' },
-    '.cm-scroller': { fontFamily: 'var(--ms-font, ui-monospace, monospace)' },
+    '.cm-content': { fontFamily: 'var(--ms-font, var(--font-mono, ui-monospace, monospace))', caretColor: 'var(--orca-foreground)', lineHeight: 'var(--ms-line-height, 1.5)' },
+    '.cm-scroller': { fontFamily: 'var(--ms-font, var(--font-mono, ui-monospace, monospace))' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--orca-foreground)' },
     '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection': {
       backgroundColor: mix('var(--orca-primary)', 28, 'transparent')

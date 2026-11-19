@@ -333,12 +333,12 @@ export async function createViewFromPipeline(id: string): Promise<void> {
   const pipeline = parsed(id)
   if (!pipeline) return
   if (writeTarget(pipeline, t.ns.db)) {
-    say(id, 'danger', 'A view cannot hold a $out or $merge stage. Turn it off or remove it first.')
+    say(id, 'danger', 'A view cannot hold a $out or $merge stage. Turn it off or remove it first.', 'view')
     return
   }
   const { name } = await plugin.request('view.create', { ns: t.ns, name: a.viewName, pipeline }, { timeoutMs: 60000 })
   changeAgg(id, () => ({ created: name, viewName: '' }))
-  say(id, 'success', `Created the view ${t.ns.db}.${name} on ${t.ns.collection}, with ${pipeline.length} stage${pipeline.length === 1 ? '' : 's'}.`)
+  say(id, 'success', `Created the view ${t.ns.db}.${name} on ${t.ns.collection}, with ${pipeline.length} stage${pipeline.length === 1 ? '' : 's'}.`, 'view')
   await refreshNode(nodeKey([{ kind: 'conn', name: t.ns.connectionId }, { kind: 'db', name: t.ns.db }])).catch(() => undefined)
 }
 
@@ -370,7 +370,7 @@ export async function savePipeline(id: string): Promise<void> {
   const name = a.saveName.trim()
   const { saved } = await plugin.request('pipelines.save', { ns: t.ns, name, stages: stageTexts(a.stages) })
   changeAgg(id, () => ({ saved, saveName: '', savedSelected: `p:${name}` }))
-  say(id, 'success', `Saved the pipeline as "${name}".`)
+  say(id, 'success', `Saved the pipeline as "${name}".`, 'library')
 }
 
 export async function loadSavedPipeline(id: string, name: string): Promise<void> {

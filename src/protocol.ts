@@ -563,6 +563,11 @@ declare module 'orca' {
     'doc.replace': { input: { ns: Namespace; id: JsonValue; doc: JsonObject }; output: WriteResult }
     'doc.insert': { input: { ns: Namespace; docs: JsonObject[] }; output: { insertedIds: JsonValue[] } }
     'doc.deleteMany': { input: { ns: Namespace; ids: JsonValue[] }; output: { deleted: number } }
+    /** Copies whole documents by `_id` to the system clipboard as Extended JSON (relaxed or
+     *  canonical): one document as an object, several as an array, in the order of `ids`. */
+    'clipboard.copyDocuments': { input: { ns: Namespace; ids: JsonValue[]; relaxed: boolean }; output: { copied: number; missing: number } }
+    /** Puts text on the system clipboard (results that are not a collection's documents). */
+    'clipboard.write': { input: { text: string }; output: null }
     /** Counts what an update many reaches and tries it on one document, saving nothing. */
     'doc.updatePreview': { input: { ns: Namespace; scope: UpdateScope; update: UpdateSpec }; output: UpdatePreview }
     /** Starts `updateMany` on the documents of a scope (these `_id`s, a filter, or the whole
