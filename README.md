@@ -57,7 +57,8 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   JSON). Results page through the open cursor, and the total is counted separately so the first
   page never waits for it.
 - **Filter by** what you see: select rows in the Table, pick columns, and their values become the
-  filter (one value an equality, several an `$in`, types kept), replacing the filter or added to it.
+  filter (one value an equality, several an `$in`, types kept), replacing the filter or added to it
+  as typed.
 - **Open** a document to see it whole, as a tree, Extended JSON or shell syntax, over the results;
   **Back to results** returns to them as they were. **Open in a tab** keeps it in a tab of its own
   next to its collection.

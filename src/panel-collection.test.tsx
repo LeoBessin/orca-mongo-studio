@@ -438,7 +438,64 @@ describe('collection tabs', () => {
     await view.select({ label: 'Filter by' }, 'payment.method')
     await view.select({ label: 'Filter by' }, 'qty')
     await view.press({ text: 'Add to filter' })
-    assert.deepEqual(calls.runs.at(-1)!.spec.filter, { $and: [{ qty: { $gte: { $numberInt: '1' } }, 'payment.method': 'card' }, { qty: { $numberInt: '3' } }] })
+    assert.deepEqual(calls.runs.at(-1)!.spec.filter, { $and: [{ qty: { $gte: { $numberInt: '1' } } }, { qty: { $numberInt: '3' }, 'payment.method': 'card' }] })
+    assert.equal(view.valueOf({ label: 'Filter' }), "{ $and: [{ qty: { $gte: 1 } }, { qty: 3, 'payment.method': 'card' }] }")
+  })
+
+  test('table view: Add to filter keeps the filter as typed, starts from the first match, and says when nothing is new', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, '{ createdAt: { $lt: new Date() } }')
+    await view.toggle({ type: 'Collapsible', label: 'Collation, skip and limit' })
+    await view.type({ label: 'Skip' }, '100')
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.select({ label: 'Filter by' }, 'status')
+    await view.press({ text: 'Add to filter' })
+    assert.equal(view.valueOf({ label: 'Filter' }), "{ createdAt: { $lt: new Date() }, status: 'shipped' }")
+    assert.equal(calls.runs.at(-1)!.spec.skip, 0)
+    const runs = calls.runs.length
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ text: 'Add to filter' })
+    assert.equal(calls.runs.length, runs)
+    assert.ok(view.find({ text: 'The filter already has these conditions.' }))
+  })
+
+  test('table view: Add to filter with a filter that does not parse says so and runs nothing', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, '{ a: ')
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.select({ label: 'Filter by' }, 'status')
+    const runs = calls.runs.length
+    await view.press({ text: 'Add to filter' })
+    assert.equal(calls.runs.length, runs)
+    assert.equal(view.valueOf({ label: 'Filter' }), '{ a: ')
+  })
+
+  test('table view: rows the page cannot show as stored are refused, not filtered as null', async () => {
+    const stub: JsonObject = { _id: oid(7), '(document)': { $msTruncated: { kind: 'object', size: 5000, preview: null } } }
+    const docs: JsonObject[] = [orders[0]!, stub, { _id: oid(8), status: 'paid', payment: [{ method: 'card' }] }]
+    const { host } = setup({ 'query.run': () => ({ queryId: 'q1', offset: 0, docs, truncated: [1], hasMore: false, stoppedForSize: false, ms: 1 }) })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(7))])
+    await view.select({ label: 'Filter by' }, 'status')
+    assert.ok(view.find({ text: /too big to show here/ }))
+    assert.equal(view.find({ text: 'Replace filter' })!.props.disabled, true)
+    await view.select({ label: 'Show a sub-document as columns' }, 'payment')
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(8))])
+    await view.select({ label: 'Filter by' }, 'status')
+    await view.select({ label: 'Filter by' }, 'payment.method')
+    assert.ok(view.find({ text: /payment is an array in a selected row/ }))
+  })
+
+  test('table view: columns the projection changes cannot be picked', async () => {
+    const { host } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Projection' }, "{ status: 1, 'payment.method': 1 }", { submit: true })
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    const options = view.find({ label: 'Filter by' })!.props.options as { value: string; label: string; disabled?: boolean }[]
+    assert.deepEqual(options.filter((o) => o.disabled).map((o) => o.label), ['total (changed by the projection)', 'qty (changed by the projection)', 'payment (changed by the projection)', 'createdAt (changed by the projection)'])
+    assert.deepEqual(options.filter((o) => !o.disabled).map((o) => o.value), ['_id', 'status'])
   })
 
   test('a read-only view selects several rows to filter by', async () => {

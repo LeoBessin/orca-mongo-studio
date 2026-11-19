@@ -39,6 +39,14 @@ function setOwn(o, k, v) {
   if (k === "__proto__") Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });
   else o[k] = v;
 }
+function isTruncated(v) {
+  return isObject(v) && isObject(v.$msTruncated) && Object.keys(v).length === 1;
+}
+function hasTruncated(v) {
+  if (isTruncated(v)) return true;
+  if (Array.isArray(v)) return v.some(hasTruncated);
+  return isObject(v) && Object.values(v).some(hasTruncated);
+}
 function bsonType(v) {
   if (v === null) return "null";
   if (typeof v === "string") return "string";
@@ -466,10 +474,10 @@ var Parser = class {
       }
       if (c === void 0) this.fail("This object is never closed with }", start);
       const keyAt = this.pos;
-      const key = this.key();
+      const key2 = this.key();
       this.expect(":");
-      if (Object.prototype.hasOwnProperty.call(out, key)) this.fail(`The key "${key}" appears twice`, keyAt);
-      setOwn(out, key, this.value());
+      if (Object.prototype.hasOwnProperty.call(out, key2)) this.fail(`The key "${key2}" appears twice`, keyAt);
+      setOwn(out, key2, this.value());
       const next = this.peek();
       if (next === ",") this.pos++;
       else if (next !== "}") this.fail(next === void 0 ? "This object is never closed with }" : `Expected "," or "}" but found "${next}"`, next === void 0 ? start : this.pos);
@@ -483,9 +491,9 @@ var Parser = class {
       this.pos++;
       const q = this.peek();
       if (q !== '"' && q !== "'") this.fail("A key in [ ] must be a quoted string", start);
-      const key = this.quoted();
+      const key2 = this.quoted();
       this.expect("]");
-      return key;
+      return key2;
     }
     const m = /^[A-Za-z0-9_$][A-Za-z0-9_$.]*/.exec(this.src.slice(this.pos));
     if (!m) this.fail(c === "," ? 'Expected a key after ","' : `Expected a key but found "${c}"`);
@@ -1562,20 +1570,21 @@ function fitsHost(value, share = 0.9) {
   const s = hostSize(value);
   return s.bytes <= HOST_MAX_BYTES * share && s.objects <= HOST_MAX_OBJECTS * share && s.depth < HOST_MAX_DEPTH - 5;
 }
+var QUERY_TEXT_MAX = 4e3;
 
 // src/shared/nodes.ts
 function nodeKey(segments) {
   return segments.map((s) => s.name === "" ? s.kind : `${s.kind}:${encodeURIComponent(s.name)}`).join("/");
 }
-function parseNodeKey(key) {
-  return key.split("/").map((part) => {
+function parseNodeKey(key2) {
+  return key2.split("/").map((part) => {
     const at = part.indexOf(":");
     if (at < 0) return { kind: part, name: "" };
     return { kind: part.slice(0, at), name: decodeURIComponent(part.slice(at + 1)) };
   });
 }
-function nodeTarget(key) {
-  const segs = parseNodeKey(key);
+function nodeTarget(key2) {
+  const segs = parseNodeKey(key2);
   const t = { kind: segs[segs.length - 1]?.kind ?? "message" };
   for (const s of segs) {
     if (s.kind === "group") t.group = s.name;
@@ -1600,41 +1609,299 @@ function formatBytes(bytes) {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+// src/shared/js-scan.ts
+var PUNCTUATORS = [
+  ">>>=",
+  "...",
+  "===",
+  "!==",
+  "**=",
+  "<<=",
+  ">>=",
+  ">>>",
+  "&&=",
+  "||=",
+  "??=",
+  "=>",
+  "==",
+  "!=",
+  "<=",
+  ">=",
+  "&&",
+  "||",
+  "??",
+  "?.",
+  "++",
+  "--",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "&=",
+  "|=",
+  "^=",
+  "**",
+  "<<",
+  ">>"
+];
+var REGEX_AFTER_WORDS = /* @__PURE__ */ new Set(["return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "instanceof", "yield", "await"]);
+var IDENT_START = /[A-Za-z_$\u0080-￿]/;
+var IDENT_PART = /[A-Za-z0-9_$\u0080-￿]/;
+function regexAllowed(prev) {
+  if (!prev) return true;
+  if (prev.type === "punct") return prev.value !== ")" && prev.value !== "]" && prev.value !== "}";
+  if (prev.type === "ident") return REGEX_AFTER_WORDS.has(prev.value);
+  return false;
+}
+function lex(src, from, stopAtUnmatchedBrace, keepComments) {
+  const tokens = [];
+  let i = from;
+  let nl = false;
+  let braces = 0;
+  let prev;
+  const push = (t) => {
+    tokens.push(t);
+    if (t.type !== "comment") prev = t;
+    nl = false;
+  };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\n" || c === "\r" || c === "\u2028" || c === "\u2029") {
+      nl = true;
+      i++;
+      continue;
+    }
+    if (c === " " || c === "	" || c === "\f" || c === "\v" || c === "\uFEFF" || c === " ") {
+      i++;
+      continue;
+    }
+    const start = i;
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n" && src[i] !== "\r") i++;
+      if (keepComments) tokens.push({ type: "comment", value: src.slice(start, i), start, end: i, nl });
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const close = src.indexOf("*/", i + 2);
+      i = close < 0 ? src.length : close + 2;
+      const text = src.slice(start, i);
+      if (/[\n\r]/.test(text)) nl = true;
+      if (keepComments) tokens.push({ type: "comment", value: text, start, end: i, nl, ...close < 0 ? { open: true } : {} });
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      i++;
+      let closed = false;
+      while (i < src.length) {
+        const d = src[i];
+        if (d === "\\") i += 2;
+        else if (d === c) {
+          i++;
+          closed = true;
+          break;
+        } else if (d === "\n" || d === "\r") break;
+        else i++;
+      }
+      i = Math.min(i, src.length);
+      push({ type: "string", value: src.slice(start, i), start, end: i, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (c === "`") {
+      i++;
+      let closed = false;
+      while (i < src.length) {
+        const d = src[i];
+        if (d === "\\") i += 2;
+        else if (d === "`") {
+          i++;
+          closed = true;
+          break;
+        } else if (d === "$" && src[i + 1] === "{") {
+          const inner = lex(src, i + 2, true, false);
+          i = inner.end;
+        } else i++;
+      }
+      i = Math.min(i, src.length);
+      const text = src.slice(start, i);
+      push({ type: "template", value: text, start, end: i, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (c === "/" && regexAllowed(prev)) {
+      i++;
+      let inClass = false;
+      let closed = false;
+      while (i < src.length) {
+        const d = src[i];
+        if (d === "\\") i += 2;
+        else if (d === "\n" || d === "\r") break;
+        else if (inClass) {
+          if (d === "]") inClass = false;
+          i++;
+        } else if (d === "[") {
+          inClass = true;
+          i++;
+        } else if (d === "/") {
+          i++;
+          closed = true;
+          break;
+        } else i++;
+      }
+      if (closed) while (i < src.length && IDENT_PART.test(src[i])) i++;
+      i = Math.min(i, src.length);
+      push({ type: "regex", value: src.slice(start, i), start, end: i, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (/[0-9]/.test(c) || c === "." && /[0-9]/.test(src[i + 1] ?? "")) {
+      i++;
+      while (i < src.length && /[0-9A-Za-z_.]/.test(src[i])) {
+        if ((src[i] === "e" || src[i] === "E") && (src[i + 1] === "+" || src[i + 1] === "-") && !/^0[xX]/.test(src.slice(start, i))) i += 2;
+        else i++;
+      }
+      push({ type: "number", value: src.slice(start, i), start, end: i, nl });
+      continue;
+    }
+    if (IDENT_START.test(c) || c === "\\") {
+      i++;
+      while (i < src.length && (IDENT_PART.test(src[i]) || src[i] === "\\")) i++;
+      push({ type: "ident", value: src.slice(start, i), start, end: i, nl });
+      continue;
+    }
+    if (c === "#" && IDENT_START.test(src[i + 1] ?? "")) {
+      i++;
+      while (i < src.length && IDENT_PART.test(src[i])) i++;
+      push({ type: "ident", value: src.slice(start, i), start, end: i, nl });
+      continue;
+    }
+    if (stopAtUnmatchedBrace) {
+      if (c === "{") braces++;
+      else if (c === "}") {
+        if (braces === 0) return { tokens, end: i + 1 };
+        braces--;
+      }
+    }
+    let p = PUNCTUATORS.find((q) => src.startsWith(q, i));
+    if (p === "?." && /[0-9]/.test(src[i + 2] ?? "")) p = void 0;
+    const value = p ?? c;
+    i += value.length;
+    push({ type: "punct", value, start, end: i, nl });
+  }
+  return { tokens, end: src.length };
+}
+function tokenize(src, options4 = {}) {
+  return lex(src, 0, false, options4.comments === true).tokens;
+}
+
 // src/shared/table-filter.ts
+function key(v) {
+  return JSON.stringify(v);
+}
 function same(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return a !== void 0 && key(a) === key(b);
 }
-function cutShort(v) {
-  return JSON.stringify(v).includes('"$msTruncated"');
+function isStubRow(doc) {
+  return isTruncated(doc["(document)"]) && Object.keys(doc).every((k) => k === "_id" || k === "(document)");
 }
-function filterFromColumns(columns) {
+function cellFor(doc, c) {
+  if (isStubRow(doc) && !(c.field === "_id" && c.sub === void 0)) {
+    return { error: "A selected document is too big to show here, so its fields can’t be read. Open it, or filter in the Query Builder." };
+  }
+  const top = doc[c.field];
+  if (c.sub === void 0) return { value: top === void 0 ? null : top };
+  if (Array.isArray(top)) return { error: `${c.field} is an array in a selected row, so ${c.name} can’t be matched from the table. Filter on it in the Query Builder.` };
+  if (top !== void 0 && isTruncated(top)) return { error: `A selected ${c.field} is too long to show here, so it can’t be matched. Filter on it in the Query Builder.` };
+  const v = top !== void 0 && isObject(top) && bsonType(top) === "object" ? top[c.sub] : void 0;
+  return { value: v === void 0 ? null : v };
+}
+function needsEq(v) {
+  const t = bsonType(v);
+  return t === "regex" || t === "object" && Object.keys(v).some((k) => k.startsWith("$"));
+}
+function filterFromRows(rows, columns) {
+  if (rows.length === 0) return { error: "Select the rows to filter by first." };
   if (columns.length === 0) return { error: "Choose a column to filter by." };
   const filter2 = {};
   for (const c of columns) {
+    const seen = /* @__PURE__ */ new Set();
     const values = [];
-    for (const v of c.values) {
-      const x = v === void 0 ? null : v;
-      if (!values.some((y) => same(x, y))) values.push(x);
+    for (const row of rows) {
+      const cell = cellFor(row, c);
+      if ("error" in cell) return { error: cell.error };
+      const k = key(cell.value);
+      if (!seen.has(k)) seen.add(k), values.push(cell.value);
     }
-    if (values.length === 0) return { error: "Select the rows to filter by first." };
-    if (values.some(cutShort)) return { error: `A selected ${c.path} is too long to show here, so it can't be matched. Filter on it in the Query Builder instead.` };
-    const regex = values.some((v) => bsonType(v) === "regex");
-    if (regex && values.length > 1) return { error: `${c.path} holds a regular expression in one of the selected rows; select only that row to match it.` };
-    setOwn(filter2, c.path, values.length > 1 ? { $in: values } : regex ? { $eq: values[0] } : values[0]);
+    if (values.some(hasTruncated)) return { error: `A selected ${c.name} is too long to show here, so it can’t be matched. Filter on it in the Query Builder.` };
+    if (values.length > 1 && values.some((v2) => bsonType(v2) === "regex")) {
+      return { error: `${c.name} holds a regular expression in one of the selected rows; select only that row to match it.` };
+    }
+    const v = values[0];
+    setOwn(filter2, c.name, values.length > 1 ? { $in: values } : needsEq(v) ? { $eq: v } : v);
   }
   return { filter: filter2 };
 }
-function mergeFilters(base, add) {
-  const merged = { ...base };
-  const clash = {};
-  for (const [k, v] of Object.entries(add)) {
-    if (!Object.hasOwn(base, k)) setOwn(merged, k, v);
-    else if (!same(base[k], v)) setOwn(clash, k, v);
+function projectionFlag(v) {
+  let n2;
+  if (typeof v === "boolean") n2 = v ? 1 : 0;
+  else if (typeof v === "number") n2 = v;
+  else if (isObject(v)) {
+    const t = bsonType(v);
+    if (t === "int" || t === "long" || t === "double" || t === "decimal") n2 = Number(Object.values(v)[0]);
   }
-  return Object.keys(clash).length ? { $and: [merged, clash] } : merged;
+  return n2 === void 0 ? "expression" : n2 ? "in" : "out";
 }
-function filterablePath(parts) {
-  return parts.every((p) => p !== "" && !p.includes(".") && !p.startsWith("$"));
+function projectionKeeps(projection, path) {
+  const entries2 = Object.entries(projection ?? {});
+  if (entries2.length === 0) return true;
+  let kept = false;
+  for (const [k, v] of entries2) {
+    if (k.startsWith(`${path}.`)) return false;
+    if (k === path || path.startsWith(`${k}.`)) {
+      if (projectionFlag(v) !== "in") return false;
+      kept = true;
+    }
+  }
+  if (kept) return true;
+  const inclusion = entries2.some(([k, v]) => k !== "_id" && projectionFlag(v) !== "out");
+  return !inclusion || path === "_id";
+}
+function holds(filter2, k, v) {
+  if (same(Object.hasOwn(filter2, k) ? filter2[k] : void 0, v)) return true;
+  const and = filter2.$and;
+  return Array.isArray(and) && and.some((x) => isObject(x) && holds(x, k, v));
+}
+function mergeFilters(base, add) {
+  const fresh = freshPart(base, add);
+  if (!fresh) return void 0;
+  if (Object.keys(fresh).some((k) => Object.hasOwn(base, k))) return { $and: [base, fresh] };
+  const merged = { ...base };
+  for (const [k, v] of Object.entries(fresh)) setOwn(merged, k, v);
+  return merged;
+}
+function freshPart(base, add) {
+  const fresh = {};
+  for (const [k, v] of Object.entries(add)) if (!holds(base, k, v)) setOwn(fresh, k, v);
+  return Object.keys(fresh).length ? fresh : void 0;
+}
+function mergeFilterText(text, base, add) {
+  const fresh = freshPart(base, add);
+  if (!fresh) return void 0;
+  const tokens = tokenize(text);
+  if (tokens.length === 0) return toShellInline(fresh);
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  if (tokens.length < 2 || first.value !== "{" || last.value !== "}") return toShellInline(mergeFilters(base, add));
+  const freshText = toShellInline(fresh);
+  if (Object.keys(fresh).some((k) => Object.hasOwn(base, k))) {
+    return `${text.slice(0, first.start)}{ $and: [${text.slice(first.start, last.end)}, ${freshText}] }${text.slice(last.end)}`;
+  }
+  const prev = tokens[tokens.length - 2];
+  const sep = prev.value === "{" || prev.value === "," ? " " : ", ";
+  const after = text.slice(prev.end);
+  return `${text.slice(0, prev.end)}${sep}${freshText.slice(2, -2)}${after.startsWith("}") ? " " : ""}${after}`;
+}
+function filterablePath(c) {
+  const parts = c.sub === void 0 ? [c.field] : [c.field, c.sub];
+  return c.name.length <= 1e3 && parts.every((p) => p !== "" && !p.includes(".") && !p.startsWith("$"));
 }
 
 // src/shared/update-spec.ts
@@ -1857,17 +2124,17 @@ function decode(part, what) {
     throw new ConnectionStringError(`The ${what} has a broken %-escape: "${part}".`);
   }
 }
-function parseBool(value, key, warnings) {
+function parseBool(value, key2, warnings) {
   const v = value.toLowerCase();
   if (v === "true") return true;
   if (v === "false") return false;
-  warnings.push(`${key}=${value} is not true or false; treated as false.`);
+  warnings.push(`${key2}=${value} is not true or false; treated as false.`);
   return false;
 }
-function parseMs(value, key, warnings) {
+function parseMs(value, key2, warnings) {
   const n2 = Number(value);
   if (Number.isInteger(n2) && n2 >= 0) return n2;
-  warnings.push(`${key}=${value} is not a whole number of milliseconds; ignored.`);
+  warnings.push(`${key2}=${value} is not a whole number of milliseconds; ignored.`);
   return null;
 }
 function parseHost(raw, srv) {
@@ -1953,9 +2220,9 @@ function parseConnectionString(uri, id, now) {
     const eq = pair.indexOf("=");
     const rawKey = eq < 0 ? pair : pair.slice(0, eq);
     const rawValue = eq < 0 ? "" : pair.slice(eq + 1);
-    const key = decode(rawKey, "option name");
-    const value = decode(rawValue, `${key} value`);
-    switch (key.toLowerCase()) {
+    const key2 = decode(rawKey, "option name");
+    const value = decode(rawValue, `${key2} value`);
+    switch (key2.toLowerCase()) {
       case "replicaset":
         def.replicaSet = value;
         break;
@@ -1973,7 +2240,7 @@ function parseConnectionString(uri, id, now) {
         break;
       case "tls":
       case "ssl":
-        tls = parseBool(value, key, warnings);
+        tls = parseBool(value, key2, warnings);
         break;
       case "tlscafile":
         def.tls.ca = { kind: "path", path: value };
@@ -1985,13 +2252,13 @@ function parseConnectionString(uri, id, now) {
         secrets.tlsKeyPassword = value;
         break;
       case "tlsallowinvalidhostnames":
-        def.tls.allowInvalidHostnames = parseBool(value, key, warnings);
+        def.tls.allowInvalidHostnames = parseBool(value, key2, warnings);
         break;
       case "tlsallowinvalidcertificates":
-        def.tls.allowInvalidCertificates = parseBool(value, key, warnings);
+        def.tls.allowInvalidCertificates = parseBool(value, key2, warnings);
         break;
       case "tlsinsecure":
-        if (parseBool(value, key, warnings)) {
+        if (parseBool(value, key2, warnings)) {
           def.tls.allowInvalidHostnames = true;
           def.tls.allowInvalidCertificates = true;
         }
@@ -2006,16 +2273,16 @@ function parseConnectionString(uri, id, now) {
         def.options.appName = value;
         break;
       case "connecttimeoutms":
-        def.options.connectTimeoutMS = parseMs(value, key, warnings);
+        def.options.connectTimeoutMS = parseMs(value, key2, warnings);
         break;
       case "serverselectiontimeoutms":
-        def.options.serverSelectionTimeoutMS = parseMs(value, key, warnings);
+        def.options.serverSelectionTimeoutMS = parseMs(value, key2, warnings);
         break;
       case "sockettimeoutms":
-        def.options.socketTimeoutMS = parseMs(value, key, warnings);
+        def.options.socketTimeoutMS = parseMs(value, key2, warnings);
         break;
       case "directconnection":
-        def.options.directConnection = parseBool(value, key, warnings);
+        def.options.directConnection = parseBool(value, key2, warnings);
         break;
       default:
         extra.push(eq < 0 ? rawKey : `${rawKey}=${rawValue}`);
@@ -2059,8 +2326,8 @@ function buildConnectionString(def, options4 = {}) {
   const srv = def.topology === "srv";
   const a = def.auth;
   const params = [];
-  const add = (key, value) => {
-    params.push(`${key}=${enc(String(value))}`);
+  const add = (key2, value) => {
+    params.push(`${key2}=${enc(String(value))}`);
   };
   let userInfo = "";
   const sendsUser = a.mechanism !== "none" && !(a.mechanism === "MONGODB-AWS") && a.username !== "";
@@ -2157,8 +2424,8 @@ function say(tone, text) {
 var FAV_PREFIX = "fav/";
 var GROUP_PREFIX = "group:";
 var collapsedRoots = atom("mongo-studio.collapsedRoots", [], { persist: "plugin" });
-function realKey(key) {
-  return key.startsWith(FAV_PREFIX) ? key.slice(FAV_PREFIX.length) : key;
+function realKey(key2) {
+  return key2.startsWith(FAV_PREFIX) ? key2.slice(FAV_PREFIX.length) : key2;
 }
 function setConnections(state) {
   set(connections, state);
@@ -2179,72 +2446,72 @@ function remember(nodes, path) {
     return next;
   });
 }
-function setChild(key, value) {
-  update(children, (prev) => ({ ...prev, [key]: value }));
+function setChild(key2, value) {
+  update(children, (prev) => ({ ...prev, [key2]: value }));
 }
-async function loadChildren(key) {
-  setChild(key, { status: "loading" });
+async function loadChildren(key2) {
+  setChild(key2, { status: "loading" });
   try {
-    const { nodes } = await plugin.request("tree.children", { key }, { timeoutMs: 6e4 });
-    const parent = read(nodeIndex)[key];
+    const { nodes } = await plugin.request("tree.children", { key: key2 }, { timeoutMs: 6e4 });
+    const parent = read(nodeIndex)[key2];
     remember(nodes, parent ? `${parent.path} › ${parent.label}` : "");
-    setChild(key, { status: "ok", nodes });
+    setChild(key2, { status: "ok", nodes });
   } catch (error) {
-    setChild(key, { status: "error", message: errorText(error) });
+    setChild(key2, { status: "error", message: errorText(error) });
   }
 }
-async function refreshNode(key) {
-  update(children, (prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key && !k.startsWith(`${key}/`))));
-  if (read(expanded).includes(key)) await loadChildren(key);
-  if (isSelected(key)) await loadDetails(key);
+async function refreshNode(key2) {
+  update(children, (prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key2 && !k.startsWith(`${key2}/`))));
+  if (read(expanded).includes(key2)) await loadChildren(key2);
+  if (isSelected(key2)) await loadDetails(key2);
 }
-async function toggleNode(key, open) {
-  update(expanded, (prev) => open ? [.../* @__PURE__ */ new Set([...prev, key])] : prev.filter((k) => k !== key));
-  const loaded = read(children)[key];
-  if (open && (!loaded || loaded.status === "error")) await loadChildren(key);
+async function toggleNode(key2, open) {
+  update(expanded, (prev) => open ? [.../* @__PURE__ */ new Set([...prev, key2])] : prev.filter((k) => k !== key2));
+  const loaded = read(children)[key2];
+  if (open && (!loaded || loaded.status === "error")) await loadChildren(key2);
 }
-function isSelected(key) {
+function isSelected(key2) {
   const sel = read(selected);
-  return sel !== null && realKey(sel) === key;
+  return sel !== null && realKey(sel) === key2;
 }
-async function loadDetails(key) {
-  const meta = read(nodeIndex)[key];
+async function loadDetails(key2) {
+  const meta = read(nodeIndex)[key2];
   if (!meta || meta.kind === "group" || meta.kind === "message") {
     set(details, null);
     return;
   }
-  set(details, { key, status: "loading" });
+  set(details, { key: key2, status: "loading" });
   try {
-    const data = await plugin.request("tree.details", { key }, { timeoutMs: 3e4 });
-    if (isSelected(key)) set(details, { key, status: "ok", data });
+    const data = await plugin.request("tree.details", { key: key2 }, { timeoutMs: 3e4 });
+    if (isSelected(key2)) set(details, { key: key2, status: "ok", data });
   } catch (error) {
-    if (isSelected(key)) set(details, { key, status: "error", error: errorText(error) });
+    if (isSelected(key2)) set(details, { key: key2, status: "error", error: errorText(error) });
   }
 }
-async function selectNode(key) {
-  set(selected, key);
+async function selectNode(key2) {
+  set(selected, key2);
   set(confirmDelete, null);
   set(renamingGroup, null);
-  await loadDetails(realKey(key));
+  await loadDetails(realKey(key2));
 }
 async function connect(id) {
-  const key = `conn:${encodeURIComponent(id)}`;
-  set(busy, key);
+  const key2 = `conn:${encodeURIComponent(id)}`;
+  set(busy, key2);
   try {
-    await toggleNode(key, true);
-    const state = read(children)[key];
+    await toggleNode(key2, true);
+    const state = read(children)[key2];
     if (state?.status === "error") say("danger", state.message);
   } finally {
     set(busy, null);
   }
-  if (isSelected(key)) await loadDetails(key);
+  if (isSelected(key2)) await loadDetails(key2);
 }
 async function disconnect(id) {
-  const key = `conn:${encodeURIComponent(id)}`;
+  const key2 = `conn:${encodeURIComponent(id)}`;
   await plugin.request("connections.disconnect", { id });
-  update(expanded, (prev) => prev.filter((k) => k !== key && !k.startsWith(`${key}/`)));
-  update(children, (prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key && !k.startsWith(`${key}/`))));
-  if (isSelected(key)) await loadDetails(key);
+  update(expanded, (prev) => prev.filter((k) => k !== key2 && !k.startsWith(`${key2}/`)));
+  update(children, (prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key2 && !k.startsWith(`${key2}/`))));
+  if (isSelected(key2)) await loadDetails(key2);
 }
 async function cloneConnection(id) {
   const { id: copy } = await plugin.request("connections.clone", { id });
@@ -2260,10 +2527,10 @@ async function deleteConnection(id) {
   await refreshState();
   say("neutral", "Connection deleted, with its saved passwords and keys.");
 }
-async function toggleFavourite(key) {
-  const meta = read(nodeIndex)[key];
+async function toggleFavourite(key2) {
+  const meta = read(nodeIndex)[key2];
   if (!meta) return;
-  const { favourites } = await plugin.request("favourites.toggle", { key, label: meta.label, kind: meta.kind, path: meta.path });
+  const { favourites } = await plugin.request("favourites.toggle", { key: key2, label: meta.label, kind: meta.kind, path: meta.path });
   update(connections, (prev) => prev ? { ...prev, favourites } : prev);
 }
 async function renameGroup(from, to) {
@@ -2319,8 +2586,8 @@ function editMeta(change2) {
   change2(next);
   set(formDef, next);
 }
-function setSecret(key, value) {
-  update(formSecrets, (prev) => ({ ...prev, [key]: value }));
+function setSecret(key2, value) {
+  update(formSecrets, (prev) => ({ ...prev, [key2]: value }));
 }
 function editUri(text) {
   set(uriText, text);
@@ -2373,9 +2640,9 @@ async function saveForm() {
     const wasNew = read(formIsNew);
     closeForm();
     await refreshState();
-    const key = `conn:${encodeURIComponent(result.id)}`;
-    await refreshNode(key);
-    await selectNode(key);
+    const key2 = `conn:${encodeURIComponent(result.id)}`;
+    await refreshNode(key2);
+    await selectNode(key2);
     say("success", wasNew ? "Connection saved." : "Connection updated. It reconnects with the new settings.");
   } catch (error) {
     set(formErrors, [{ field: "form", message: errorText(error) }]);
@@ -2825,8 +3092,8 @@ async function sortBy(id, column, direction) {
     say2(id, "neutral", "A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.");
     return;
   }
-  const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-  setText(id, "sort", `{ ${key}: ${direction === "asc" ? 1 : -1} }`);
+  const key2 = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  setText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
   await runQuery(id);
 }
 function currentSort(t) {
@@ -2847,9 +3114,9 @@ function rowKeys(docs2) {
   const seen = /* @__PURE__ */ new Set();
   return docs2.map((d, i) => {
     const id = "_id" in d ? idKey(d._id) : "";
-    const key = id && id.length <= ROW_KEY_MAX && !seen.has(id) ? id : `#${i}`;
-    seen.add(key);
-    return key;
+    const key2 = id && id.length <= ROW_KEY_MAX && !seen.has(id) ? id : `#${i}`;
+    seen.add(key2);
+    return key2;
   });
 }
 function selectedDocs(t) {
@@ -3044,7 +3311,7 @@ function canUpdateMany(t) {
   return !t.readOnly && t.kind !== "view" && !t.shell && !t.agg && !t.docTab;
 }
 function usableId(id) {
-  return !JSON.stringify(id).includes('"$msTruncated"');
+  return !hasTruncated(id);
 }
 function bulkScope(t, kind) {
   if (kind === "all") return { scope: { kind: "all" } };
@@ -3143,8 +3410,8 @@ async function runUpdateMany(id) {
 function treeKey(row, path) {
   return [`r${row}`, ...path.map((s) => typeof s === "number" ? `#${s}` : encodeURIComponent(s))].join("/");
 }
-function parseTreeKey(key) {
-  const [head, ...rest] = key.split("/");
+function parseTreeKey(key2) {
+  const [head, ...rest] = key2.split("/");
   return { row: Number(head.slice(1)), path: rest.map((s) => s.startsWith("#") ? Number(s.slice(1)) : decodeURIComponent(s)) };
 }
 function setBuilder(id, builder) {
@@ -3158,7 +3425,7 @@ function addToQuery(id, path, value) {
   say2(id, "neutral", `Added ${field} to the Query Builder. Apply it to the filter to run it.`);
 }
 function canFilterBySelection(t) {
-  return !t.shell && !t.agg && !t.docTab;
+  return canOpenDocuments(t);
 }
 function toggleFilterColumn(id, name) {
   change(id, (t) => ({ filterColumns: t.filterColumns.includes(name) ? t.filterColumns.filter((c) => c !== name) : [...t.filterColumns, name] }));
@@ -3166,16 +3433,24 @@ function toggleFilterColumn(id, name) {
 async function filterBySelection(id, filter2, mode) {
   const t = tab(id);
   if (!t) return;
-  let base = {};
+  let text = toShellInline(filter2);
   if (mode === "merge") {
+    let base;
     try {
       base = parseShellDocument(t.text.filter, "filter", { now: Date.now() });
     } catch (error) {
       patch(id, { fieldErrors: { ...t.fieldErrors, filter: errorText(error) } });
       return;
     }
+    const merged = mergeFilterText(t.text.filter, base, filter2);
+    if (merged === void 0) return say2(id, "neutral", "The filter already has these conditions.");
+    text = merged;
   }
-  setText(id, "filter", toShellInline(mode === "merge" ? mergeFilters(base, filter2) : filter2));
+  if (text.length > QUERY_TEXT_MAX) {
+    return say2(id, "danger", `This filter would be ${text.length.toLocaleString("en-US")} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString("en-US")}. Select fewer rows.`);
+  }
+  setText(id, "filter", text);
+  setText(id, "skip", "");
   await runQuery(id);
 }
 async function applyBuilder(id) {
@@ -3784,7 +4059,7 @@ function Overview({ t }) {
         rows: info.collections.map((c) => ({ key: `c:${c.name}`, cells: { name: c.name, kind: c.kind === "bucket" ? "GridFS files" : c.kind === "timeseries" ? "time series" : c.kind } })),
         emptyText: "No collections yet.",
         maxHeight: "sm",
-        onRowAction: ({ key }) => void aguard(t.id, () => openCollectionOf(t.id, key.slice(2)))()
+        onRowAction: ({ key: key2 }) => void aguard(t.id, () => openCollectionOf(t.id, key2.slice(2)))()
       }
     ),
     info.collections.length ? /* @__PURE__ */ jsx3(Text3, { size: "xs", muted: true, children: "Enter or a double click opens a collection." }) : null
@@ -4018,12 +4293,12 @@ function keyValue(kind) {
   if (kind === "-1") return { $numberInt: "-1" };
   return kind;
 }
-function defaultIndexName(key) {
-  return Object.entries(key).map(([f, v]) => `${f}_${isObject(v) ? String(v.$numberInt ?? v.$numberDouble ?? v.$numberLong ?? "1") : String(v)}`).join("_");
+function defaultIndexName(key2) {
+  return Object.entries(key2).map(([f, v]) => `${f}_${isObject(v) ? String(v.$numberInt ?? v.$numberDouble ?? v.$numberLong ?? "1") : String(v)}`).join("_");
 }
 function buildIndex(draft, now = Date.now()) {
   const errors = {};
-  const key = {};
+  const key2 = {};
   const rows = draft.keys.filter((r) => r.field.trim() || r.kind === "wildcard");
   if (rows.length === 0) errors.keys = "Add at least one field.";
   const kinds = rows.map((r) => r.kind);
@@ -4031,8 +4306,8 @@ function buildIndex(draft, now = Date.now()) {
     const f = keyField(r);
     if (f.startsWith("$") && f !== "$**") errors.keys = `"${f}" is not a field name: names can't start with $.`;
     else if (/\.\.|^\.|\.$/.test(r.field.trim())) errors.keys = `"${r.field.trim()}" has an empty part between dots.`;
-    else if (f in key) errors.keys = `${f} is in the key twice.`;
-    else key[f] = keyValue(r.kind);
+    else if (f in key2) errors.keys = `${f} is in the key twice.`;
+    else key2[f] = keyValue(r.kind);
   }
   const count = (k) => kinds.filter((x) => x === k).length;
   if (!errors.keys) {
@@ -4108,12 +4383,12 @@ function buildIndex(draft, now = Date.now()) {
     }
   }
   if (Object.keys(errors).length) return { errors };
-  return { key, options: options4, errors };
+  return { key: key2, options: options4, errors };
 }
-function createIndexCommand(collection, key, options4) {
+function createIndexCommand(collection, key2, options4) {
   const coll = /^[A-Za-z_][A-Za-z0-9_]*$/.test(collection) && !collection.startsWith("system") ? `db.${collection}` : `db.getCollection(${shellString(collection)})`;
   const opts = Object.keys(options4).length ? `, ${toShellInline(options4)}` : "";
-  return `${coll}.createIndex(${toShellInline(key)}${opts})`;
+  return `${coll}.createIndex(${toShellInline(key2)}${opts})`;
 }
 
 // src/panel/manage-state.ts
@@ -4552,8 +4827,8 @@ async function analyze(id) {
 function fieldKey(path) {
   return `f:${path}`;
 }
-function toggleField(id, key, open) {
-  changeAdmin(id, "schema", (t) => ({ expanded: open ? [.../* @__PURE__ */ new Set([...t.expanded, key])] : t.expanded.filter((k) => k !== key) }));
+function toggleField(id, key2, open) {
+  changeAdmin(id, "schema", (t) => ({ expanded: open ? [.../* @__PURE__ */ new Set([...t.expanded, key2])] : t.expanded.filter((k) => k !== key2) }));
 }
 function exportText(t) {
   if (!t.report) return "";
@@ -4839,18 +5114,18 @@ import {
 import { jsx as jsx5, jsxs as jsxs5 } from "orca/jsx-runtime";
 function treeItems(report, parent, expanded2) {
   return report.fields.filter((f) => f.parent === parent).map((f) => {
-    const key = fieldKey(f.path);
+    const key2 = fieldKey(f.path);
     const isArray = f.types.some((t) => t.type === "array");
     const isObject2 = f.types.some((t) => t.type === "object");
     const item = {
-      key,
+      key: key2,
       label: f.name === ELEMENT ? "elements" : f.name,
       description: `${typeSummary(f)} · ${f.name === ELEMENT ? `${numberText(f.count)} in ${numberText(f.parentCount)} arrays` : `${percent(Math.min(f.count, f.parentCount), f.parentCount)}%`}`,
       icon: isArray ? "layers" : isObject2 ? "folder" : f.types[0]?.type === "date" ? "calendar" : "file-text"
     };
     const kids = report.fields.some((x) => x.parent === f.path);
     if (kids) {
-      if (expanded2.has(key)) item.children = treeItems(report, f.path, expanded2);
+      if (expanded2.has(key2)) item.children = treeItems(report, f.path, expanded2);
       else item.hasChildren = true;
     }
     return item;
@@ -4956,8 +5231,8 @@ function SchemaTabView({ id }) {
           expanded: t.expanded,
           ...t.selected ? { selected: t.selected } : {},
           maxHeight: "lg",
-          onToggle: ({ key, expanded: open }) => toggleField(t.id, key, open),
-          onSelect: ({ key }) => changeAdmin(t.id, "schema", () => ({ selected: key }))
+          onToggle: ({ key: key2, expanded: open }) => toggleField(t.id, key2, open),
+          onSelect: ({ key: key2 }) => changeAdmin(t.id, "schema", () => ({ selected: key2 }))
         }
       ),
       selected2 ? /* @__PURE__ */ jsx5(FieldDetails, { f: selected2 }) : /* @__PURE__ */ jsx5(Text5, { size: "xs", muted: true, children: "Select a field for its types, histogram and most common values." }),
@@ -5359,7 +5634,7 @@ function UsersTabView({ id }) {
           emptyText: `No users in ${t.db}.`,
           maxHeight: "sm",
           onSelectionChange: ({ keys }) => changeAdmin(t.id, "users", () => ({ userSelected: keys[0]?.slice(2), confirmDrop: void 0 })),
-          onRowAction: ({ key }) => ro ? void 0 : editUser(t.id, key.slice(2))
+          onRowAction: ({ key: key2 }) => ro ? void 0 : editUser(t.id, key2.slice(2))
         }
       ),
       user ? /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
@@ -5385,7 +5660,7 @@ function UsersTabView({ id }) {
           emptyText: `No custom roles in ${t.db}. Built-in roles such as read and readWrite are always there.`,
           maxHeight: "sm",
           onSelectionChange: ({ keys }) => changeAdmin(t.id, "users", () => ({ roleSelected: keys[0]?.slice(2), confirmDrop: void 0 })),
-          onRowAction: ({ key }) => ro ? void 0 : editRole(t.id, key.slice(2))
+          onRowAction: ({ key: key2 }) => ro ? void 0 : editRole(t.id, key2.slice(2))
         }
       ),
       role ? /* @__PURE__ */ jsxs7(Box5, { gap: "xs", children: [
@@ -5518,17 +5793,17 @@ async function runCompare(id) {
 function idsShown(t) {
   return t.result?.ids[t.show] ?? [];
 }
-async function selectPair(id, key) {
+async function selectPair(id, key2) {
   const t = tabOf(id, "compare");
   if (!t?.ran) return;
-  const value = idsShown(t).find((v) => idKey(v) === key);
+  const value = idsShown(t).find((v) => idKey(v) === key2);
   if (value === void 0) return;
-  changeAdmin(id, "compare", () => ({ selected: key, diff: { key, loading: true } }));
+  changeAdmin(id, "compare", () => ({ selected: key2, diff: { key: key2, loading: true } }));
   try {
     const d = await plugin9.request("compare.diff", { a: t.ran.a, b: t.ran.b, id: value, rules: t.ran.rules });
-    changeAdmin(id, "compare", (x) => x.selected === key ? { diff: { key, loading: false, a: d.a, b: d.b, diffs: d.diffs, capped: d.capped } } : {});
+    changeAdmin(id, "compare", (x) => x.selected === key2 ? { diff: { key: key2, loading: false, a: d.a, b: d.b, diffs: d.diffs, capped: d.capped } } : {});
   } catch (error) {
-    changeAdmin(id, "compare", (x) => x.selected === key ? { diff: { key, loading: false, error: errorText(error) } } : {});
+    changeAdmin(id, "compare", (x) => x.selected === key2 ? { diff: { key: key2, loading: false, error: errorText(error) } } : {});
   }
 }
 function syncPlan(t) {
@@ -6649,9 +6924,9 @@ import {
 import { jsx as jsx11, jsxs as jsxs11 } from "orca/jsx-runtime";
 function QueryFields({ t }) {
   if (t.from.kind !== "query") return null;
-  const field = (key, label, placeholder) => {
-    const error = t.queryErrors[key];
-    return /* @__PURE__ */ jsx11(Field, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx11(Input8, { label, labelHidden: true, value: t.query[key], placeholder, invalid: Boolean(error), onChange: (v) => setExport2(t.id, (x) => ({ query: { ...x.query, [key]: v }, queryErrors: { ...x.queryErrors, [key]: void 0 } })) }) });
+  const field = (key2, label, placeholder) => {
+    const error = t.queryErrors[key2];
+    return /* @__PURE__ */ jsx11(Field, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx11(Input8, { label, labelHidden: true, value: t.query[key2], placeholder, invalid: Boolean(error), onChange: (v) => setExport2(t.id, (x) => ({ query: { ...x.query, [key2]: v }, queryErrors: { ...x.queryErrors, [key2]: void 0 } })) }) });
   };
   return /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
     field("filter", "Filter", "{} for every document"),
@@ -6878,19 +7153,19 @@ async function loadFiles(id, more = false) {
 function selectedFile(t) {
   return t.files?.find((f) => idKey(f.id) === t.selected);
 }
-async function selectFile(id, key) {
+async function selectFile(id, key2) {
   const t = tabOf(id, "gridfs");
-  const f = t?.files?.find((x) => idKey(x.id) === key);
+  const f = t?.files?.find((x) => idKey(x.id) === key2);
   changeAdmin(id, "gridfs", (x) => {
     dropDownload(x.download.job);
-    return { selected: key, rename: f?.filename ?? "", confirmDelete: void 0, preview: f ? { key, loading: true } : void 0, download: { ...x.download, job: void 0 } };
+    return { selected: key2, rename: f?.filename ?? "", confirmDelete: void 0, preview: f ? { key: key2, loading: true } : void 0, download: { ...x.download, job: void 0 } };
   });
-  if (!t || !f || !key) return;
+  if (!t || !f || !key2) return;
   try {
     const data = await plugin13.request("gridfs.preview", { ...ref(t), id: f.id });
-    changeAdmin(id, "gridfs", (x) => x.selected === key ? { preview: { key, loading: false, data } } : {});
+    changeAdmin(id, "gridfs", (x) => x.selected === key2 ? { preview: { key: key2, loading: false, data } } : {});
   } catch (error) {
-    changeAdmin(id, "gridfs", (x) => x.selected === key ? { preview: { key, loading: false, error: errorText(error) } } : {});
+    changeAdmin(id, "gridfs", (x) => x.selected === key2 ? { preview: { key: key2, loading: false, error: errorText(error) } } : {});
   }
 }
 async function downloadFile(id) {
@@ -7677,10 +7952,10 @@ function allNodeKeys(stages) {
   });
   return out;
 }
-function findNode(stages, key) {
+function findNode(stages, key2) {
   let found;
   walkNodes(stages, (n2) => {
-    if (n2.key === key) found = n2;
+    if (n2.key === key2) found = n2;
   });
   return found;
 }
@@ -7731,9 +8006,9 @@ async function runExplain(id) {
     if (explainOf(id).token === token) changeExplain(id, { loading: false, error: errorText(error), result: void 0 });
   }
 }
-function toggleNode2(id, key, open) {
+function toggleNode2(id, key2, open) {
   const ex = explainOf(id);
-  changeExplain(id, { expanded: open ? [.../* @__PURE__ */ new Set([...ex.expanded, key])] : ex.expanded.filter((k) => k !== key && !k.startsWith(`${key}-`)) });
+  changeExplain(id, { expanded: open ? [.../* @__PURE__ */ new Set([...ex.expanded, key2])] : ex.expanded.filter((k) => k !== key2 && !k.startsWith(`${key2}-`)) });
 }
 
 // src/panel/guard.ts
@@ -7808,8 +8083,8 @@ function Visual({ t }) {
         expanded: ex.expanded,
         ...ex.selected ? { selected: ex.selected } : {},
         maxHeight: "md",
-        onToggle: ({ key, expanded: open }) => toggleNode2(t.id, key, open),
-        onSelect: ({ key }) => changeExplain(t.id, { selected: key })
+        onToggle: ({ key: key2, expanded: open }) => toggleNode2(t.id, key2, open),
+        onSelect: ({ key: key2 }) => changeExplain(t.id, { selected: key2 })
       }
     ) : /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "The answer has no plan stages to show. The raw view has all of it." }),
     selected2 ? /* @__PURE__ */ jsx15(NodeDetails, { n: selected2 }) : s.stages.length ? /* @__PURE__ */ jsxs14(Text14, { size: "xs", muted: true, children: [
@@ -7897,19 +8172,19 @@ function topKeys(docs2) {
 function tableColumns(t) {
   const docs2 = t.page?.docs ?? [];
   const all = [];
-  for (const key of topKeys(docs2)) {
-    if (!t.flattened.includes(key)) {
-      all.push({ field: key, name: key });
+  for (const key2 of topKeys(docs2)) {
+    if (!t.flattened.includes(key2)) {
+      all.push({ field: key2, name: key2 });
       continue;
     }
     const subs = [];
     for (const d of docs2) {
-      const v = d[key];
+      const v = d[key2];
       if (v !== void 0 && bsonType(v) === "object") {
         for (const s of Object.keys(v)) if (!subs.includes(s)) subs.push(s);
       }
     }
-    all.push(...subs.length ? subs.map((s) => ({ field: key, sub: s, name: `${key}.${s}` })) : [{ field: key, name: key }]);
+    all.push(...subs.length ? subs.map((s) => ({ field: key2, sub: s, name: `${key2}.${s}` })) : [{ field: key2, name: key2 }]);
   }
   const keep = [...all];
   for (let i = keep.length - 1; keep.length > MAX_COLUMNS && i >= 0; i--) {
@@ -7921,10 +8196,10 @@ function tableColumns(t) {
 function columnKeys(columns) {
   const used = /* @__PURE__ */ new Set();
   return columns.map((c, i) => {
-    let key = c.name && c.name.length <= 64 && !used.has(c.name) ? c.name : `#${i}`;
-    while (used.has(key)) key = `${key}'`;
-    used.add(key);
-    return key;
+    let key2 = c.name && c.name.length <= 64 && !used.has(c.name) ? c.name : `#${i}`;
+    while (used.has(key2)) key2 = `${key2}'`;
+    used.add(key2);
+    return key2;
   });
 }
 function cellValue(doc, column) {
@@ -7932,9 +8207,9 @@ function cellValue(doc, column) {
   if (column.sub === void 0) return v;
   return v !== void 0 && isObject(v) && bsonType(v) === "object" ? v[column.sub] : void 0;
 }
-function ResultTable({ t }) {
+function ResultTable({ t, cols }) {
   const docs2 = t.page?.docs ?? [];
-  const { columns: shown, total } = tableColumns(t);
+  const { columns: shown, total } = cols;
   const colKeys = columnKeys(shown);
   const columns = shown.map((c, i) => ({ key: colKeys[i], label: c.name || "(empty name)", sortable: true, minWidth: c.field === "_id" ? "md" : "sm" }));
   const keys = rowKeys(docs2);
@@ -7958,7 +8233,7 @@ function ResultTable({ t }) {
         columns,
         rows,
         ...sort ? { sort } : {},
-        selectionMode: t.readOnly && !canFilterBySelection(t) ? "single" : "multiple",
+        selectionMode: canFilterBySelection(t) ? "multiple" : "single",
         selected: t.selectedRows,
         loading: t.loading,
         emptyText: "No documents match.",
@@ -7968,8 +8243,8 @@ function ResultTable({ t }) {
           if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))();
         },
         onSelectionChange: ({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: void 0 })),
-        onRowAction: ({ key }) => {
-          const i = keys.indexOf(key);
+        onRowAction: ({ key: key2 }) => {
+          const i = keys.indexOf(key2);
           const d = docs2[i];
           if (!d || !("_id" in d)) return;
           if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id))();
@@ -7996,17 +8271,17 @@ function childEntries(v) {
   return Object.entries(v);
 }
 function fieldItem(row, path, v, expanded2) {
-  const key = treeKey(row, path);
+  const key2 = treeKey(row, path);
   const name = path[path.length - 1];
   const container = isContainer(v);
   const item = {
-    key,
+    key: key2,
     label: `${typeof name === "number" ? `[${name}]` : name}: ${valueText(v, 80)}`,
     description: BSON_TYPE_LABELS[bsonType(v)],
     icon: container ? Array.isArray(v) ? "layers" : "folder" : "file"
   };
   if (container && childEntries(v).length) {
-    if (expanded2.has(key)) item.children = childEntries(v).map(([k, x]) => fieldItem(row, [...path, k], x, expanded2));
+    if (expanded2.has(key2)) item.children = childEntries(v).map(([k, x]) => fieldItem(row, [...path, k], x, expanded2));
     else item.hasChildren = true;
   }
   return item;
@@ -8015,9 +8290,9 @@ function ResultTree({ t }) {
   const docs2 = t.page?.docs ?? [];
   const expanded2 = new Set(t.treeExpanded);
   const items = docs2.map((d, i) => {
-    const key = treeKey(i, []);
-    const item = { key, label: "_id" in d ? valueText(d._id, 80) : `Document ${t.page.offset + i + 1}`, description: `${Object.keys(d).length} fields${t.page.truncated.includes(i) ? " · truncated" : ""}`, icon: "file-text" };
-    if (expanded2.has(key)) item.children = Object.entries(d).map(([k, v]) => fieldItem(i, [k], v, expanded2));
+    const key2 = treeKey(i, []);
+    const item = { key: key2, label: "_id" in d ? valueText(d._id, 80) : `Document ${t.page.offset + i + 1}`, description: `${Object.keys(d).length} fields${t.page.truncated.includes(i) ? " · truncated" : ""}`, icon: "file-text" };
+    if (expanded2.has(key2)) item.children = Object.entries(d).map(([k, v]) => fieldItem(i, [k], v, expanded2));
     else item.hasChildren = true;
     return item;
   });
@@ -8029,10 +8304,10 @@ function ResultTree({ t }) {
       expanded: t.treeExpanded,
       ...t.treeSelected ? { selected: t.treeSelected } : {},
       maxHeight: "lg",
-      onToggle: ({ key, expanded: open }) => change(t.id, (x) => ({ treeExpanded: open ? [.../* @__PURE__ */ new Set([...x.treeExpanded, key])] : x.treeExpanded.filter((k) => k !== key && !k.startsWith(`${key}/`)) })),
-      onSelect: ({ key }) => change(t.id, () => ({ treeSelected: key, confirmDelete: void 0 })),
-      onAction: ({ key }) => {
-        const { row, path } = parseTreeKey(key);
+      onToggle: ({ key: key2, expanded: open }) => change(t.id, (x) => ({ treeExpanded: open ? [.../* @__PURE__ */ new Set([...x.treeExpanded, key2])] : x.treeExpanded.filter((k) => k !== key2 && !k.startsWith(`${key2}/`)) })),
+      onSelect: ({ key: key2 }) => change(t.id, () => ({ treeSelected: key2, confirmDelete: void 0 })),
+      onAction: ({ key: key2 }) => {
+        const { row, path } = parseTreeKey(key2);
         const d = docs2[row];
         if (!d || !("_id" in d) || t.readOnly) return;
         void guard(t.id, () => path.length ? editField(t.id, d._id, path) : editDocument(t.id, d._id))();
@@ -8054,11 +8329,10 @@ function OpenButtons({ t, doc }) {
     /* @__PURE__ */ jsx16(IconButton12, { icon: "file-text", label: "Open in a tab", size: "sm", variant: "ghost", onPress: guard(t.id, () => openDocumentTab(t.id, doc._id)) })
   ] });
 }
-function TableActions({ t }) {
+function TableActions({ t, cols }) {
   const docs2 = selectedDocs(t);
   if (docs2.length === 0) {
-    const filter2 = canFilterBySelection(t);
-    const hint = t.readOnly ? `${canOpenDocuments(t) ? "Select a row to open it" : "Select a row to look at it in the Tree view"}${filter2 ? ", or rows to filter by" : ""}.${canOpenDocuments(t) ? " Enter on a row opens it." : ""}` : `Select rows to open, edit, clone${filter2 ? ", delete or filter by" : " or delete"}. Enter on a row edits it.`;
+    const hint = !t.readOnly ? "Select rows to open, edit, clone, delete or filter by. Enter on a row edits it." : canFilterBySelection(t) ? "Select a row to open it, or rows to filter by. Enter on a row opens it." : "Select a row to look at it in the Tree view.";
     return /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: hint });
   }
   const one = docs2.length === 1 ? docs2[0] : void 0;
@@ -8072,12 +8346,12 @@ function TableActions({ t }) {
       /* @__PURE__ */ jsxs15(Toolbar11, { label: "Row actions", gap: "xs", children: [
         /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
         one ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
-          const key = treeKey(t.page.docs.indexOf(one), []);
-          setResultView(t.id, "tree", { treeExpanded: [key], treeSelected: key });
+          const key2 = treeKey(t.page.docs.indexOf(one), []);
+          setResultView(t.id, "tree", { treeExpanded: [key2], treeSelected: key2 });
         }, children: "Show in Tree" }) : null,
         copy
       ] }),
-      /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2 })
+      /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2, cols })
     ] });
   }
   const fields = one ? Object.keys(one).filter((k) => k !== "_id" && k !== "" && k.length <= 1e3) : [];
@@ -8095,17 +8369,20 @@ function TableActions({ t }) {
       /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, one._id), children: "Add field" })
     ] }) : null,
     !hasId ? /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null,
-    /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2 })
+    /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2, cols })
   ] });
 }
 var FILTER_PREVIEW_MAX = 300;
-function FilterBySelection({ t, docs: docs2 }) {
+function FilterBySelection({ t, docs: docs2, cols }) {
   if (!canFilterBySelection(t)) return null;
-  const options4 = tableColumns(t).columns.filter((c) => filterablePath(c.sub === void 0 ? [c.field] : [c.field, c.sub]));
+  const options4 = cols.columns.filter(filterablePath);
   if (!options4.length) return null;
-  const chosen = options4.filter((c) => t.filterColumns.includes(c.name));
-  const { filter: filter2, error } = chosen.length ? filterFromColumns(chosen.map((c) => ({ path: c.name, values: docs2.map((d) => cellValue(d, c)) }))) : { filter: void 0, error: void 0 };
-  const text = filter2 ? toShellInline(filter2) : "";
+  const usable = (c) => projectionKeeps(t.spec?.projection, c.name);
+  const chosen = options4.filter((c) => t.filterColumns.includes(c.name) && usable(c));
+  const built = chosen.length ? filterFromRows(docs2, chosen) : void 0;
+  const text = built?.filter ? toShellInline(built.filter) : "";
+  const error = built?.error ?? (text.length > QUERY_TEXT_MAX ? `This filter would be ${text.length.toLocaleString("en-US")} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString("en-US")}. Select fewer rows.` : void 0);
+  const filter2 = error ? void 0 : built?.filter;
   return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
     /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "end", wrap: true, children: [
       /* @__PURE__ */ jsx16(
@@ -8114,14 +8391,18 @@ function FilterBySelection({ t, docs: docs2 }) {
           label: "Filter by",
           value: "",
           placeholder: chosen.length ? chosen.map((c) => c.name).join(", ") : "Choose columns…",
-          options: options4.map((c) => ({ value: c.name, label: t.filterColumns.includes(c.name) ? `${c.name} (remove)` : c.name })),
+          options: options4.map((c) => ({
+            value: c.name,
+            label: !usable(c) ? `${c.name} (changed by the projection)` : t.filterColumns.includes(c.name) ? `${c.name} (remove)` : c.name,
+            disabled: !usable(c)
+          })),
           onChange: (name) => toggleFilterColumn(t.id, name)
         }
       ),
       /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "filter", variant: "ghost", disabled: !filter2, onPress: guard(t.id, () => filterBySelection(t.id, filter2, "replace")), children: "Replace filter" }),
       /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", disabled: !filter2, onPress: guard(t.id, () => filterBySelection(t.id, filter2, "merge")), children: "Add to filter" })
     ] }),
-    filter2 ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: text.length > FILTER_PREVIEW_MAX ? `${text.slice(0, FILTER_PREVIEW_MAX - 1)}…` : text }) : error && chosen.length ? /* @__PURE__ */ jsx16(Text15, { size: "xs", tone: "danger", children: error }) : /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: "Choose columns: their values in the selected rows become the filter." })
+    error ? /* @__PURE__ */ jsx16(Text15, { size: "xs", tone: "danger", children: error }) : filter2 ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: text.length > FILTER_PREVIEW_MAX ? `${text.slice(0, FILTER_PREVIEW_MAX - 1)}…` : text }) : /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: "Choose columns: their values in the selected rows become the filter." })
   ] });
 }
 function TreeActions({ t }) {
@@ -8145,6 +8426,7 @@ function Results2({ t }) {
   if (!t.page && t.loading) return /* @__PURE__ */ jsx16(Skeleton10, { lines: 6, label: "Running the query" });
   if (!t.page) return null;
   const p = t.page;
+  const cols = t.resultView === "table" ? tableColumns(t) : void 0;
   return /* @__PURE__ */ jsxs15(Box13, { gap: "sm", children: [
     /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
       /* @__PURE__ */ jsx16(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx16(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => setResultView(t.id, v.value), children: v.label }, v.value)) }),
@@ -8153,8 +8435,8 @@ function Results2({ t }) {
     /* @__PURE__ */ jsx16(Pager, { t }),
     p.stoppedForSize ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: "This page holds fewer documents than the page size, to stay under the size Orca lets a panel receive. Next page goes on from here." }) : null,
     p.truncated.length ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: `${p.truncated.length} document${p.truncated.length === 1 ? " has" : "s have"} long values cut short here. Editing loads the whole document.` }) : null,
-    p.docs.length === 0 && !t.loading ? /* @__PURE__ */ jsx16(EmptyState2, { icon: "search", title: "No documents", description: p.offset > 0 ? "There are no more results." : "Nothing matches this query." }) : t.resultView === "table" ? /* @__PURE__ */ jsx16(ResultTable, { t }) : t.resultView === "tree" ? /* @__PURE__ */ jsx16(ResultTree, { t }) : /* @__PURE__ */ jsx16(ResultJson, { t }),
-    p.docs.length && t.resultView === "table" ? /* @__PURE__ */ jsx16(TableActions, { t }) : null,
+    p.docs.length === 0 && !t.loading ? /* @__PURE__ */ jsx16(EmptyState2, { icon: "search", title: "No documents", description: p.offset > 0 ? "There are no more results." : "Nothing matches this query." }) : cols ? /* @__PURE__ */ jsx16(ResultTable, { t, cols }) : t.resultView === "tree" ? /* @__PURE__ */ jsx16(ResultTree, { t }) : /* @__PURE__ */ jsx16(ResultJson, { t }),
+    p.docs.length && cols ? /* @__PURE__ */ jsx16(TableActions, { t, cols }) : null,
     p.docs.length && t.resultView === "tree" ? /* @__PURE__ */ jsx16(TreeActions, { t }) : null
   ] });
 }
@@ -9621,7 +9903,7 @@ function Saved({ t, a }) {
         emptyText: "No saved pipelines for this collection.",
         maxHeight: "sm",
         onSelectionChange: ({ keys }) => changeAgg(t.id, () => ({ savedSelected: keys[0] })),
-        onRowAction: ({ key }) => void guard(t.id, () => loadSavedPipeline(t.id, key.slice(2)))()
+        onRowAction: ({ key: key2 }) => void guard(t.id, () => loadSavedPipeline(t.id, key2.slice(2)))()
       }
     ),
     /* @__PURE__ */ jsxs17(Toolbar13, { label: "Saved pipeline actions", gap: "xs", children: [
@@ -9708,16 +9990,16 @@ function entries(v) {
   return Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
 }
 function fieldItem2(path, v, expanded2) {
-  const key = treeKey(0, path);
+  const key2 = treeKey(0, path);
   const name = path[path.length - 1];
   const item = {
-    key,
+    key: key2,
     label: `${typeof name === "number" ? `[${name}]` : name}: ${valueText(v, 120)}`,
     description: BSON_TYPE_LABELS[bsonType(v)],
     icon: isContainer(v) ? Array.isArray(v) ? "layers" : "folder" : "file"
   };
   if (isContainer(v) && entries(v).length) {
-    if (expanded2.has(key)) item.children = entries(v).map(([k, x]) => fieldItem2([...path, k], x, expanded2));
+    if (expanded2.has(key2)) item.children = entries(v).map(([k, x]) => fieldItem2([...path, k], x, expanded2));
     else item.hasChildren = true;
   }
   return item;
@@ -9737,10 +10019,10 @@ function DocTree({ t, f, doc }) {
         expanded: f.expanded,
         ...f.selected ? { selected: f.selected } : {},
         maxHeight: "lg",
-        onToggle: ({ key, expanded: open }) => setFocus(t.id, { expanded: open ? [.../* @__PURE__ */ new Set([...f.expanded, key])] : f.expanded.filter((k) => k !== key && !k.startsWith(`${key}/`)) }),
-        onSelect: ({ key }) => setFocus(t.id, { selected: key }),
-        onAction: ({ key }) => {
-          const { path } = parseTreeKey(key);
+        onToggle: ({ key: key2, expanded: open }) => setFocus(t.id, { expanded: open ? [.../* @__PURE__ */ new Set([...f.expanded, key2])] : f.expanded.filter((k) => k !== key2 && !k.startsWith(`${key2}/`)) }),
+        onSelect: ({ key: key2 }) => setFocus(t.id, { selected: key2 }),
+        onAction: ({ key: key2 }) => {
+          const { path } = parseTreeKey(key2);
           if (!t.readOnly && path.length && path[0] !== "_id") void guard(t.id, () => editField(t.id, f.id, path))();
         }
       }
@@ -10118,8 +10400,8 @@ function Library({ t }) {
         emptyText: "No saved queries for this collection.",
         maxHeight: "sm",
         onSelectionChange: ({ keys }) => change(t.id, () => ({ librarySelected: keys[0] })),
-        onRowAction: ({ key }) => {
-          const s = saved.find((x) => `s:${x.name}` === key);
+        onRowAction: ({ key: key2 }) => {
+          const s = saved.find((x) => `s:${x.name}` === key2);
           if (s) void guard(t.id, () => useQuery(t.id, s.query))();
         }
       }
@@ -10138,8 +10420,8 @@ function Library({ t }) {
         emptyText: "Queries you run here are listed here.",
         maxHeight: "sm",
         onSelectionChange: ({ keys }) => change(t.id, () => ({ librarySelected: keys[0] })),
-        onRowAction: ({ key }) => {
-          const h = history[Number(key.slice(2))];
+        onRowAction: ({ key: key2 }) => {
+          const h = history[Number(key2.slice(2))];
           if (h) void guard(t.id, () => useQuery(t.id, h.query))();
         }
       }
@@ -10272,14 +10554,14 @@ function numberInput(label, value, onChange, placeholder, field) {
     }
   );
 }
-function secretInput(key, label, optional = false) {
-  const draft = read24(formSecrets)[key];
-  const saved = read24(formFlags)[key] ?? false;
+function secretInput(key2, label, optional = false) {
+  const draft = read24(formSecrets)[key2];
+  const saved = read24(formFlags)[key2] ?? false;
   const cleared = draft === null;
   const placeholder = cleared ? "Will be forgotten when you save" : saved ? "Saved. Type to replace it." : optional ? "Optional" : "";
   return /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
-    /* @__PURE__ */ jsx23(Input15, { label, type: "password", value: typeof draft === "string" ? draft : "", placeholder, onChange: (v) => setSecret(key, v) }),
-    saved && !cleared ? /* @__PURE__ */ jsxs22(Button20, { size: "xs", variant: "ghost", icon: "remove", onPress: () => setSecret(key, null), children: [
+    /* @__PURE__ */ jsx23(Input15, { label, type: "password", value: typeof draft === "string" ? draft : "", placeholder, onChange: (v) => setSecret(key2, v) }),
+    saved && !cleared ? /* @__PURE__ */ jsxs22(Button20, { size: "xs", variant: "ghost", icon: "remove", onPress: () => setSecret(key2, null), children: [
       "Forget saved ",
       label.toLowerCase()
     ] }) : null
@@ -10672,8 +10954,8 @@ function scheduleLayoutSave() {
     if (JSON.stringify(next) !== JSON.stringify(read25(layout))) set11(layout, next);
   }, 300);
 }
-function connectionOfKey(key) {
-  const m = /^conn:([^/]+)/.exec(realKey(key));
+function connectionOfKey(key2) {
+  const m = /^conn:([^/]+)/.exec(realKey(key2));
   return m ? decodeURIComponent(m[1]) : void 0;
 }
 function connectionOf(t) {
@@ -10980,8 +11262,8 @@ function treeItems2() {
   items.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
   return filterItems(items, read27(filter).trim());
 }
-function connectionIdOf(key) {
-  const m = /^conn:([^/]+)/.exec(key);
+function connectionIdOf(key2) {
+  const m = /^conn:([^/]+)/.exec(key2);
   return m ? decodeURIComponent(m[1]) : null;
 }
 function act(run) {
@@ -11004,10 +11286,10 @@ function copied(clip2) {
   copyToClipboard(clip2);
   set13(notice, { tone: "neutral", text: `Copied ${clipText(clip2)}. Select a connection, database or collection, on any connection, and press Paste.` });
 }
-function actionBar(key) {
+function actionBar(key2) {
   const state = read27(connections);
-  if (key.startsWith(GROUP_PREFIX)) {
-    const group = decodeURIComponent(key.slice(GROUP_PREFIX.length));
+  if (key2.startsWith(GROUP_PREFIX)) {
+    const group = decodeURIComponent(key2.slice(GROUP_PREFIX.length));
     const renaming = read27(renamingGroup);
     if (renaming) {
       return /* @__PURE__ */ jsxs24(Row24, { gap: "xs", align: "end", children: [
@@ -11022,7 +11304,7 @@ function actionBar(key) {
       /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "remove", variant: "ghost", onPress: act(() => renameGroup(group, "")), children: "Ungroup" })
     ] });
   }
-  const real = realKey(key);
+  const real = realKey(key2);
   const meta = read27(nodeIndex)[real];
   const id = connectionIdOf(real);
   if (!meta || !id) return null;
@@ -11100,14 +11382,14 @@ function actionBar(key) {
     favourite
   ] });
 }
-function isOpenable(key) {
-  const kind = read27(nodeIndex)[key]?.kind;
+function isOpenable(key2) {
+  const kind = read27(nodeIndex)[key2]?.kind;
   return kind === "coll" || kind === "view" || kind === "timeseries";
 }
 function detailsBlock() {
   const d = read27(details);
-  const key = read27(selected);
-  if (!d || !key || d.key !== realKey(key)) return null;
+  const key2 = read27(selected);
+  if (!d || !key2 || d.key !== realKey(key2)) return null;
   if (d.status === "loading") return /* @__PURE__ */ jsx25(Skeleton14, { lines: 4, label: "Loading details" });
   if (d.status === "error") return /* @__PURE__ */ jsx25(Callout22, { tone: "danger", icon: "error", children: d.error });
   const data = d.data;
@@ -11135,7 +11417,7 @@ function TreeView() {
       /* @__PURE__ */ jsx25(IconButton17, { icon: "rocket", label: "Saved tasks", onPress: () => openTasks() }),
       /* @__PURE__ */ jsx25(IconButton17, { icon: "refresh", label: "Refresh all", onPress: act(async () => {
         await refreshState();
-        for (const key of read27(expanded)) if (/^conn:[^/]+$/.test(key)) await refreshNode(key);
+        for (const key2 of read27(expanded)) if (/^conn:[^/]+$/.test(key2)) await refreshNode(key2);
       }) })
     ] }),
     state?.secretsProtection === "unavailable" ? /* @__PURE__ */ jsx25(Callout22, { tone: "warning", icon: "warning", title: "Secrets are not saved", children: "Orca can't encrypt secrets on this computer, so passwords and keys are kept only until the plugin stops. Set up your system keyring to save them." }) : null,
@@ -11164,13 +11446,13 @@ function TreeView() {
           expanded: [...read27(expanded), ...rootKeys().filter((k) => !read27(collapsedRoots).includes(k))],
           ...sel ? { selected: sel } : {},
           maxHeight: "lg",
-          onToggle: ({ key, expanded: open }) => {
-            if (rootKeys().includes(key)) update10(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key) : [...prev, key]);
-            else void act(() => toggleNode(key, open))();
+          onToggle: ({ key: key2, expanded: open }) => {
+            if (rootKeys().includes(key2)) update10(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key2) : [...prev, key2]);
+            else void act(() => toggleNode(key2, open))();
           },
-          onSelect: ({ key }) => void act(() => selectNode(key))(),
-          onAction: ({ key }) => {
-            const real = realKey(key);
+          onSelect: ({ key: key2 }) => void act(() => selectNode(key2))(),
+          onAction: ({ key: key2 }) => {
+            const real = realKey(key2);
             const id = connectionIdOf(real);
             if (/^conn:[^/]+$/.test(real) && id) void act(() => connect(id))();
             else if (isOpenable(real)) void act(() => openCollection(real))();

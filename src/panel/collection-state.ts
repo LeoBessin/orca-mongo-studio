@@ -5,13 +5,13 @@ import { atom, plugin, read, set, update } from 'orca'
 import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
 import type { ExplainVerbosity } from '../shared/explain'
 import { hasWriteStage, type StageDraft } from '../shared/pipeline'
-import { bsonType, fieldPaths, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { bsonType, fieldPaths, hasTruncated, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { draftFromValue, valueFromDraft, type FieldDraft } from '../shared/field-edit'
 import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type BuilderProblem, type Group } from '../shared/query-builder'
-import { fitsHost } from '../shared/host-size'
+import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
-import { mergeFilters } from '../shared/table-filter'
+import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { followJob, type JobBox } from './data-state'
 import { errorText, nodeIndex, view } from './state'
@@ -835,7 +835,7 @@ export function canUpdateMany(t: CollTab): boolean {
 
 /** A page shows long values cut down; such an `_id` would match nothing. */
 function usableId(id: JsonValue): boolean {
-  return !JSON.stringify(id).includes('"$msTruncated"')
+  return !hasTruncated(id)
 }
 
 /** The documents a scope stands for now, or why it can't be used. `skipped`: selected rows
@@ -988,30 +988,39 @@ export function addToQuery(id: string, path: Path, value: JsonValue | undefined)
 }
 
 /** Whether the table can filter by its selected rows: the tab's own query, which has a filter
- *  to put them in (not shell results, a pipeline or one document). */
+ *  to put them in. Document tabs show no table; shell results and pipelines have no filter. */
 export function canFilterBySelection(t: CollTab): boolean {
-  return !t.shell && !t.agg && !t.docTab
+  return canOpenDocuments(t)
 }
 
 export function toggleFilterColumn(id: string, name: string): void {
   change(id, (t) => ({ filterColumns: t.filterColumns.includes(name) ? t.filterColumns.filter((c) => c !== name) : [...t.filterColumns, name] }))
 }
 
-/** Filter by the selected rows: `filter` (from `filterFromColumns`) replaces the filter typed,
- *  or is ANDed onto it, and the query runs. */
+/** Filter by the selected rows: `filter` (from `filterFromRows`) replaces the filter typed, or
+ *  is ANDed onto it as typed, and the query runs from its first match. */
 export async function filterBySelection(id: string, filter: JsonObject, mode: 'replace' | 'merge'): Promise<void> {
   const t = tab(id)
   if (!t) return
-  let base: JsonObject = {}
+  let text = toShellInline(filter)
   if (mode === 'merge') {
+    let base: JsonObject
     try {
       base = parseShellDocument(t.text.filter, 'filter', { now: Date.now() })
     } catch (error) {
       patch(id, { fieldErrors: { ...t.fieldErrors, filter: errorText(error) } })
       return
     }
+    const merged = mergeFilterText(t.text.filter, base, filter)
+    if (merged === undefined) return say(id, 'neutral', 'The filter already has these conditions.')
+    text = merged
   }
-  setText(id, 'filter', toShellInline(mode === 'merge' ? mergeFilters(base, filter) : filter))
+  if (text.length > QUERY_TEXT_MAX) {
+    return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`)
+  }
+  setText(id, 'filter', text)
+  // The new filter matches fewer documents: a skip typed for the old one could pass them all.
+  setText(id, 'skip', '')
   await runQuery(id)
 }
 
