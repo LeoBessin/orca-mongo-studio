@@ -66,33 +66,27 @@ import { PlaceLine } from './place-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
-  const run = (): void => void guard(t.id, () => runQuery(t.id))()
-  const doc = field !== 'skip' && field !== 'limit'
-  if (!doc) {
-    return (
-      <Field label={label} {...(error ? { error } : {})}>
-        <Input label={label} labelHidden placeholder={placeholder} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
-      </Field>
-    )
-  }
-  const multi = isMultiline(t, field)
-  const rows = Math.min(12, Math.max(3, t.text[field].split('\n').length))
+  const value = t.text[field]
+  const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v: string) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }
+  // Skip and limit are numbers: nothing to format.
+  const formats = field !== 'skip' && field !== 'limit'
+  const multi = formats && isMultiline(t, field)
+  const name = label.toLowerCase()
+  const input = multi ? <Textarea {...box} rows={Math.min(12, Math.max(3, value.split('\n').length))} /> : <Input {...box} />
   return (
     <Field label={label} {...(error ? { error } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
-      <Box direction="row" gap="xs" align="start">
-        <Box grow>
+      {formats ? (
+        <Box direction="row" gap="xs" align="start">
+          <Box grow>{input}</Box>
           {multi ? (
-            <Textarea label={label} labelHidden placeholder={placeholder} rows={rows} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
+            <IconButton icon="collapse" label={`Put the ${name} on one line`} variant="ghost" size="sm" onPress={() => compactField(t.id, field)} />
           ) : (
-            <Input label={label} labelHidden placeholder={placeholder} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
+            <IconButton icon="code" label={`Format the ${name} on several lines`} variant="ghost" size="sm" disabled={!value.trim()} onPress={() => formatField(t.id, field)} />
           )}
         </Box>
-        {multi ? (
-          <IconButton icon="collapse" label={`Put the ${label.toLowerCase()} on one line`} variant="ghost" size="sm" onPress={() => compactField(t.id, field)} />
-        ) : (
-          <IconButton icon="code" label={`Format the ${label.toLowerCase()} on several lines`} variant="ghost" size="sm" disabled={!t.text[field].trim()} onPress={() => formatField(t.id, field)} />
-        )}
-      </Box>
+      ) : (
+        input
+      )}
     </Field>
   )
 }

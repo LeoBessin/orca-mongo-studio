@@ -10,7 +10,10 @@ export class ShellParseError extends Error {
     message: string,
     readonly line: number,
     readonly column: number,
-    readonly offset: number
+    readonly offset: number,
+    /** The text stopped before the value did: a bracket, string or comment not closed yet, or a
+     *  name or number still being typed at the end. The query bar waits for Run to say so. */
+    readonly unfinished = false
   ) {
     super(`${message} (line ${line}, column ${column})`)
     this.name = 'ShellParseError'
@@ -56,7 +59,8 @@ class Parser {
     private readonly options: ParseOptions
   ) {}
 
-  fail(message: string, at = this.pos): never {
+  /** By default an error is unfinished when nothing but blanks follows where the parser stopped. */
+  fail(message: string, at = this.pos, unfinished = this.src.slice(this.pos).trim() === ''): never {
     let line = 1
     let col = 1
     for (let i = 0; i < at && i < this.src.length; i++) {
@@ -65,7 +69,12 @@ class Parser {
         col = 1
       } else col++
     }
-    throw new ShellParseError(message, line, col, at)
+    throw new ShellParseError(message, line, col, at, unfinished)
+  }
+
+  /** Whether the text from `from` is one word or number still being typed: `-`, `1.5e`, `0x`. */
+  private typingAt(from: number): boolean {
+    return /^[A-Za-z0-9_$.+-]*\s*$/.test(this.src.slice(from))
   }
 
   private skip(): void {
@@ -76,7 +85,7 @@ class Parser {
         while (this.pos < this.src.length && this.src[this.pos] !== '\n') this.pos++
       } else if (c === '/' && this.src[this.pos + 1] === '*') {
         const end = this.src.indexOf('*/', this.pos + 2)
-        if (end < 0) this.fail('This comment is never closed with */')
+        if (end < 0) this.fail('This comment is never closed with */', this.pos, true)
         this.pos = end + 2
       } else return
     }
@@ -130,7 +139,7 @@ class Parser {
       const keyAt = this.pos
       const key = this.key()
       this.expect(':')
-      if (Object.prototype.hasOwnProperty.call(out, key)) this.fail(`The key "${key}" appears twice`, keyAt)
+      if (Object.prototype.hasOwnProperty.call(out, key)) this.fail(`The key "${key}" appears twice`, keyAt, false)
       setOwn(out, key, this.value())
       const next = this.peek()
       if (next === ',') this.pos++
@@ -262,13 +271,13 @@ class Parser {
   private number(): JsonValue {
     const start = this.pos
     const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)/.exec(this.src.slice(this.pos))
-    if (!m) this.fail(`Expected a number`, start)
+    if (!m) this.fail(`Expected a number`, start, this.typingAt(start))
     this.pos += m[0].length
     const text = m[0]
     const sign = text.startsWith('-') ? -1 : 1
     const body = text.replace(/^[+-]/, '')
     const n = /^0[xX]/.test(body) ? sign * parseInt(body.slice(2), 16) : body === 'Infinity' ? sign * Infinity : Number(text)
-    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? '')) this.fail(`Unexpected "${this.src[this.pos]}" after the number`)
+    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? '')) this.fail(`Unexpected "${this.src[this.pos]}" after the number`, this.pos, this.typingAt(this.pos))
     // Unlike JavaScript, a decimal point or exponent keeps the number a double, so 3.0 written by
     // the document editor reads back as a double.
     if (!/^0[xX]/.test(body) && /[.eE]/.test(body)) return { $numberDouble: doubleText(n) }
@@ -304,7 +313,8 @@ class Parser {
     const ctor = CONSTRUCTORS[name]
     if (!ctor) this.fail(`Unknown name "${name}"`, start)
     if (args === null && !ctor.bare) this.fail(`${name} needs arguments, as in ${ctor.example}`, start)
-    return ctor.build(args ?? [], (msg) => this.fail(msg, start), this.options, isNew)
+    // A constructor's arguments are complete once its ")" is typed, so what it refuses is real.
+    return ctor.build(args ?? [], (msg) => this.fail(msg, start, false), this.options, isNew)
   }
 
   private args(): Arg[] {
@@ -323,7 +333,7 @@ class Parser {
         const signed = c === '-' || c === '+' || c === '.' || (c !== undefined && c >= '0' && c <= '9')
         if (signed) {
           const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/.exec(this.src.slice(this.pos))
-          if (!m) this.fail('Expected a number')
+          if (!m) this.fail('Expected a number', this.pos, this.typingAt(this.pos))
           this.pos += m[0].length
           out.push({ kind: 'number', text: m[0], at })
         } else out.push({ kind: 'value', value: this.value(), at })

@@ -369,16 +369,18 @@ function idKey(id) {
 
 // src/shared/shell-parse.ts
 var ShellParseError = class extends Error {
-  constructor(message, line, column, offset) {
+  constructor(message, line, column, offset, unfinished = false) {
     super(`${message} (line ${line}, column ${column})`);
     this.line = line;
     this.column = column;
     this.offset = offset;
+    this.unfinished = unfinished;
     this.name = "ShellParseError";
   }
   line;
   column;
   offset;
+  unfinished;
   /** The message without the position. */
   get reason() {
     return this.message.replace(/ \(line \d+, column \d+\)$/, "");
@@ -409,7 +411,8 @@ var Parser = class {
   src;
   options;
   pos = 0;
-  fail(message, at = this.pos) {
+  /** By default an error is unfinished when nothing but blanks follows where the parser stopped. */
+  fail(message, at = this.pos, unfinished = this.src.slice(this.pos).trim() === "") {
     let line = 1;
     let col = 1;
     for (let i = 0; i < at && i < this.src.length; i++) {
@@ -418,7 +421,11 @@ var Parser = class {
         col = 1;
       } else col++;
     }
-    throw new ShellParseError(message, line, col, at);
+    throw new ShellParseError(message, line, col, at, unfinished);
+  }
+  /** Whether the text from `from` is one word or number still being typed: `-`, `1.5e`, `0x`. */
+  typingAt(from) {
+    return /^[A-Za-z0-9_$.+-]*\s*$/.test(this.src.slice(from));
   }
   skip() {
     for (; ; ) {
@@ -428,7 +435,7 @@ var Parser = class {
         while (this.pos < this.src.length && this.src[this.pos] !== "\n") this.pos++;
       } else if (c === "/" && this.src[this.pos + 1] === "*") {
         const end = this.src.indexOf("*/", this.pos + 2);
-        if (end < 0) this.fail("This comment is never closed with */");
+        if (end < 0) this.fail("This comment is never closed with */", this.pos, true);
         this.pos = end + 2;
       } else return;
     }
@@ -476,7 +483,7 @@ var Parser = class {
       const keyAt = this.pos;
       const key2 = this.key();
       this.expect(":");
-      if (Object.prototype.hasOwnProperty.call(out, key2)) this.fail(`The key "${key2}" appears twice`, keyAt);
+      if (Object.prototype.hasOwnProperty.call(out, key2)) this.fail(`The key "${key2}" appears twice`, keyAt, false);
       setOwn(out, key2, this.value());
       const next = this.peek();
       if (next === ",") this.pos++;
@@ -618,13 +625,13 @@ var Parser = class {
   number() {
     const start = this.pos;
     const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)/.exec(this.src.slice(this.pos));
-    if (!m) this.fail(`Expected a number`, start);
+    if (!m) this.fail(`Expected a number`, start, this.typingAt(start));
     this.pos += m[0].length;
     const text = m[0];
     const sign = text.startsWith("-") ? -1 : 1;
     const body = text.replace(/^[+-]/, "");
     const n2 = /^0[xX]/.test(body) ? sign * parseInt(body.slice(2), 16) : body === "Infinity" ? sign * Infinity : Number(text);
-    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? "")) this.fail(`Unexpected "${this.src[this.pos]}" after the number`);
+    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? "")) this.fail(`Unexpected "${this.src[this.pos]}" after the number`, this.pos, this.typingAt(this.pos));
     if (!/^0[xX]/.test(body) && /[.eE]/.test(body)) return { $numberDouble: doubleText(n2) };
     return numberValue(n2);
   }
@@ -656,7 +663,7 @@ var Parser = class {
     const ctor = CONSTRUCTORS[name];
     if (!ctor) this.fail(`Unknown name "${name}"`, start);
     if (args === null && !ctor.bare) this.fail(`${name} needs arguments, as in ${ctor.example}`, start);
-    return ctor.build(args ?? [], (msg) => this.fail(msg, start), this.options, isNew);
+    return ctor.build(args ?? [], (msg) => this.fail(msg, start, false), this.options, isNew);
   }
   args() {
     this.pos++;
@@ -674,7 +681,7 @@ var Parser = class {
         const signed = c === "-" || c === "+" || c === "." || c !== void 0 && c >= "0" && c <= "9";
         if (signed) {
           const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/.exec(this.src.slice(this.pos));
-          if (!m) this.fail("Expected a number");
+          if (!m) this.fail("Expected a number", this.pos, this.typingAt(this.pos));
           this.pos += m[0].length;
           out.push({ kind: "number", text: m[0], at });
         } else out.push({ kind: "value", value: this.value(), at });
@@ -1799,33 +1806,95 @@ var FORMAT_WIDTH = 60;
 function isGroup(n2) {
   return n2 !== void 0 && "children" in n2;
 }
-function tree(text) {
-  const root = [];
-  const stack = [{ group: null, nodes: root }];
-  for (const t of tokenize(text, { comments: true })) {
-    if (t.open) return void 0;
-    const top = stack[stack.length - 1];
-    if (t.type === "punct" && PAIRS[t.value]) {
-      const group = { open: t.value, close: PAIRS[t.value], children: [] };
-      top.nodes.push(group);
-      stack.push({ group, nodes: group.children });
-    } else if (t.type === "punct" && CLOSERS.has(t.value)) {
-      if (top.group?.close !== t.value) return void 0;
-      stack.pop();
-    } else top.nodes.push(t);
-  }
-  return stack.length === 1 ? root : void 0;
-}
-function hasComment(nodes) {
-  return nodes.some((n2) => isGroup(n2) ? hasComment(n2.children) : n2.type === "comment");
+function isComment(n2) {
+  return n2 !== void 0 && !isGroup(n2) && n2.type === "comment";
 }
 function isPunct(n2, ...values) {
   return n2 !== void 0 && !isGroup(n2) && n2.type === "punct" && values.includes(n2.value);
 }
+var Refused = class {
+  constructor(problem, at) {
+    this.problem = problem;
+    this.at = at;
+  }
+  problem;
+  at;
+};
+function tree(text) {
+  const root = [];
+  const stack = [{ group: null, nodes: root }];
+  for (const t of tokenize(text, { comments: true })) {
+    if (t.open) {
+      const what = t.type === "comment" ? "This comment is never closed with */" : t.type === "regex" ? "This regular expression is never closed with /" : "This string is never closed";
+      throw new Refused(what, t.start);
+    }
+    const top = stack[stack.length - 1];
+    if (t.type === "punct" && PAIRS[t.value]) {
+      const group = { open: t.value, close: PAIRS[t.value], children: [], start: t.start, end: t.end };
+      top.nodes.push(group);
+      stack.push({ group, nodes: group.children });
+    } else if (t.type === "punct" && CLOSERS.has(t.value)) {
+      if (top.group?.close !== t.value) throw new Refused(top.group ? `Expected "${top.group.close}" but found "${t.value}"` : `Unexpected "${t.value}"`, t.start);
+      top.group.end = t.end;
+      stack.pop();
+    } else top.nodes.push(t);
+  }
+  const open = stack[stack.length - 1].group;
+  if (open) throw new Refused(`This ${open.open} is never closed with ${open.close}`, open.start);
+  return root;
+}
+var itemCache = /* @__PURE__ */ new WeakMap();
+function newItem() {
+  return { nodes: [], leading: [], trailing: [], after: [] };
+}
+function items(children2) {
+  const cached = itemCache.get(children2);
+  if (cached) return cached;
+  const out = [];
+  let cur = newItem();
+  let afterComma;
+  for (const n2 of children2) {
+    if (isComment(n2)) {
+      const c = n2;
+      if (afterComma && !c.nl) afterComma.trailing.push(c);
+      else if (cur.nodes.length) (c.nl || cur.after.length ? cur.after : cur.trailing).push(c);
+      else cur.leading.push(c);
+      continue;
+    }
+    afterComma = void 0;
+    if (isPunct(n2, ",")) {
+      cur.comma = n2;
+      out.push(cur);
+      afterComma = cur;
+      cur = newItem();
+      continue;
+    }
+    cur.nodes.push(...cur.trailing, ...cur.after, n2);
+    cur.trailing = [];
+    cur.after = [];
+  }
+  if (cur.nodes.length || cur.leading.length || cur.trailing.length || cur.after.length) out.push(cur);
+  const last = out[out.length - 1];
+  const before = out[out.length - 2];
+  if (last && before && !last.nodes.length && !last.comma) {
+    before.after.push(...last.leading, ...last.trailing, ...last.after);
+    out.pop();
+  }
+  itemCache.set(children2, out);
+  return out;
+}
+function check(nodes, top) {
+  const list = items(nodes);
+  for (const it of list) {
+    if (top && it.comma) throw new Refused('Only one document fits here; remove the ","', it.comma.start);
+    if (!it.nodes.length && it.comma) throw new Refused('Nothing before this ","', it.comma.start);
+    for (const n2 of it.nodes) if (isGroup(n2)) check(n2.children, false);
+  }
+}
 function isUnary(nodes, i) {
   if (!isPunct(nodes[i], "-", "+", "!", "~")) return false;
   let j = i - 1;
-  while (j >= 0 && !isGroup(nodes[j]) && nodes[j].type === "comment") j--;
+  while (j >= 0 && isComment(nodes[j])) j--;
   const prev = nodes[j];
   return prev === void 0 || !isGroup(prev) && prev.type === "punct";
 }
@@ -1834,36 +1903,15 @@ function spaceBefore(nodes, i) {
   const b = nodes[i];
   if (isPunct(b, ",", ":", ".", "?.", ";")) return false;
   if (isPunct(a, ".", "?.")) return false;
+  if (isPunct(a, ":", ",")) return true;
+  if (a.end === b.start) return false;
   if (isUnary(nodes, i - 1)) return false;
   if (isGroup(b) && (b.open === "(" || b.open === "[") && (isGroup(a) ? a.open !== "{" : a.type === "ident")) return false;
   return true;
 }
-function items(children2) {
-  const out = [];
-  let cur = { nodes: [], leading: [], trailing: [] };
-  let afterComma;
-  for (const n2 of children2) {
-    if (!isGroup(n2) && n2.type === "comment") {
-      if (afterComma && !n2.nl) afterComma.trailing.push(n2);
-      else if (cur.nodes.length && !n2.nl) cur.trailing.push(n2);
-      else cur.leading.push(n2);
-      continue;
-    }
-    afterComma = void 0;
-    if (isPunct(n2, ",")) {
-      out.push(cur);
-      afterComma = cur;
-      cur = { nodes: [], leading: [], trailing: [] };
-      continue;
-    }
-    if (cur.trailing.length) {
-      cur.leading.push(...cur.trailing);
-      cur.trailing = [];
-    }
-    cur.nodes.push(n2);
-  }
-  if (cur.nodes.length || cur.leading.length || cur.trailing.length) out.push(cur);
-  return out;
+function blockComment(value) {
+  if (value.startsWith("//")) return `/* ${value.slice(2).trim().replace(/\*\//g, "* /")} */`;
+  return value.replace(/\s*[\r\n]\s*/g, " ");
 }
 function inline(nodes) {
   let out = "";
@@ -1873,14 +1921,23 @@ function inline(nodes) {
   });
   return out;
 }
+var inlineCache = /* @__PURE__ */ new WeakMap();
 function inlineGroup(g) {
-  const parts = items(g.children).filter((it) => it.nodes.length || it.leading.length || it.trailing.length);
-  const body = parts.map((it) => inline([...it.leading, ...it.nodes, ...it.trailing])).join(", ");
-  if (!body) return g.open + g.close;
-  return g.open === "{" ? `{ ${body} }` : g.open + body + g.close;
+  const cached = inlineCache.get(g);
+  if (cached !== void 0) return cached;
+  const body = items(g.children).map((it) => inline([...it.leading, ...it.nodes, ...it.trailing, ...it.after])).join(", ");
+  const out = !body ? g.open + g.close : g.open === "{" ? `{ ${body} }` : g.open + body + g.close;
+  inlineCache.set(g, out);
+  return out;
 }
-function blockComment(value) {
-  return value.startsWith("//") ? `/* ${value.slice(2).trim().replace(/\*\//g, "* /")} */` : value;
+var commentCache = /* @__PURE__ */ new WeakMap();
+function hasComment(nodes) {
+  let v = commentCache.get(nodes);
+  if (v === void 0) {
+    v = nodes.some((n2) => isGroup(n2) ? hasComment(n2.children) : n2.type === "comment");
+    commentCache.set(nodes, v);
+  }
+  return v;
 }
 var Writer = class {
   constructor(indent2) {
@@ -1888,85 +1945,106 @@ var Writer = class {
   }
   indent;
   text = "";
+  lineStart = 0;
   col() {
-    return this.text.length - this.text.lastIndexOf("\n") - 1;
+    return this.text.length - this.lineStart;
   }
   line(depth) {
-    this.text = this.text.replace(/[ \t]+$/, "") + "\n" + this.indent.repeat(depth);
+    let end = this.text.length;
+    while (end > this.lineStart && (this.text[end - 1] === " " || this.text[end - 1] === "	")) end--;
+    this.text = this.text.slice(0, end) + "\n";
+    this.lineStart = this.text.length;
+    this.text += this.indent.repeat(depth);
   }
 };
-function writeNodes(w, nodes, depth) {
+function writeNodes(w, nodes, depth, top = false) {
   nodes.forEach((n2, i) => {
     if (i > 0 && spaceBefore(nodes, i)) w.text += " ";
-    if (isGroup(n2)) writeGroup(w, n2, depth, false);
-    else w.text += n2.value;
+    if (isGroup(n2)) writeGroup(w, n2, depth, top);
+    else {
+      w.text += n2.value;
+      if (isComment(n2) && n2.value.startsWith("//") && i < nodes.length - 1) w.line(depth);
+    }
   });
 }
-function writeComments(w, comments, depth) {
-  for (const c of comments) {
+function writeItem(w, it, depth, comma, top = false) {
+  it.leading.forEach((c, i) => {
     w.text += c.value;
+    if (it.nodes.length || i < it.leading.length - 1) w.line(depth);
+  });
+  writeNodes(w, it.nodes, depth, top);
+  if (comma) w.text += ",";
+  for (const c of it.trailing) w.text += " " + c.value;
+  for (const c of it.after) {
     w.line(depth);
+    w.text += c.value;
   }
 }
 function writeGroup(w, g, depth, top) {
   const list = items(g.children);
-  const one = inlineGroup(g);
   const breakable = g.open !== "(" && list.length > 0;
-  const comments = hasComment(g.children);
-  const wantBreak = top && g.open === "{" && list.length > 1;
-  if (!comments && (!breakable || !wantBreak && w.col() + one.length <= FORMAT_WIDTH)) {
-    w.text += one;
-    return;
+  if (!hasComment(g.children)) {
+    const one = inlineGroup(g);
+    const wantBreak = top && g.open === "{" && list.length > 1;
+    if (!breakable || !wantBreak && w.col() + one.length <= FORMAT_WIDTH) {
+      w.text += one;
+      return;
+    }
   }
   if (!breakable) {
     w.text += g.open;
     list.forEach((it, i) => {
       if (i > 0) w.text += ", ";
-      if (it.leading.length) w.text += it.leading.map((c) => blockComment(c.value)).join(" ") + " ";
+      w.text += [...it.leading.map((c) => blockComment(c.value)), ""].join(" ");
       writeNodes(w, it.nodes, depth);
-      if (it.trailing.length) w.text += " " + it.trailing.map((c) => blockComment(c.value)).join(" ");
+      for (const c of [...it.trailing, ...it.after]) w.text += " " + blockComment(c.value);
     });
     w.text += g.close;
     return;
   }
+  let lastCode = -1;
+  list.forEach((it, i) => {
+    if (it.nodes.length) lastCode = i;
+  });
   w.text += g.open;
   list.forEach((it, i) => {
     w.line(depth + 1);
-    writeComments(w, it.leading, depth + 1);
-    if (!it.nodes.length) {
-      w.text = w.text.replace(/\n[ \t]*$/, "");
-      return;
-    }
-    writeNodes(w, it.nodes, depth + 1);
-    if (i < list.length - 1 && list.slice(i + 1).some((x) => x.nodes.length)) w.text += ",";
-    for (const c of it.trailing) w.text += " " + c.value;
+    writeItem(w, it, depth + 1, i < lastCode);
   });
   w.line(depth);
   w.text += g.close;
 }
+function position(text, at) {
+  const before = text.slice(0, at);
+  const line = before.split("\n").length;
+  const column = at - before.lastIndexOf("\n");
+  return `(line ${line}, column ${column})`;
+}
+function run(text, fn) {
+  try {
+    const nodes = tree(text);
+    check(nodes, true);
+    return { ok: true, text: fn(nodes) };
+  } catch (error) {
+    if (error instanceof Refused) return { ok: false, problem: `${error.problem} ${position(text, error.at)}` };
+    throw error;
+  }
+}
 function formatQuery(text, indent2 = "  ") {
-  if (!text.trim()) return text;
-  const nodes = tree(text);
-  if (!nodes) return void 0;
-  const w = new Writer(indent2);
-  const parts = items(nodes);
-  parts.forEach((it, i) => {
-    if (i > 0) w.text += ", ";
-    writeComments(w, it.leading, 0);
-    it.nodes.forEach((n2, j) => {
-      if (j > 0 && spaceBefore(it.nodes, j)) w.text += " ";
-      if (isGroup(n2)) writeGroup(w, n2, 0, true);
-      else w.text += n2.value;
-    });
-    for (const c of it.trailing) w.text += " " + c.value;
+  if (!text.trim()) return { ok: true, text };
+  return run(text, (nodes) => {
+    const w = new Writer(indent2);
+    const list = items(nodes);
+    list.forEach((it) => writeItem(w, it, 0, false, true));
+    return w.text.replace(/[ \t]+$/gm, "");
   });
-  return w.text.replace(/[ \t]+$/gm, "");
 }
 function compactQuery(text) {
-  if (!text.trim()) return "";
-  const nodes = tree(text);
-  if (!nodes) return void 0;
-  return items(nodes).map((it) => inline([...it.leading, ...it.nodes, ...it.trailing])).join(", ");
+  if (!text.trim()) return { ok: true, text: "" };
+  return run(
+    text,
+    (nodes) => items(nodes).map((it) => inline([...it.leading, ...it.nodes, ...it.trailing, ...it.after])).join(", ")
+  );
 }
 
 // src/shared/table-filter.ts
@@ -2979,8 +3057,19 @@ function change(id, fn) {
     const t = prev[id];
     if (!t) return prev;
     const next = fn(t);
-    return { ...prev, [id]: "id" in next && next.id === t.id ? next : { ...t, ...next } };
+    const out = "id" in next && next.id === t.id ? next : { ...t, ...next };
+    return { ...prev, [id]: withBoxes(t, out) };
   });
+}
+function withBoxes(before, after) {
+  if (after.text === before.text || after.multiline !== before.multiline) return after;
+  let multiline;
+  for (const field of Object.keys(after.text)) {
+    if (after.text[field] === before.text[field] || after.multiline[field] === void 0) continue;
+    multiline ??= { ...after.multiline };
+    delete multiline[field];
+  }
+  return multiline ? { ...after, multiline } : after;
 }
 function patch(id, values) {
   change(id, () => values);
@@ -3126,52 +3215,58 @@ function askDeleteFocused(id) {
   if (f) patch(id, { confirmDelete: { ids: [f.id] }, editor: void 0 });
 }
 function setText(id, field, value) {
+  change(id, (t) => ({
+    text: { ...t.text, [field]: value },
+    // Typing keeps the box it is typed in: joining the last two lines doesn't swap a multi-line
+    // box for a one-line one under the cursor.
+    multiline: { ...t.multiline, [field]: isMultiline(t, field) || value.includes("\n") },
+    fieldErrors: withLiveProblem(t.fieldErrors, field, value)
+  }));
+}
+function replaceText(id, field, value) {
   change(id, (t) => {
-    const fieldErrors = { ...t.fieldErrors };
-    const problem = liveProblem(field, value);
-    if (problem) fieldErrors[field] = problem;
-    else delete fieldErrors[field];
-    return { text: { ...t.text, [field]: value }, fieldErrors };
+    const multiline = { ...t.multiline };
+    delete multiline[field];
+    return { text: { ...t.text, [field]: value }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, value) };
   });
 }
-var UNFINISHED = /never closed|the text ended|^Expected a key after ","/;
 function liveProblem(field, value, now = Date.now()) {
-  const error = specFromText({ ...emptyText, [field]: value }, now).errors[field];
-  if (!error) return void 0;
-  if (field !== "skip" && field !== "limit") {
-    try {
-      parseShellDocument(value, FIELD_NAMES[field], { now });
-    } catch (e) {
-      if (e instanceof ShellParseError && UNFINISHED.test(e.reason)) return void 0;
-    }
-  }
-  return error;
+  if (field === "skip" || field === "limit") return countProblem(field, value);
+  const problem = shellProblem(value, FIELD_NAMES[field], { now });
+  return problem && !problem.unfinished ? problem.message : void 0;
+}
+function withLiveProblem(errors, field, value) {
+  const out = { ...errors };
+  const problem = liveProblem(field, value);
+  if (problem) out[field] = problem;
+  else delete out[field];
+  return out;
 }
 function isMultiline(t, field) {
-  return Boolean(t.multiline[field]) || t.text[field].includes("\n");
+  return t.multiline[field] ?? t.text[field].includes("\n");
 }
 function formatField(id, field) {
   change(id, (t) => {
-    const formatted = formatQuery(t.text[field]);
-    if (formatted === void 0) return { multiline: { ...t.multiline, [field]: true }, fieldErrors: { ...t.fieldErrors, [field]: unbalanced(field, t.text[field]) } };
-    const fieldErrors = { ...t.fieldErrors };
-    const problem = liveProblem(field, formatted);
-    if (problem) fieldErrors[field] = problem;
-    else delete fieldErrors[field];
-    return { text: { ...t.text, [field]: formatted }, multiline: { ...t.multiline, [field]: true }, fieldErrors };
+    const result = formatQuery(t.text[field]);
+    const multiline = { ...t.multiline, [field]: true };
+    if (!result.ok) return { multiline, fieldErrors: { ...t.fieldErrors, [field]: `Can't format: ${result.problem}` } };
+    if (result.text.length > QUERY_TEXT_MAX) {
+      const size = (n2) => n2.toLocaleString("en-US");
+      return { fieldErrors: { ...t.fieldErrors, [field]: `Formatted, this would be ${size(result.text.length)} characters, and the query history keeps up to ${size(QUERY_TEXT_MAX)}. Left as it is.` } };
+    }
+    return { text: { ...t.text, [field]: result.text }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) };
   });
 }
 function compactField(id, field) {
   change(id, (t) => {
-    const compact = compactQuery(t.text[field]);
-    if (compact === void 0) return { fieldErrors: { ...t.fieldErrors, [field]: `${unbalanced(field, t.text[field])} Close it before putting it on one line.` } };
-    const multiline = { ...t.multiline };
-    delete multiline[field];
-    return { text: { ...t.text, [field]: compact }, multiline };
+    const result = compactQuery(t.text[field]);
+    if (!result.ok) return { fieldErrors: { ...t.fieldErrors, [field]: `Can't put on one line: ${result.problem}` } };
+    return { text: { ...t.text, [field]: result.text }, multiline: { ...t.multiline, [field]: false }, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) };
   });
 }
-function unbalanced(field, value) {
-  return specFromText({ ...emptyText, [field]: value }).errors[field] ?? "A bracket, string or comment is not closed.";
+function countProblem(field, value) {
+  const v = value.trim();
+  return v === "" || /^\d+$/.test(v) ? void 0 : `${field === "skip" ? "Skip" : "Limit"} is a whole number, 0 or more.`;
 }
 var FIELD_NAMES = { filter: "filter", projection: "projection", sort: "sort", collation: "collation", skip: "skip", limit: "limit" };
 function specFromText(text, now = Date.now()) {
@@ -3185,13 +3280,9 @@ function specFromText(text, now = Date.now()) {
     }
   };
   const num = (field) => {
-    const v = text[field].trim();
-    if (v === "") return 0;
-    if (!/^\d+$/.test(v)) {
-      errors[field] = `${field === "skip" ? "Skip" : "Limit"} is a whole number, 0 or more.`;
-      return 0;
-    }
-    return Number(v);
+    const problem = countProblem(field, text[field]);
+    if (problem) errors[field] = problem;
+    return problem ? 0 : Number(text[field].trim() || 0);
   };
   const filter2 = doc("filter");
   const projection = doc("projection");
@@ -3312,7 +3403,7 @@ async function sortBy(id, column, direction) {
     return;
   }
   const key2 = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-  setText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
+  replaceText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
   await runQuery(id);
 }
 function currentSort(t) {
@@ -3668,8 +3759,8 @@ async function filterBySelection(id, filter2, mode) {
   if (text.length > QUERY_TEXT_MAX) {
     return say2(id, "danger", `This filter would be ${text.length.toLocaleString("en-US")} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString("en-US")}. Select fewer rows.`);
   }
-  setText(id, "filter", text);
-  setText(id, "skip", "");
+  replaceText(id, "filter", text);
+  replaceText(id, "skip", "");
   await runQuery(id);
 }
 async function applyBuilder(id) {
@@ -3680,7 +3771,7 @@ async function applyBuilder(id) {
     patch(id, { builderProblems: problems });
     return;
   }
-  setText(id, "filter", Object.keys(filter2).length ? toShellInline(filter2) : "");
+  replaceText(id, "filter", Object.keys(filter2).length ? toShellInline(filter2) : "");
   patch(id, { builderProblems: [] });
   await runQuery(id);
 }
@@ -3753,10 +3844,10 @@ function changeAdmin(id, kind, fn) {
 function sayAdmin(id, tone, text) {
   update3(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
 }
-function aguard(id, run) {
+function aguard(id, run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       sayAdmin(id, "danger", errorText(error));
     }
@@ -4790,8 +4881,8 @@ async function checkValidation(id) {
   }
   changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: "checking" } }));
   try {
-    const check = await plugin6.request("admin.checkValidation", { ns: t.ns, validator }, { timeoutMs: 6e4 });
-    changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check } }));
+    const check2 = await plugin6.request("admin.checkValidation", { ns: t.ns, validator }, { timeoutMs: 6e4 });
+    changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: check2 } }));
   } catch (e) {
     changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: void 0 } }));
     throw e;
@@ -5210,7 +5301,7 @@ function Indexes({ t }) {
 }
 function Validation({ t }) {
   const v = t.validation;
-  const check = v.check;
+  const check2 = v.check;
   const ro = isReadOnly(t.connectionId);
   return /* @__PURE__ */ jsx4(
     Collapsible2,
@@ -5226,10 +5317,10 @@ function Validation({ t }) {
         ro ? null : /* @__PURE__ */ jsx4(Select2, { label: "Action", value: v.action, options: ACTIONS, onChange: (action) => setValidation(t.id, { action }) }),
         /* @__PURE__ */ jsxs4(Toolbar2, { label: "Validation actions", gap: "xs", children: [
           ro ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: aguard(t.id, () => saveValidation(t.id)), children: "Save rules" }),
-          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check === "checking" ? "Checking…" : "Check documents" }),
+          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check2 === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check2 === "checking" ? "Checking…" : "Check documents" }),
           /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind, true)), children: "From the schema" })
         ] }),
-        check && check !== "checking" ? check.error ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check.error }) : /* @__PURE__ */ jsx4(Callout3, { tone: check.failing ? "warning" : "success", icon: check.failing ? "warning" : "check", children: check.failing ? `${numberText(check.failing)} of ${check.checked !== null ? numberText(check.checked) : "the"} documents break these rules${check.firstId !== void 0 ? `, the first with _id ${valueText(check.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check.checked !== null ? ` (${numberText(check.checked)})` : ""} passes these rules.` }) : null
+        check2 && check2 !== "checking" ? check2.error ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check2.error }) : /* @__PURE__ */ jsx4(Callout3, { tone: check2.failing ? "warning" : "success", icon: check2.failing ? "warning" : "check", children: check2.failing ? `${numberText(check2.failing)} of ${check2.checked !== null ? numberText(check2.checked) : "the"} documents break these rules${check2.firstId !== void 0 ? `, the first with _id ${valueText(check2.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check2.checked !== null ? ` (${numberText(check2.checked)})` : ""} passes these rules.` }) : null
       ] })
     }
   );
@@ -6837,10 +6928,10 @@ function setTaskName(tabId, name) {
 
 // src/panel/tasks-view.tsx
 import { jsx as jsx9, jsxs as jsxs9 } from "orca/jsx-runtime";
-function tguard(run) {
+function tguard(run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       sayTasks("danger", errorText(error));
     }
@@ -8231,10 +8322,10 @@ function toggleNode2(id, key2, open) {
 }
 
 // src/panel/guard.ts
-function guard(tabId, run) {
+function guard(tabId, run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       say2(tabId, "danger", errorText(error));
     }
@@ -9863,28 +9954,28 @@ function resultTitle(r) {
   const count = r.count !== void 0 ? ` · ${r.count.toLocaleString("en-US")} ${r.count === 1 ? "document" : "documents"}` : "";
   return `${r.index + 1}. ${r.title || `Line ${r.line}: ${what}`}${count}`;
 }
-function resultOptions(run) {
-  return run.results.map((r) => ({ value: String(r.index), label: resultTitle(r) }));
+function resultOptions(run2) {
+  return run2.results.map((r) => ({ value: String(r.index), label: resultTitle(r) }));
 }
-async function showRun(run, focus) {
-  set8(shellRun, run);
-  if (!run.results.length) return;
-  await selectResult(run.results.length - 1);
+async function showRun(run2, focus) {
+  set8(shellRun, run2);
+  if (!run2.results.length) return;
+  await selectResult(run2.results.length - 1);
   if (focus) set8(view, SHELL_TAB);
 }
 async function selectResult(index) {
-  const run = read20(shellRun);
-  const info = run?.results[index];
-  if (!run || !info) return;
+  const run2 = read20(shellRun);
+  const info = run2?.results[index];
+  if (!run2 || !info) return;
   const previous = tab(SHELL_TAB);
-  const ns = { connectionId: run.connectionId, db: info.op?.db ?? run.db, collection: info.op?.collection ?? "(shell)" };
+  const ns = { connectionId: run2.connectionId, db: info.op?.db ?? run2.db, collection: info.op?.collection ?? "(shell)" };
   const t = {
     ...newTab(SHELL_TAB, ns, "coll", "Shell"),
     readOnly: true,
     pageSize: previous?.pageSize ?? read20(defaultPageSize),
     resultView: previous?.resultView ?? startResultView(),
     relaxed: previous?.relaxed ?? true,
-    shell: { runId: run.runId, index },
+    shell: { runId: run2.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,
     ...info.count !== void 0 ? { count: { count: info.count, approximate: false, ms: 0 } } : {}
   };
@@ -9902,8 +9993,8 @@ function closeShell() {
 }
 async function loadLatestRun() {
   try {
-    const { run } = await plugin16.request("shell.latest");
-    if (run && !read20(shellRun)) await showRun(run, false);
+    const { run: run2 } = await plugin16.request("shell.latest");
+    if (run2 && !read20(shellRun)) await showRun(run2, false);
   } catch {
   }
 }
@@ -9919,10 +10010,10 @@ function queryTextOf(op) {
   };
 }
 async function openAsQuery(info) {
-  const run = read20(shellRun);
-  if (!run || info.op?.kind !== "find") return;
+  const run2 = read20(shellRun);
+  if (!run2 || info.op?.kind !== "find") return;
   try {
-    await openNamespace({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
+    await openNamespace({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
   } catch (error) {
     update8(collTabs, (prev) => {
       const t = prev[SHELL_TAB];
@@ -9931,11 +10022,11 @@ async function openAsQuery(info) {
   }
 }
 async function openAsPipeline(info) {
-  const run = read20(shellRun);
-  if (!run || info.op?.kind !== "aggregate") return;
+  const run2 = read20(shellRun);
+  if (!run2 || info.op?.kind !== "aggregate") return;
   const { stages, error } = stagesFromPipeline(info.op.pipeline);
   if (!stages) throw new Error(error);
-  await openAggregation({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, "coll", stages, `the shell (line ${info.line})`);
+  await openAggregation({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", stages, `the shell (line ${info.line})`);
 }
 
 // src/panel/shell-view.tsx
@@ -9953,22 +10044,22 @@ function tabOperation(t) {
   return { kind: "find", db: t.ns.db, collection: t.ns.collection, ...spec };
 }
 function ShellTab() {
-  const run = read21(shellRun);
+  const run2 = read21(shellRun);
   const t = read21(collTabs)[SHELL_TAB];
-  if (!run || !t?.shell) return null;
-  const info = run.results[t.shell.index];
+  if (!run2 || !t?.shell) return null;
+  const info = run2.results[t.shell.index];
   return /* @__PURE__ */ jsxs16(Box14, { gap: "sm", children: [
     /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsxs16(Box14, { gap: "none", grow: true, children: [
         /* @__PURE__ */ jsx17(Text16, { weight: "semibold", truncate: true, children: "Shell results" }),
         /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", children: [
-          /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, truncate: true, children: `${run.connectionName} › ${run.db} ·` }),
-          /* @__PURE__ */ jsx17(RelativeTime3, { at: run.at, muted: true })
+          /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, truncate: true, children: `${run2.connectionName} › ${run2.db} ·` }),
+          /* @__PURE__ */ jsx17(RelativeTime3, { at: run2.at, muted: true })
         ] })
       ] }),
       /* @__PURE__ */ jsx17(IconButton13, { icon: "close", label: "Close the shell results", variant: "ghost", size: "sm", onPress: closeShell })
     ] }),
-    run.results.length > 1 ? /* @__PURE__ */ jsx17(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
+    run2.results.length > 1 ? /* @__PURE__ */ jsx17(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run2), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
     info ? /* @__PURE__ */ jsxs16(Toolbar12, { label: "Result actions", gap: "xs", children: [
       /* @__PURE__ */ jsx17(Badge5, { tone: "neutral", children: info.op ? `${info.op.kind} on ${info.op.db}.${info.op.collection}` : info.kind === "cursor" ? "cursor" : "documents" }),
       info.op?.kind === "find" ? /* @__PURE__ */ jsx17(Button14, { size: "sm", icon: "open-external", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsQuery(info)), children: "Open as query" }) : null,
@@ -10514,17 +10605,16 @@ function UpdateMany({ t }) {
 import { jsx as jsx22, jsxs as jsxs21 } from "orca/jsx-runtime";
 function QueryInput({ t, field, label, placeholder }) {
   const error = t.fieldErrors[field];
-  const run = () => void guard(t.id, () => runQuery(t.id))();
-  const doc = field !== "skip" && field !== "limit";
-  if (!doc) {
-    return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx22(Input14, { label, labelHidden: true, placeholder, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: run }) });
-  }
-  const multi = isMultiline(t, field);
-  const rows = Math.min(12, Math.max(3, t.text[field].split("\n").length));
-  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : multi ? { description: "Ctrl+Enter or Cmd+Enter runs the query." } : {}, children: /* @__PURE__ */ jsxs21(Box19, { direction: "row", gap: "xs", align: "start", children: [
-    /* @__PURE__ */ jsx22(Box19, { grow: true, children: multi ? /* @__PURE__ */ jsx22(Textarea9, { label, labelHidden: true, placeholder, rows, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: run }) : /* @__PURE__ */ jsx22(Input14, { label, labelHidden: true, placeholder, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: run }) }),
-    multi ? /* @__PURE__ */ jsx22(IconButton16, { icon: "collapse", label: `Put the ${label.toLowerCase()} on one line`, variant: "ghost", size: "sm", onPress: () => compactField(t.id, field) }) : /* @__PURE__ */ jsx22(IconButton16, { icon: "code", label: `Format the ${label.toLowerCase()} on several lines`, variant: "ghost", size: "sm", disabled: !t.text[field].trim(), onPress: () => formatField(t.id, field) })
-  ] }) });
+  const value = t.text[field];
+  const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() };
+  const formats = field !== "skip" && field !== "limit";
+  const multi = formats && isMultiline(t, field);
+  const name = label.toLowerCase();
+  const input = multi ? /* @__PURE__ */ jsx22(Textarea9, { ...box, rows: Math.min(12, Math.max(3, value.split("\n").length)) }) : /* @__PURE__ */ jsx22(Input14, { ...box });
+  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : multi ? { description: "Ctrl+Enter or Cmd+Enter runs the query." } : {}, children: formats ? /* @__PURE__ */ jsxs21(Box19, { direction: "row", gap: "xs", align: "start", children: [
+    /* @__PURE__ */ jsx22(Box19, { grow: true, children: input }),
+    multi ? /* @__PURE__ */ jsx22(IconButton16, { icon: "collapse", label: `Put the ${name} on one line`, variant: "ghost", size: "sm", onPress: () => compactField(t.id, field) }) : /* @__PURE__ */ jsx22(IconButton16, { icon: "code", label: `Format the ${name} on several lines`, variant: "ghost", size: "sm", disabled: !value.trim(), onPress: () => formatField(t.id, field) })
+  ] }) : input });
 }
 function QueryBar({ t }) {
   const extras = [t.text.collation && "collation", t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(", ");
@@ -11496,10 +11586,10 @@ function connectionIdOf(key2) {
   const m = /^conn:([^/]+)/.exec(key2);
   return m ? decodeURIComponent(m[1]) : null;
 }
-function act(run) {
+function act(run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       set13(notice, { tone: "danger", text: error instanceof Error ? error.message : String(error) });
     }
@@ -11729,7 +11819,7 @@ function setup(ctx) {
     }),
     plugin18.on("oidc.signIn", (payload) => set14(oidc, payload)),
     plugin18.on("oidc.done", () => set14(oidc, null)),
-    plugin18.on("shell.results", (run) => void showRun(run, true)),
+    plugin18.on("shell.results", (run2) => void showRun(run2, true)),
     plugin18.on("tasks.changed", (state) => setTasks(state))
   );
   void loadLatestRun();

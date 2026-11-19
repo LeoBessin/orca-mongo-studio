@@ -154,10 +154,13 @@ describe('collection tabs', () => {
   test('the query bar says what is wrong while typing, but not about text that is only unfinished', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
-    await view.type({ label: 'Filter' }, '{ total: { $gt: 100')
-    assert.equal(view.find({ text: /never closed/ }), null, 'an open bracket is still being typed')
+    const full = "{ active: true, _id: ObjectId('6542f1a2b3c4d5e6f7a8b900'), n: -1.5e3, at: { $gte: new Date('2026-01-02') } }"
+    for (const c of full) {
+      await view.type({ label: 'Filter' }, c)
+      assert.equal(view.find({ type: 'Field', label: 'Filter' })!.props.error, undefined, view.valueOf({ label: 'Filter' }) as string)
+    }
     await view.type({ label: 'Filter' }, ' ]')
-    assert.ok(view.find({ text: /Expected "," or "\}" but found "\]"/ }), 'a wrong bracket is reported before running')
+    assert.ok(view.find({ text: /Unexpected "\]" after the value/ }), 'a wrong bracket is reported before running')
     await view.toggle({ type: 'Collapsible', label: 'Collation, skip and limit' })
     await view.type({ label: 'Limit' }, 'x')
     assert.ok(view.find({ text: 'Limit is a whole number, 0 or more.' }))
@@ -182,9 +185,40 @@ describe('collection tabs', () => {
     await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
     assert.equal(view.valueOf({ label: 'Sort' }), '{ total: -1', 'unclosed text is not reformatted')
     assert.ok(view.find({ type: 'Textarea', label: 'Sort' }), 'but it still gets the room to finish it')
-    assert.ok(view.find({ text: /never closed with \}/ }))
+    assert.ok(view.find({ text: "Can't format: This { is never closed with } (line 1, column 1)" }))
     assert.deepEqual(view.warnings, [])
     assert.deepEqual(view.errors, [])
+  })
+
+  test('a multi-line box stays one while typed in, and follows text replaced from elsewhere', async () => {
+    const { host } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, "{\n  status: 'shipped'\n}")
+    assert.ok(view.find({ type: 'Textarea', label: 'Filter' }), 'text with a line break opens multi-line')
+    await view.type({ label: 'Filter' }, "{ status: 'shipped' }", { replace: true })
+    assert.ok(view.find({ type: 'Textarea', label: 'Filter' }), 'joining the lines keeps the box being typed in')
+    await view.type({ label: 'Sort' }, '{ qty: 1, total: -1 }')
+    await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
+    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }))
+    await view.sort(table, 'total')
+    assert.equal(view.valueOf({ label: 'Sort' }), '{ total: 1 }')
+    assert.ok(view.find({ type: 'Input', label: 'Sort' }), 'a sorted column writes one line, in a one-line box')
+  })
+
+  test('one line re-checks the field, and Format refuses to pass what the history keeps', async () => {
+    const { host } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, '{\n  a: 1\n  b: 2\n}')
+    assert.ok(view.find({ text: /\(line 3, column 3\)/ }))
+    await view.press({ type: 'IconButton', label: 'Put the filter on one line' })
+    assert.equal(view.valueOf({ label: 'Filter' }), '{ a: 1 b: 2 }')
+    assert.equal(view.find({ text: /line 3/ }), null, 'the old position is gone')
+    assert.ok(view.find({ text: /\(line 1, column 8\)/ }))
+    const ids = Array.from({ length: 140 }, (_, i) => `'${String(i).padStart(24, '0')}'`).join(',')
+    await view.type({ label: 'Filter' }, `{ _id: { $in: [${ids}] } }`, { replace: true })
+    await view.press({ type: 'IconButton', label: 'Format the filter on several lines' })
+    assert.ok(view.find({ text: /Formatted, this would be [\d,]+ characters, and the query history keeps up to 4,000\. Left as it is\./ }))
+    assert.ok(view.find({ type: 'Input', label: 'Filter' }))
   })
 
   test('paging reads on from the current page, and sorting a column re-runs', async () => {

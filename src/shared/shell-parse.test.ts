@@ -161,3 +161,23 @@ describe('a field named __proto__ stays a field', () => {
     assert.equal(JSON.stringify(row), '{"__proto__":{"x":"a"},"constructor":{"y":"b"}}')
   })
 })
+
+describe('unfinished errors', () => {
+  const unfinished = (text: string): boolean | undefined => shellProblem(text, 'filter', { now: 0 })?.unfinished
+  test('every prefix of a valid filter is unfinished or valid, never an error', () => {
+    const full = "{ active: true, _id: ObjectId('6542f1a2b3c4d5e6f7a8b900'), at: { $gte: new Date('2026-01-02') }, n: -1.5e3, h: 0x1f, s: 'x', r: /a/i, c: /* c */ 1 }"
+    for (let i = 1; i <= full.length; i++) {
+      const p = shellProblem(full.slice(0, i), 'filter', { now: 0 })
+      assert.ok(!p || p.unfinished, `${JSON.stringify(full.slice(0, i))}: ${p?.message}`)
+    }
+  })
+  test('errors with text after them, and complete values refused, are real', () => {
+    assert.equal(unfinished('{ a: 1 ]'), false)
+    assert.equal(unfinished('{ a: tru, b: 1 }'), false)
+    assert.equal(unfinished('{ a: 1, ,'), false)
+    assert.equal(unfinished("{ _id: ObjectId('abc')"), false, 'its ) is typed, so the ObjectId is complete')
+    assert.equal(unfinished('{ a: 1, a:'), false, 'a repeated key is complete at its colon')
+    assert.equal(unfinished("{ 'never closed': 1, 'never closed': 2 }"), false)
+    assert.equal(unfinished('[1]'), false)
+  })
+})

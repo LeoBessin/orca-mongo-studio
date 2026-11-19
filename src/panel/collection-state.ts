@@ -10,7 +10,7 @@ import { draftFromValue, valueFromDraft, type FieldDraft } from '../shared/field
 import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type BuilderProblem, type Group } from '../shared/query-builder'
 import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
-import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
+import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '../shared/shell-parse'
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
@@ -220,8 +220,22 @@ export function change(id: string, fn: (t: CollTab) => CollTab | Partial<CollTab
     const t = prev[id]
     if (!t) return prev
     const next = fn(t)
-    return { ...prev, [id]: 'id' in next && next.id === t.id ? (next as CollTab) : { ...t, ...next } }
+    const out = 'id' in next && next.id === t.id ? (next as CollTab) : { ...t, ...next }
+    return { ...prev, [id]: withBoxes(t, out) }
   })
+}
+
+/** A field's text replaced from elsewhere (history, a saved query, the Query Builder, a sorted
+ *  column, Filter by) gets the box its new text needs, unless the change chose the box itself. */
+function withBoxes(before: CollTab, after: CollTab): CollTab {
+  if (after.text === before.text || after.multiline !== before.multiline) return after
+  let multiline: CollTab['multiline'] | undefined
+  for (const field of Object.keys(after.text) as QueryField[]) {
+    if (after.text[field] === before.text[field] || after.multiline[field] === undefined) continue
+    multiline ??= { ...after.multiline }
+    delete multiline[field]
+  }
+  return multiline ? { ...after, multiline } : after
 }
 
 function patch(id: string, values: Partial<CollTab>): void {
@@ -401,65 +415,75 @@ export function askDeleteFocused(id: string): void {
 }
 
 export function setText(id: string, field: QueryField, value: string): void {
+  change(id, (t) => ({
+    text: { ...t.text, [field]: value },
+    // Typing keeps the box it is typed in: joining the last two lines doesn't swap a multi-line
+    // box for a one-line one under the cursor.
+    multiline: { ...t.multiline, [field]: isMultiline(t, field) || value.includes('\n') },
+    fieldErrors: withLiveProblem(t.fieldErrors, field, value)
+  }))
+}
+
+/** A field's text written by Mongo Studio (a sorted column, Filter by, the Query Builder): the box
+ *  follows the new text, multi-line only when it has a line break. */
+function replaceText(id: string, field: QueryField, value: string): void {
   change(id, (t) => {
-    const fieldErrors = { ...t.fieldErrors }
-    const problem = liveProblem(field, value)
-    if (problem) fieldErrors[field] = problem
-    else delete fieldErrors[field]
-    return { text: { ...t.text, [field]: value }, fieldErrors }
+    const multiline = { ...t.multiline }
+    delete multiline[field]
+    return { text: { ...t.text, [field]: value }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, value) }
   })
 }
 
-/** Parse errors that read as unfinished typing: a bracket, string or value not there yet. Shown
- *  when the query runs, not while it is typed. */
-const UNFINISHED = /never closed|the text ended|^Expected a key after ","/
-
 /** The error to show while a field is typed: what running it would say, unless the text only
- *  looks unfinished. */
+ *  stopped early (a bracket, string or comment not closed yet, a name or number still being
+ *  typed at the end), which waits for Run. */
 export function liveProblem(field: QueryField, value: string, now = Date.now()): string | undefined {
-  const error = specFromText({ ...emptyText, [field]: value }, now).errors[field]
-  if (!error) return undefined
-  if (field !== 'skip' && field !== 'limit') {
-    try {
-      parseShellDocument(value, FIELD_NAMES[field], { now })
-    } catch (e) {
-      if (e instanceof ShellParseError && UNFINISHED.test(e.reason)) return undefined
-    }
-  }
-  return error
+  if (field === 'skip' || field === 'limit') return countProblem(field, value)
+  const problem = shellProblem(value, FIELD_NAMES[field], { now })
+  return problem && !problem.unfinished ? problem.message : undefined
 }
 
+function withLiveProblem(errors: CollTab['fieldErrors'], field: QueryField, value: string): CollTab['fieldErrors'] {
+  const out = { ...errors }
+  const problem = liveProblem(field, value)
+  if (problem) out[field] = problem
+  else delete out[field]
+  return out
+}
+
+/** A multi-line box after Format or while typed in one; otherwise one when the text has a line
+ *  break (a formatted query from history, a restored tab). */
 export function isMultiline(t: CollTab, field: QueryField): boolean {
-  return Boolean(t.multiline[field]) || t.text[field].includes('\n')
+  return t.multiline[field] ?? t.text[field].includes('\n')
 }
 
 /** Pretty-prints a field onto several lines and keeps it as a multi-line box. */
 export function formatField(id: string, field: QueryField): void {
   change(id, (t) => {
-    const formatted = formatQuery(t.text[field])
-    if (formatted === undefined) return { multiline: { ...t.multiline, [field]: true }, fieldErrors: { ...t.fieldErrors, [field]: unbalanced(field, t.text[field]) } }
-    const fieldErrors = { ...t.fieldErrors }
-    const problem = liveProblem(field, formatted)
-    if (problem) fieldErrors[field] = problem
-    else delete fieldErrors[field]
-    return { text: { ...t.text, [field]: formatted }, multiline: { ...t.multiline, [field]: true }, fieldErrors }
+    const result = formatQuery(t.text[field])
+    const multiline = { ...t.multiline, [field]: true }
+    // Not closed yet: the box still gets the room to finish it.
+    if (!result.ok) return { multiline, fieldErrors: { ...t.fieldErrors, [field]: `Can't format: ${result.problem}` } }
+    if (result.text.length > QUERY_TEXT_MAX) {
+      const size = (n: number): string => n.toLocaleString('en-US')
+      return { fieldErrors: { ...t.fieldErrors, [field]: `Formatted, this would be ${size(result.text.length)} characters, and the query history keeps up to ${size(QUERY_TEXT_MAX)}. Left as it is.` } }
+    }
+    return { text: { ...t.text, [field]: result.text }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) }
   })
 }
 
 /** Puts a field back on one line, as a single-line box. */
 export function compactField(id: string, field: QueryField): void {
   change(id, (t) => {
-    const compact = compactQuery(t.text[field])
-    if (compact === undefined) return { fieldErrors: { ...t.fieldErrors, [field]: `${unbalanced(field, t.text[field])} Close it before putting it on one line.` } }
-    const multiline = { ...t.multiline }
-    delete multiline[field]
-    return { text: { ...t.text, [field]: compact }, multiline }
+    const result = compactQuery(t.text[field])
+    if (!result.ok) return { fieldErrors: { ...t.fieldErrors, [field]: `Can't put on one line: ${result.problem}` } }
+    return { text: { ...t.text, [field]: result.text }, multiline: { ...t.multiline, [field]: false }, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) }
   })
 }
 
-/** Why Format could not read a field: the parser's message, which says what is not closed. */
-function unbalanced(field: QueryField, value: string): string {
-  return specFromText({ ...emptyText, [field]: value }).errors[field] ?? 'A bracket, string or comment is not closed.'
+function countProblem(field: 'skip' | 'limit', value: string): string | undefined {
+  const v = value.trim()
+  return v === '' || /^\d+$/.test(v) ? undefined : `${field === 'skip' ? 'Skip' : 'Limit'} is a whole number, 0 or more.`
 }
 
 const FIELD_NAMES: Record<QueryField, string> = { filter: 'filter', projection: 'projection', sort: 'sort', collation: 'collation', skip: 'skip', limit: 'limit' }
@@ -476,13 +500,9 @@ export function specFromText(text: QueryText, now = Date.now()): { spec?: QueryS
     }
   }
   const num = (field: 'skip' | 'limit'): number => {
-    const v = text[field].trim()
-    if (v === '') return 0
-    if (!/^\d+$/.test(v)) {
-      errors[field] = `${field === 'skip' ? 'Skip' : 'Limit'} is a whole number, 0 or more.`
-      return 0
-    }
-    return Number(v)
+    const problem = countProblem(field, text[field])
+    if (problem) errors[field] = problem
+    return problem ? 0 : Number(text[field].trim() || 0)
   }
   const filter = doc('filter')
   const projection = doc('projection')
@@ -628,7 +648,7 @@ export async function sortBy(id: string, column: string, direction: 'asc' | 'des
     return
   }
   const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-  setText(id, 'sort', `{ ${key}: ${direction === 'asc' ? 1 : -1} }`)
+  replaceText(id, 'sort', `{ ${key}: ${direction === 'asc' ? 1 : -1} }`)
   await runQuery(id)
 }
 
@@ -1076,9 +1096,9 @@ export async function filterBySelection(id: string, filter: JsonObject, mode: 'r
   if (text.length > QUERY_TEXT_MAX) {
     return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`)
   }
-  setText(id, 'filter', text)
+  replaceText(id, 'filter', text)
   // The new filter matches fewer documents: a skip typed for the old one could pass them all.
-  setText(id, 'skip', '')
+  replaceText(id, 'skip', '')
   await runQuery(id)
 }
 
@@ -1090,7 +1110,7 @@ export async function applyBuilder(id: string): Promise<void> {
     patch(id, { builderProblems: problems })
     return
   }
-  setText(id, 'filter', Object.keys(filter).length ? toShellInline(filter) : '')
+  replaceText(id, 'filter', Object.keys(filter).length ? toShellInline(filter) : '')
   patch(id, { builderProblems: [] })
   await runQuery(id)
 }
