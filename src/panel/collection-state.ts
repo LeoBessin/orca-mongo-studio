@@ -2,7 +2,7 @@
 // query bar, results, editors, Query Builder and history. All tabs live in one atom, changed
 // immutably through `change(id, ...)`, so a tab's state survives switching between tabs.
 import { atom, plugin, read, set, update } from 'orca'
-import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
+import type { AggOptions, CopyItem, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
 import type { ExplainVerbosity } from '../shared/explain'
 import { hasWriteStage, type StageDraft } from '../shared/pipeline'
 import { bsonType, fieldPaths, hasTruncated, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
@@ -712,25 +712,34 @@ export function say(id: string, tone: TabNotice['tone'], text: string, at: Notic
   patch(id, { notice: { tone, text, at } })
 }
 
+/** Whether a document the page shortened can be read again whole for a copy: only from a
+ *  collection (in a view or a time-series collection `_id` need not be unique), by a query with no
+ *  projection (a re-read would add fields the person projected away and drop computed ones), and
+ *  with an `_id` that was not shortened itself. */
+function canReread(t: CollTab, doc: JsonObject): boolean {
+  if (t.shell || t.agg || t.kind !== 'coll') return false
+  if (t.spec?.projection && Object.keys(t.spec.projection).length) return false
+  return '_id' in doc && !hasTruncated(doc._id)
+}
+
 /** Copies documents to the system clipboard as Extended JSON, relaxed or canonical as the tab
- *  shows it: one document as an object, several as an array. A collection's documents are read
- *  whole by `_id`, so values the page cut short are copied in full; shell and pipeline results
- *  are copied as the page holds them. */
+ *  shows it: one document as an object, several as an array. What is copied is what the page
+ *  shows; a document whose values the page shortened is read again whole when it can be. The
+ *  worker writes the text, so the page goes to it compact rather than indented. */
 export async function copyAsJson(id: string, docs: readonly JsonObject[]): Promise<void> {
   const t = tab(id)
   if (!t || docs.length === 0) return
-  const n = docs.length
-  const what = `${n.toLocaleString('en-US')} document${n === 1 ? '' : 's'}`
-  if (!t.shell && !t.agg && docs.every((d) => '_id' in d)) {
-    const r = await plugin.request('clipboard.copyDocuments', { ns: t.ns, ids: docs.map((d) => d._id!), relaxed: t.relaxed }, { timeoutMs: 60000 })
-    if (r.copied === 0) throw new Error(`${n === 1 ? 'That document is' : 'These documents are'} no longer there: run the query again.`)
-    say(id, 'success', r.missing ? `Copied ${r.copied.toLocaleString('en-US')} of ${what} as JSON. The others are no longer there.` : `Copied ${what} as JSON.`, 'results')
-    return
-  }
   const page = t.page
-  const cut = page ? docs.some((d) => page.truncated.includes(page.docs.indexOf(d))) : false
-  await plugin.request('clipboard.write', { text: toJsonText(n === 1 ? docs[0]! : [...docs], t.relaxed) }, { timeoutMs: 60000 })
-  say(id, 'success', `Copied ${what} as JSON.${cut ? ' Long values shortened in these results are shortened in the copy too.' : ''}`, 'results')
+  const cut = (d: JsonObject): boolean => (page ? page.truncated.includes(page.docs.indexOf(d)) : false)
+  const items: CopyItem[] = docs.map((doc) => (cut(doc) && canReread(t, doc) ? { doc, reread: true } : { doc }))
+  const r = await plugin.request('clipboard.copyDocuments', { ns: t.ns, items, relaxed: t.relaxed }, { timeoutMs: 60000 })
+  const shortened = items.filter((item) => !item.reread && cut(item.doc)).length + r.gone
+  const n = r.copied
+  const what = `${n.toLocaleString('en-US')} document${n === 1 ? '' : 's'}`
+  const note = shortened
+    ? ` ${shortened === n ? (n === 1 ? 'It has' : 'They have') : `${shortened.toLocaleString('en-US')} of them have`} long values shortened, as on this page.`
+    : ''
+  say(id, 'success', `Copied ${what} as JSON.${note}`, 'results')
 }
 
 async function fullDocument(t: CollTab, docId: JsonValue): Promise<JsonObject> {

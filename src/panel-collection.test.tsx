@@ -5,6 +5,7 @@ import type { ConnectionsState, JobState, QueryLibrary, QueryPage, QuerySpec, Qu
 import type { JsonObject, JsonValue } from './shared/ejson-view'
 import * as panel from './panel'
 import { docTabIdFor, tabIdFor } from './panel/collection-state'
+import { AGGREGATION_PLACES, COLLECTION_PLACES, noticePlace } from './panel/notice-view'
 
 const state: ConnectionsState = {
   connections: [{ id: 'c1', name: 'Local dev', group: '', subtitle: 'localhost', topology: 'replicaSet', connected: true, readOnly: false }],
@@ -104,6 +105,80 @@ const updateJob = (jobId: string, matched: number, modified: number, failed?: st
 })
 const RESULT_VIEW = 'mongo-studio.resultView'
 const DOC_VIEW = 'mongo-studio.docView'
+
+describe('Copy as JSON', () => {
+  /** The orders, with the second one's long values shortened by the worker. */
+  const shortened = (): MockRequests => {
+    const copies: unknown[] = []
+    return {
+      copies,
+      'query.run': () => ({ queryId: 'q1', offset: 0, docs: orders, truncated: [1], hasMore: false, stoppedForSize: false, ms: 3 }),
+      'clipboard.copyDocuments': (input) => {
+        copies.push(input)
+        return { copied: input.items.length, reread: input.items.filter((i) => i.reread).length, gone: 0 }
+      }
+    } as MockRequests
+  }
+
+  test('copies what the page shows, reading a shortened document again only without a projection', async () => {
+    const extra = shortened()
+    const copies = (extra as unknown as { copies: { items: { doc: JsonObject; reread?: boolean }[] }[] }).copies
+    const { host } = setup(extra)
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(1))])
+    await view.press({ text: 'Copy as JSON' })
+    assert.deepEqual(copies[0]!.items, [{ doc: orders[0] }, { doc: orders[1], reread: true }])
+    assert.ok(view.find({ text: 'Copied 2 documents as JSON.' }))
+
+    // A projection shapes the page: reading the document again would bring back what it removed.
+    await view.type({ label: 'Projection' }, '{ status: 1 }', { replace: true })
+    await view.press({ text: 'Run' })
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Copy as JSON' })
+    assert.deepEqual(copies[1]!.items, [{ doc: orders[1] }])
+    assert.ok(view.find({ text: 'Copied 1 document as JSON. It has long values shortened, as on this page.' }))
+  })
+
+  test('a view is copied as its page shows it: its _id need not be unique', async () => {
+    const extra = shortened()
+    const copies = (extra as unknown as { copies: { items: { reread?: boolean }[] }[] }).copies
+    const { host } = setup(extra, 'view')
+    const view = await openOrders(host, 'view')
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ text: 'Copy as JSON' })
+    assert.equal(copies[0]!.items[0]!.reread, undefined)
+  })
+
+  test('the JSON view copies the whole page', async () => {
+    const extra = shortened()
+    const copies = (extra as unknown as { copies: { items: unknown[] }[] }).copies
+    const { host } = setup(extra)
+    const view = await openOrders(host)
+    await view.press({ text: 'JSON' })
+    await view.press({ text: 'Copy page as JSON' })
+    assert.equal(copies[0]!.items.length, 3)
+    assert.ok(view.find({ text: /^Copied 3 documents as JSON\./ }))
+  })
+})
+
+describe('notice places', () => {
+  test('a notice shows in its own place, or at the top of a tab that has no such place', () => {
+    assert.equal(noticePlace({ at: 'results' }, COLLECTION_PLACES), 'results')
+    assert.equal(noticePlace({ at: 'builder' }, COLLECTION_PLACES), 'builder')
+    assert.equal(noticePlace({}, COLLECTION_PLACES), 'top')
+    assert.equal(noticePlace({ at: 'builder' }, AGGREGATION_PLACES), 'top', 'an aggregation tab has no Query Builder')
+    assert.equal(noticePlace({ at: 'view' }, COLLECTION_PLACES), 'top')
+  })
+
+  test('a deleted document is reported with the title Done', async () => {
+    const { host } = setup({}, 'coll', {}, { confirmDeleteDocs: false })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    await view.press({ text: 'Delete' })
+    assert.ok(view.findAll({ type: 'Callout' }).some((c) => c.props.title === 'Done'), 'titled Done, not Orca\'s default Tip')
+    assert.ok(view.find({ text: /^Deleted 1 document from shop\.orders\.$/ }))
+  })
+})
 
 describe('collection tabs', () => {
   test('opening a collection runs it and shows a table with the count', async () => {

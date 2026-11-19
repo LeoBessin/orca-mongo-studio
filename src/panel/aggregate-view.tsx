@@ -60,7 +60,7 @@ import { change, closeTab, collTabs, type AggState, type CollTab } from './colle
 import { ExplainSection } from './explain-view'
 import { changeExplain, runExplain } from './explain-state'
 import { guard } from './guard'
-import { TabNoticeView } from './notice-view'
+import { AGGREGATION_PLACES, TabNoticeView } from './notice-view'
 import { Results } from './results-view'
 import { CodeSection } from './shell-view'
 import { PlaceLine } from './place-view'
@@ -210,7 +210,7 @@ function CreateView({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   return (
     <Collapsible title="Create a view" description={`A read-only view on ${t.ns.collection} from this pipeline`} open={a.viewOpen} onChange={(open) => changeAgg(t.id, () => ({ viewOpen: open }))}>
       <Box gap="sm">
-        <TabNoticeView id={t.id} at="view" />
+        <TabNoticeView id={t.id} at="view" places={AGGREGATION_PLACES} />
         <Row gap="xs" align="end">
           <Input label="View name" placeholder="shipped_orders" value={a.viewName} onChange={(v) => changeAgg(t.id, () => ({ viewName: v }))} onSubmit={() => void guard(t.id, () => createViewFromPipeline(t.id), 'view')()} />
           <Button icon="add" disabled={!a.viewName.trim()} onPress={guard(t.id, () => createViewFromPipeline(t.id), 'view')}>Create view</Button>
@@ -233,7 +233,7 @@ function Saved({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   return (
     <Collapsible title="Saved pipelines" description={`${saved.length} saved`}>
       <Box gap="sm">
-        <TabNoticeView id={t.id} at="library" />
+        <TabNoticeView id={t.id} at="library" places={AGGREGATION_PLACES} />
         <Row gap="xs" align="end">
           <Input label="Save this pipeline as" placeholder="Name" value={a.saveName} onChange={(v) => changeAgg(t.id, () => ({ saveName: v }))} onSubmit={() => void guard(t.id, () => savePipeline(t.id), 'library')()} />
           <Button icon="star" disabled={!a.saveName.trim()} onPress={guard(t.id, () => savePipeline(t.id), 'library')}>Save</Button>
@@ -308,7 +308,7 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
             </Box>
           </Callout>
         ) : null}
-        <TabNoticeView id={t.id} at="top" />
+        <TabNoticeView id={t.id} at="top" places={AGGREGATION_PLACES} />
         {t.error ? <Callout tone="danger" icon="error" title="The pipeline failed">{t.error}</Callout> : null}
       </Box>
       <Separator />
@@ -320,18 +320,12 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
           <StageEditor t={t} a={a} />
         </Box>
       )}
-      {t.page || t.loading ? (
-        <>
-          <Separator />
-          <Box gap="sm">
-            <Text weight="semibold">Results</Text>
-            <Results t={t} />
-            <TabNoticeView id={t.id} at="results" />
-          </Box>
-        </>
-      ) : (
-        <TabNoticeView id={t.id} at="results" />
-      )}
+      {t.page || t.loading ? <Separator /> : null}
+      <Box gap="sm">
+        {t.page || t.loading ? <Text weight="semibold">Results</Text> : null}
+        <Results t={t} />
+        <TabNoticeView id={t.id} at="results" places={AGGREGATION_PLACES} />
+      </Box>
       <Separator />
       <Box gap="sm">
         <ExplainSection t={t} />

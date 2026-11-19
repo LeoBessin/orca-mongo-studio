@@ -3565,21 +3565,23 @@ function sampledFields(t) {
 function say2(id, tone, text, at = "top") {
   patch(id, { notice: { tone, text, at } });
 }
+function canReread(t, doc) {
+  if (t.shell || t.agg || t.kind !== "coll") return false;
+  if (t.spec?.projection && Object.keys(t.spec.projection).length) return false;
+  return "_id" in doc && !hasTruncated(doc._id);
+}
 async function copyAsJson(id, docs2) {
   const t = tab(id);
   if (!t || docs2.length === 0) return;
-  const n2 = docs2.length;
-  const what = `${n2.toLocaleString("en-US")} document${n2 === 1 ? "" : "s"}`;
-  if (!t.shell && !t.agg && docs2.every((d) => "_id" in d)) {
-    const r = await plugin3.request("clipboard.copyDocuments", { ns: t.ns, ids: docs2.map((d) => d._id), relaxed: t.relaxed }, { timeoutMs: 6e4 });
-    if (r.copied === 0) throw new Error(`${n2 === 1 ? "That document is" : "These documents are"} no longer there: run the query again.`);
-    say2(id, "success", r.missing ? `Copied ${r.copied.toLocaleString("en-US")} of ${what} as JSON. The others are no longer there.` : `Copied ${what} as JSON.`, "results");
-    return;
-  }
   const page = t.page;
-  const cut = page ? docs2.some((d) => page.truncated.includes(page.docs.indexOf(d))) : false;
-  await plugin3.request("clipboard.write", { text: toJsonText(n2 === 1 ? docs2[0] : [...docs2], t.relaxed) }, { timeoutMs: 6e4 });
-  say2(id, "success", `Copied ${what} as JSON.${cut ? " Long values shortened in these results are shortened in the copy too." : ""}`, "results");
+  const cut = (d) => page ? page.truncated.includes(page.docs.indexOf(d)) : false;
+  const items2 = docs2.map((doc) => cut(doc) && canReread(t, doc) ? { doc, reread: true } : { doc });
+  const r = await plugin3.request("clipboard.copyDocuments", { ns: t.ns, items: items2, relaxed: t.relaxed }, { timeoutMs: 6e4 });
+  const shortened = items2.filter((item) => !item.reread && cut(item.doc)).length + r.gone;
+  const n2 = r.copied;
+  const what = `${n2.toLocaleString("en-US")} document${n2 === 1 ? "" : "s"}`;
+  const note2 = shortened ? ` ${shortened === n2 ? n2 === 1 ? "It has" : "They have" : `${shortened.toLocaleString("en-US")} of them have`} long values shortened, as on this page.` : "";
+  say2(id, "success", `Copied ${what} as JSON.${note2}`, "results");
 }
 async function fullDocument(t, docId) {
   const { doc } = await plugin3.request("doc.get", { ns: t.ns, id: docId }, { timeoutMs: 6e4 });
@@ -4124,9 +4126,15 @@ function NoticeCallout({ notice: notice2, onDismiss }) {
     /* @__PURE__ */ jsx(IconButton, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: onDismiss })
   ] }) });
 }
-function TabNoticeView({ id, at }) {
+var COLLECTION_PLACES = ["builder", "results", "library"];
+var AGGREGATION_PLACES = ["results", "view", "library"];
+function noticePlace(notice2, places) {
+  const at = notice2.at ?? "top";
+  return places.includes(at) ? at : "top";
+}
+function TabNoticeView({ id, at, places = [] }) {
   const notice2 = read6(collTabs)[id]?.notice;
-  if (!notice2 || at && (notice2.at ?? "top") !== at) return null;
+  if (!notice2 || at && noticePlace(notice2, places) !== at) return null;
   return /* @__PURE__ */ jsx(NoticeCallout, { notice: notice2, onDismiss: () => change(id, () => ({ notice: void 0 })) });
 }
 
@@ -10430,7 +10438,7 @@ function TextEditor({ t, a }) {
 }
 function CreateView({ t, a }) {
   return /* @__PURE__ */ jsx19(Collapsible11, { title: "Create a view", description: `A read-only view on ${t.ns.collection} from this pipeline`, open: a.viewOpen, onChange: (open) => changeAgg(t.id, () => ({ viewOpen: open })), children: /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
-    /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "view" }),
+    /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "view", places: AGGREGATION_PLACES }),
     /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "end", children: [
       /* @__PURE__ */ jsx19(Input11, { label: "View name", placeholder: "shipped_orders", value: a.viewName, onChange: (v) => changeAgg(t.id, () => ({ viewName: v })), onSubmit: () => void guard(t.id, () => createViewFromPipeline(t.id), "view")() }),
       /* @__PURE__ */ jsx19(Button15, { icon: "add", disabled: !a.viewName.trim(), onPress: guard(t.id, () => createViewFromPipeline(t.id), "view"), children: "Create view" })
@@ -10446,7 +10454,7 @@ function Saved({ t, a }) {
   const saved = a.saved ?? [];
   const sel = saved.find((s) => `p:${s.name}` === a.savedSelected);
   return /* @__PURE__ */ jsx19(Collapsible11, { title: "Saved pipelines", description: `${saved.length} saved`, children: /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
-    /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "library" }),
+    /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "library", places: AGGREGATION_PLACES }),
     /* @__PURE__ */ jsxs17(Row17, { gap: "xs", align: "end", children: [
       /* @__PURE__ */ jsx19(Input11, { label: "Save this pipeline as", placeholder: "Name", value: a.saveName, onChange: (v) => changeAgg(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => savePipeline(t.id), "library")() }),
       /* @__PURE__ */ jsx19(Button15, { icon: "star", disabled: !a.saveName.trim(), onPress: guard(t.id, () => savePipeline(t.id), "library"), children: "Save" })
@@ -10510,7 +10518,7 @@ function AggregationTab({ id }) {
           /* @__PURE__ */ jsx19(Button15, { variant: "ghost", onPress: () => cancelWrite(t.id), children: "Cancel" })
         ] })
       ] }) }) : null,
-      /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "top" }),
+      /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "top", places: AGGREGATION_PLACES }),
       t.error ? /* @__PURE__ */ jsx19(Callout15, { tone: "danger", icon: "error", title: "The pipeline failed", children: t.error }) : null
     ] }),
     /* @__PURE__ */ jsx19(Separator, {}),
@@ -10518,14 +10526,12 @@ function AggregationTab({ id }) {
       /* @__PURE__ */ jsx19(StageList, { t, a }),
       /* @__PURE__ */ jsx19(StageEditor, { t, a })
     ] }),
-    t.page || t.loading ? /* @__PURE__ */ jsxs17(Fragment2, { children: [
-      /* @__PURE__ */ jsx19(Separator, {}),
-      /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
-        /* @__PURE__ */ jsx19(Text17, { weight: "semibold", children: "Results" }),
-        /* @__PURE__ */ jsx19(Results2, { t }),
-        /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "results" })
-      ] })
-    ] }) : /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "results" }),
+    t.page || t.loading ? /* @__PURE__ */ jsx19(Separator, {}) : null,
+    /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
+      t.page || t.loading ? /* @__PURE__ */ jsx19(Text17, { weight: "semibold", children: "Results" }) : null,
+      /* @__PURE__ */ jsx19(Results2, { t }),
+      /* @__PURE__ */ jsx19(TabNoticeView, { id: t.id, at: "results", places: AGGREGATION_PLACES })
+    ] }),
     /* @__PURE__ */ jsx19(Separator, {}),
     /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
       /* @__PURE__ */ jsx19(ExplainSection, { t }),
@@ -10870,7 +10876,7 @@ function UpdateMany({ t }) {
 }
 
 // src/panel/collection-view.tsx
-import { Fragment as Fragment3, jsx as jsx23, jsxs as jsxs21 } from "orca/jsx-runtime";
+import { jsx as jsx23, jsxs as jsxs21 } from "orca/jsx-runtime";
 function QueryInput({ t, field, label, placeholder }) {
   const error = t.fieldErrors[field];
   const value = t.text[field];
@@ -10946,7 +10952,7 @@ function Builder({ t }) {
   const n2 = countConditions(t.builder);
   const fields = sampledFields(t);
   return /* @__PURE__ */ jsx23(Collapsible12, { title: "Query Builder", description: n2 ? `${n2} condition${n2 === 1 ? "" : "s"}` : "Build a filter from fields and operators", open: t.builderOpen, onChange: (open) => change(t.id, () => ({ builderOpen: open })), children: /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
-    /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "builder" }),
+    /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "builder", places: COLLECTION_PLACES }),
     /* @__PURE__ */ jsx23(GroupBlock, { t, g: t.builder, fields, depth: 0 }),
     fields.length === 0 ? /* @__PURE__ */ jsx23(Text21, { size: "xs", muted: true, children: "Run a query to list the fields of its results here." }) : null,
     /* @__PURE__ */ jsxs21(Row21, { gap: "xs", wrap: true, children: [
@@ -10972,7 +10978,7 @@ function Library({ t }) {
   const selSaved = sel?.startsWith("s:") ? saved.find((s) => `s:${s.name}` === sel) : void 0;
   const selHistory = sel?.startsWith("h:") ? history[Number(sel.slice(2))] : void 0;
   return /* @__PURE__ */ jsx23(Collapsible12, { title: "History and saved queries", description: `${saved.length} saved · ${history.length} recent`, children: /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
-    /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "library" }),
+    /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "library", places: COLLECTION_PLACES }),
     /* @__PURE__ */ jsxs21(Row21, { gap: "xs", align: "end", children: [
       /* @__PURE__ */ jsx23(Input14, { label: "Save this query as", placeholder: "Name", value: t.saveName, onChange: (v) => change(t.id, () => ({ saveName: v })), onSubmit: () => void guard(t.id, () => saveQuery(t.id))() }),
       /* @__PURE__ */ jsx23(Button19, { icon: "star", disabled: !t.saveName.trim(), onPress: guard(t.id, () => saveQuery(t.id)), children: "Save" })
@@ -11070,20 +11076,14 @@ function CollectionTab({ id }) {
         t.shell || t.readOnly ? null : /* @__PURE__ */ jsx23(IconButton16, { icon: "upload", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(t.ns) }),
         t.shell ? null : /* @__PURE__ */ jsx23(IconButton16, { icon: "settings", label: "Manage: indexes, validation, rename, drop", variant: "ghost", size: "sm", onPress: guard(t.id, () => openManage(t.ns, t.kind)) })
       ] }),
-      /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "top" }),
+      /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "top", places: COLLECTION_PLACES }),
       t.error ? /* @__PURE__ */ jsx23(Callout19, { tone: "danger", icon: "error", title: "The query failed", children: t.error }) : null,
       /* @__PURE__ */ jsx23(Builder, { t })
     ] }),
-    t.page || t.loading ? /* @__PURE__ */ jsxs21(Fragment3, { children: [
-      /* @__PURE__ */ jsx23(Separator2, {}),
-      /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
-        /* @__PURE__ */ jsx23(Results2, { t }),
-        /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "results" }),
-        /* @__PURE__ */ jsx23(Editors, { t }),
-        /* @__PURE__ */ jsx23(UpdateMany, { t })
-      ] })
-    ] }) : /* @__PURE__ */ jsxs21(Fragment3, { children: [
-      /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "results" }),
+    t.page || t.loading ? /* @__PURE__ */ jsx23(Separator2, {}) : null,
+    /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
+      /* @__PURE__ */ jsx23(Results2, { t }),
+      /* @__PURE__ */ jsx23(TabNoticeView, { id: t.id, at: "results", places: COLLECTION_PLACES }),
       /* @__PURE__ */ jsx23(Editors, { t }),
       /* @__PURE__ */ jsx23(UpdateMany, { t })
     ] }),

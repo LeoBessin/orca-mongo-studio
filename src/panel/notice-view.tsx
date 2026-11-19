@@ -21,10 +21,21 @@ export function NoticeCallout({ notice, onDismiss }: { notice: Pick<TabNotice, '
   )
 }
 
-/** A collection or aggregation tab's notice, drawn only in its place (`top` when it names none),
- *  or wherever it is when `at` is left out. */
-export function TabNoticeView({ id, at }: { id: string; at?: NoticeAt }): OrcaNode {
+/** The places a collection tab and an aggregation tab draw notices, besides `top`. */
+export const COLLECTION_PLACES: readonly NoticeAt[] = ['builder', 'results', 'library']
+export const AGGREGATION_PLACES: readonly NoticeAt[] = ['results', 'view', 'library']
+
+/** Where a tab that draws `places` shows this notice: its own place when the tab draws it, else
+ *  `top`, so a notice is never lost (an aggregation tab has no Query Builder, for one). */
+export function noticePlace(notice: Pick<TabNotice, 'at'>, places: readonly NoticeAt[]): NoticeAt {
+  const at = notice.at ?? 'top'
+  return places.includes(at) ? at : 'top'
+}
+
+/** A collection or aggregation tab's notice, drawn only at `at` among the tab's `places`, or
+ *  wherever it is when `at` is left out (a document, the Shell tab). */
+export function TabNoticeView({ id, at, places = [] }: { id: string; at?: NoticeAt; places?: readonly NoticeAt[] }): OrcaNode {
   const notice = read(collTabs)[id]?.notice
-  if (!notice || (at && (notice.at ?? 'top') !== at)) return null
+  if (!notice || (at && noticePlace(notice, places) !== at)) return null
   return <NoticeCallout notice={notice} onDismiss={() => change(id, () => ({ notice: undefined }))} />
 }

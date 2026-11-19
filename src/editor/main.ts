@@ -63,15 +63,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 }
 
 const connectionSelect = el('select', { class: 'field', title: 'Connection' })
-// The database is a list of the connection's databases, with "Another database…" to type a name
+// The database is a list of the connection's databases, with a button beside it to type a name
 // that is not there yet. (An <input> with a <datalist> showed only the names starting with what
 // the field held, so with a database chosen it offered that one alone, and its popup did not
-// open reliably in Orca's editor frame.)
+// open reliably in Orca's editor frame.) The button is not an option of the list: arrow keys on a
+// closed list change its value, and would land on it.
 const dbSelect = el('select', { class: 'field', title: 'Database' })
 const dbInput = el('input', { class: 'field', placeholder: 'new database name', title: 'A database name: Enter uses it, Escape goes back to the list', spellcheck: false, hidden: true })
-const OTHER_DB = '\u0000other'
+const dbOther = el('button', { class: 'btn icon', title: 'Another database: type its name' }, '+')
 let dbNames: string[] = []
-let dbState: 'idle' | 'loading' | 'error' = 'idle'
+let dbState: 'idle' | 'loading' | 'listed' | 'error' = 'idle'
+/** The connection the database list was loaded for. */
+let dbFor: string | undefined
 const runButton = el('button', { class: 'btn primary', title: 'Run the selection, or the statement under the cursor (Ctrl+Enter)' }, '▶ Run')
 const runAllButton = el('button', { class: 'btn', title: 'Run the whole script (Ctrl+Shift+Enter)' }, 'Run script')
 const stopButton = el('button', { class: 'btn danger', title: 'Stop the running script', disabled: true }, 'Stop')
@@ -82,7 +85,7 @@ const bar = el(
   'div',
   { class: 'bar' },
   el('label', {}, 'Connection', connectionSelect),
-  el('label', {}, 'Database', dbSelect, dbInput),
+  el('label', {}, 'Database', dbSelect, dbInput, dbOther),
   runButton,
   runAllButton,
   stopButton,
@@ -196,18 +199,20 @@ function renderDatabases(): void {
   const options: HTMLOptionElement[] = []
   if (!chosen) options.push(el('option', { value: '' }, !connectionId() ? 'Choose a connection first' : dbState === 'loading' ? 'Loading databases…' : 'Choose a database…'))
   for (const n of dbNames) options.push(el('option', { value: n }, n))
-  // A name the script uses that the server does not list yet (it is created on the first write).
-  if (chosen && !dbNames.includes(chosen)) options.push(el('option', { value: chosen }, dbState === 'loading' ? chosen : `${chosen} (new)`))
+  // A name the script uses that the list does not have: new (created on the first write) only
+  // when the list loaded; while loading, or when it could not, it is just the name.
+  if (chosen && !dbNames.includes(chosen)) options.push(el('option', { value: chosen }, dbState === 'listed' ? `${chosen} (new)` : chosen))
   if (dbState === 'error') options.push(el('option', { value: '', disabled: true }, 'Could not list the databases'))
-  options.push(el('option', { value: OTHER_DB }, 'Another database…'))
   dbSelect.replaceChildren(...options)
   dbSelect.value = chosen
   dbSelect.disabled = !connectionId()
+  dbOther.disabled = !connectionId()
 }
 
 /** Shows the name field in place of the list, to type a database the list does not have. */
 function typeDatabase(typing: boolean): void {
   dbSelect.hidden = typing
+  dbOther.hidden = typing
   dbInput.hidden = !typing
   if (typing) {
     dbInput.value = ''
@@ -219,6 +224,7 @@ let dbRequest = 0
 async function loadDatabases(): Promise<void> {
   const id = connectionId()
   const mine = ++dbRequest
+  dbFor = id
   dbNames = []
   dbState = id ? 'loading' : 'idle'
   renderDatabases()
@@ -227,7 +233,7 @@ async function loadDatabases(): Promise<void> {
     const { names } = await orca.plugin.request('shell.databases', { connectionId: id }, { timeoutMs: 60000 })
     if (mine !== dbRequest) return
     dbNames = names
-    dbState = 'idle'
+    dbState = 'listed'
   } catch (error) {
     if (mine !== dbRequest) return
     dbState = 'error'
@@ -266,10 +272,23 @@ async function loadConnections(): Promise<void> {
 }
 
 connectionSelect.addEventListener('change', () => setTarget({ ...target, connection: connectionSelect.value }, false))
+// Arrow keys on a closed list fire a change for each database passed; each change would rewrite
+// the script's header. The choice is kept once the list has been still for a moment, or at once
+// when it loses focus or a run starts.
+const DB_SETTLE_MS = 400
+let dbPending: ReturnType<typeof setTimeout> | undefined
+function flushDatabase(): void {
+  if (dbPending === undefined) return
+  clearTimeout(dbPending)
+  dbPending = undefined
+  if (dbSelect.value !== target.db) setTarget({ ...target, db: dbSelect.value }, false)
+}
 dbSelect.addEventListener('change', () => {
-  if (dbSelect.value === OTHER_DB) typeDatabase(true)
-  else setTarget({ ...target, db: dbSelect.value }, false)
+  if (dbPending !== undefined) clearTimeout(dbPending)
+  dbPending = setTimeout(flushDatabase, DB_SETTLE_MS)
 })
+dbSelect.addEventListener('blur', flushDatabase)
+dbOther.addEventListener('click', () => typeDatabase(true))
 function useTypedDatabase(): void {
   const name = dbInput.value.trim()
   if (name) setTarget({ ...target, db: name }, false)
@@ -285,13 +304,15 @@ dbInput.addEventListener('keydown', (event) => {
     dbSelect.focus()
   }
 })
-dbInput.addEventListener('blur', () => {
-  if (!dbInput.hidden) useTypedDatabase()
-})
+// Losing focus keeps the field open with what was typed: switching windows mid-name must not
+// write a half-typed database into the script. Enter uses it; Escape goes back to the list.
 orca.plugin.on('connections.changed', (state) => {
   connections = state.connections
   renderConnections()
   resetNames()
+  // The script's connection may have just appeared, been renamed to its name, or gone.
+  if (connectionId() !== dbFor) void loadDatabases()
+  else renderDatabases()
 })
 
 // ---- The editor ----
@@ -430,6 +451,7 @@ let starting = false
 
 async function run(code: string, line: number, column: number, what: string): Promise<void> {
   if (running || starting) return
+  flushDatabase()
   const id = connectionId()
   if (!target.connection || !id) {
     say(target.connection ? `There is no saved connection named “${target.connection}”.` : 'Choose a connection first.', true)

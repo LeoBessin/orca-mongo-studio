@@ -77004,19 +77004,9 @@ async function getDocument(client, ns, id) {
   checkEditSize(canonical);
   return canonical;
 }
-async function getDocuments(client, ns, ids) {
-  if (!Array.isArray(ids) || ids.length === 0) throw invalid("Choose documents to copy.");
-  if (ids.length > 1e4) throw invalid("Copy at most 10,000 documents at a time.");
-  const values = ids.map((id) => toBson({ v: id }).v);
-  const found = await client.db(ns.db).collection(ns.collection).find({ _id: { $in: values } }, { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS }).toArray();
-  const idKey2 = (bson) => JSON.stringify(toCanonical({ v: bson }).v);
-  const byId = new Map(found.map((d6) => [idKey2(d6._id), toCanonical(d6)]));
-  const out = [];
-  for (const v of values) {
-    const doc = byId.get(idKey2(v));
-    if (doc) out.push(doc);
-  }
-  return out;
+async function readWhole(client, ns, id) {
+  const doc = await client.db(ns.db).collection(ns.collection).findOne(idFilter(id), { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS });
+  return doc ? toCanonical(doc) : null;
 }
 async function updateField(client, ns, id, path, value, remove) {
   if (path.length === 0) throw invalid("Choose a field to change.");
@@ -83031,8 +83021,10 @@ var TaskStore = class {
 
 // src/worker/clipboard.ts
 import { spawn } from "node:child_process";
+var TOOL_TIMEOUT_MS = 1e4;
+var STDERR_GRACE_MS = 200;
 function clipboardTools(platform2, env2) {
-  if (platform2 === "darwin") return [{ command: "pbcopy", args: [] }];
+  if (platform2 === "darwin") return [{ command: "pbcopy", args: [], env: { LC_CTYPE: "UTF-8" } }];
   if (platform2 === "win32") {
     return [{ command: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())"] }];
   }
@@ -83044,11 +83036,36 @@ function clipboardTools(platform2, env2) {
   return env2.WAYLAND_DISPLAY ? [wayland, ...x11] : env2.DISPLAY ? [...x11, wayland] : [wayland, ...x11];
 }
 var runTool = (tool, text) => new Promise((resolve, reject) => {
-  const child = spawn(tool.command, tool.args, { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
+  const child = spawn(tool.command, tool.args, {
+    stdio: ["pipe", "ignore", "pipe"],
+    windowsHide: true,
+    ...tool.env ? { env: { ...process.env, ...tool.env } } : {}
+  });
   let stderr = "";
-  child.stderr.setEncoding("utf8").on("data", (chunk) => stderr += chunk);
-  child.on("error", (error) => error.code === "ENOENT" ? resolve("missing") : reject(error));
-  child.on("exit", (code) => code === 0 ? resolve("ok") : reject(new Error(`${tool.command} could not copy: ${stderr.trim() || `it ended with code ${code}`}`)));
+  let stderrDone = false;
+  let settled = false;
+  const settle = (fn) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    fn();
+  };
+  const timer = setTimeout(() => {
+    child.kill();
+    settle(() => reject(new Error(`${tool.command} did not finish copying within ${TOOL_TIMEOUT_MS / 1e3} seconds.`)));
+  }, TOOL_TIMEOUT_MS);
+  const failure = (code) => new Error(`${tool.command} could not copy: ${stderr.trim() || `it ended with code ${code}`}`);
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => stderr += chunk);
+  child.stderr.on("end", () => stderrDone = true);
+  child.on("error", (error) => settle(() => error.code === "ENOENT" ? resolve("missing") : reject(error)));
+  child.on("exit", (code) => {
+    if (code === 0) return settle(() => resolve("ok"));
+    if (stderrDone) return settle(() => reject(failure(code)));
+    const done = () => settle(() => reject(failure(code)));
+    child.stderr.once("end", done);
+    setTimeout(done, STDERR_GRACE_MS);
+  });
   child.stdin.on("error", () => void 0);
   child.stdin.end(text, "utf8");
 });
@@ -83059,6 +83076,7 @@ async function writeClipboard(text, platform2 = process.platform, env2 = process
     platform2 === "linux" ? "No clipboard tool was found. Install wl-clipboard (Wayland) or xclip (X11), then copy again." : `The clipboard tool (${tools.map((t) => t.command).join(", ")}) was not found.`
   );
 }
+var systemClipboard = { write: (text) => writeClipboard(text) };
 
 // src/worker.ts
 var pool;
@@ -83281,14 +83299,24 @@ function activate(orca) {
     await writable(ns.connectionId, "inserting documents");
     return insertDocuments(await clientFor(ns.connectionId), ns, docs2);
   });
-  orca.panels.handle("clipboard.copyDocuments", async ({ ns, ids, relaxed }) => {
-    const docs2 = await getDocuments(await clientFor(ns.connectionId), ns, ids);
-    if (docs2.length) await writeClipboard(toJsonText(docs2.length === 1 ? docs2[0] : docs2, relaxed === true));
-    return { copied: docs2.length, missing: ids.length - docs2.length };
-  });
-  orca.panels.handle("clipboard.write", async ({ text }) => {
-    await writeClipboard(String(text));
-    return null;
+  orca.panels.handle("clipboard.copyDocuments", async ({ ns, items, relaxed }) => {
+    const docs2 = [];
+    let reread = 0;
+    let gone = 0;
+    for (const item4 of items) {
+      if (item4.reread && ns && "_id" in item4.doc) {
+        const whole = await readWhole(await clientFor(ns.connectionId), ns, item4.doc._id);
+        if (whole) {
+          docs2.push(whole);
+          reread++;
+          continue;
+        }
+        gone++;
+      }
+      docs2.push(item4.doc);
+    }
+    if (docs2.length) await systemClipboard.write(toJsonText(docs2.length === 1 ? docs2[0] : docs2, relaxed === true));
+    return { copied: docs2.length, reread, gone };
   });
   orca.panels.handle("doc.deleteMany", async ({ ns, ids }) => {
     await writable(ns.connectionId, "deleting documents");

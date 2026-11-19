@@ -4,6 +4,7 @@ import type { JsonValue } from 'orca'
 import { emptyConnection, type ConnectionDef } from './shared/model'
 import { orcaClashes } from './shared/keys'
 import * as main from './worker'
+import { systemClipboard } from './worker/clipboard'
 
 function draft(name: string): ConnectionDef {
   const def = emptyConnection('', 0)
@@ -166,6 +167,30 @@ describe('connections', () => {
     assert.equal(typeof message, 'string')
     assert.deepEqual(worker.posts.at(-1), { event: 'ui.navigate', payload: { view: 'new' } })
     await worker.deactivate()
+  })
+})
+
+describe('Copy as JSON', () => {
+  test('copies the documents it is given, in order, as relaxed or canonical JSON, without a database', async () => {
+    const written: string[] = []
+    const real = systemClipboard.write
+    systemClipboard.write = async (text) => void written.push(text)
+    try {
+      const worker = await mountWorker(main, { host: mockHost() })
+      const a = { _id: { $oid: '6542f1a2b3c4d5e6f7a8b900' }, n: { $numberInt: '1' } }
+      const b = { _id: { $oid: '6542f1a2b3c4d5e6f7a8b901' }, name: 'café' }
+      const two = await worker.request('clipboard.copyDocuments', { items: [{ doc: b }, { doc: a }], relaxed: true })
+      assert.deepEqual(two, { copied: 2, reread: 0, gone: 0 })
+      assert.deepEqual(JSON.parse(written[0]!), [{ _id: { $oid: '6542f1a2b3c4d5e6f7a8b901' }, name: 'café' }, { _id: { $oid: '6542f1a2b3c4d5e6f7a8b900' }, n: 1 }])
+      await worker.request('clipboard.copyDocuments', { items: [{ doc: a }], relaxed: false })
+      assert.deepEqual(JSON.parse(written[1]!), a, 'one document is an object, canonical keeps $numberInt')
+      // Without a namespace there is nothing to read again: the page's copy is used.
+      assert.deepEqual(await worker.request('clipboard.copyDocuments', { items: [{ doc: a, reread: true }], relaxed: true }), { copied: 1, reread: 0, gone: 0 })
+      assert.deepEqual(await worker.request('clipboard.copyDocuments', { items: [], relaxed: true }), { copied: 0, reread: 0, gone: 0 })
+      assert.equal(written.length, 3, 'nothing is written for no documents')
+    } finally {
+      systemClipboard.write = real
+    }
   })
 })
 

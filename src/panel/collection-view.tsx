@@ -65,7 +65,7 @@ import { Results } from './results-view'
 import { connections } from './state'
 import { PlaceLine } from './place-view'
 import { settings } from './settings-state'
-import { TabNoticeView } from './notice-view'
+import { COLLECTION_PLACES, TabNoticeView } from './notice-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -180,7 +180,7 @@ function Builder({ t }: { t: CollTab }): OrcaNode {
   return (
     <Collapsible title="Query Builder" description={n ? `${n} condition${n === 1 ? '' : 's'}` : 'Build a filter from fields and operators'} open={t.builderOpen} onChange={(open) => change(t.id, () => ({ builderOpen: open }))}>
       <Box gap="sm">
-        <TabNoticeView id={t.id} at="builder" />
+        <TabNoticeView id={t.id} at="builder" places={COLLECTION_PLACES} />
         <GroupBlock t={t} g={t.builder} fields={fields} depth={0} />
         {fields.length === 0 ? <Text size="xs" muted>Run a query to list the fields of its results here.</Text> : null}
         <Row gap="xs" wrap>
@@ -214,7 +214,7 @@ function Library({ t }: { t: CollTab }): OrcaNode {
   return (
     <Collapsible title="History and saved queries" description={`${saved.length} saved · ${history.length} recent`}>
       <Box gap="sm">
-        <TabNoticeView id={t.id} at="library" />
+        <TabNoticeView id={t.id} at="library" places={COLLECTION_PLACES} />
         <Row gap="xs" align="end">
           <Input label="Save this query as" placeholder="Name" value={t.saveName} onChange={(v) => change(t.id, () => ({ saveName: v }))} onSubmit={() => void guard(t.id, () => saveQuery(t.id))()} />
           <Button icon="star" disabled={!t.saveName.trim()} onPress={guard(t.id, () => saveQuery(t.id))}>Save</Button>
@@ -325,27 +325,17 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
           {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(t.ns)} />}
           {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" size="sm" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
         </Toolbar>
-        <TabNoticeView id={t.id} at="top" />
+        <TabNoticeView id={t.id} at="top" places={COLLECTION_PLACES} />
         {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
         <Builder t={t} />
       </Box>
-      {t.page || t.loading ? (
-        <>
-          <Separator />
-          <Box gap="sm">
-            <Results t={t} />
-            <TabNoticeView id={t.id} at="results" />
-            <Editors t={t} />
-            <UpdateMany t={t} />
-          </Box>
-        </>
-      ) : (
-        <>
-          <TabNoticeView id={t.id} at="results" />
-          <Editors t={t} />
-          <UpdateMany t={t} />
-        </>
-      )}
+      {t.page || t.loading ? <Separator /> : null}
+      <Box gap="sm">
+        <Results t={t} />
+        <TabNoticeView id={t.id} at="results" places={COLLECTION_PLACES} />
+        <Editors t={t} />
+        <UpdateMany t={t} />
+      </Box>
       <Separator />
       <Box gap="sm">
         <ExplainSection t={t} />

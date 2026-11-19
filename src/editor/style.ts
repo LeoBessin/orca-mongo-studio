@@ -20,7 +20,9 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--orca-muted-foreground); font-size: 12px; }
 /* The label text is secondary (12px); the controls inside it are page text, like the buttons. */
 .bar label .field { font-size: 14px; color: var(--orca-foreground); }
-.field[hidden] { display: none; }
+.field[hidden], .btn[hidden] { display: none; }
+.bar label .btn { font-size: 14px; color: var(--orca-secondary-foreground); }
+.btn.icon { padding: 0 9px; min-width: 28px; }
 .field {
   height: 28px; padding: 0 6px; border: 1px solid var(--orca-input); border-radius: var(--orca-radius);
   background: var(--orca-background); min-width: 0;
