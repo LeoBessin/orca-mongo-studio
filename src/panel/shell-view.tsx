@@ -4,6 +4,7 @@ import { CODE_LANGUAGES, generateCode, type CodeLanguage } from '../shared/codeg
 import type { Operation } from '../shared/operation'
 import { change, collTabs, specFromText, type CollTab } from './collection-state'
 import { guard } from './guard'
+import { TabNoticeView } from './notice-view'
 import { Results } from './results-view'
 import { closeShell, codeLanguage, openAsPipeline, openAsQuery, resultOptions, selectResult, SHELL_TAB, shellRun } from './shell-state'
 
@@ -62,14 +63,7 @@ export function ShellTab(): OrcaNode {
           ) : null}
         </Toolbar>
       ) : null}
-      {t.notice ? (
-        <Callout tone={t.notice.tone} icon={t.notice.tone === 'danger' ? 'error' : 'info'}>
-          <Row justify="between" align="center">
-            <Text>{t.notice.text}</Text>
-            <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => change(SHELL_TAB, () => ({ notice: undefined }))} />
-          </Row>
-        </Callout>
-      ) : null}
+      <TabNoticeView id={SHELL_TAB} />
       {t.error ? <Callout tone="danger" icon="error" title="Could not read the results">{t.error}</Callout> : null}
       <Results t={t} />
       {info?.op ? <CodeSection op={info.op} description="This result's find or aggregate as driver code." /> : null}

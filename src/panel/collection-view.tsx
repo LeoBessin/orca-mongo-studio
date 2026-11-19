@@ -12,6 +12,7 @@ import {
   read,
   Row,
   Select,
+  Separator,
   Table,
   Text,
   Textarea,
@@ -64,6 +65,7 @@ import { Results } from './results-view'
 import { connections } from './state'
 import { PlaceLine } from './place-view'
 import { settings } from './settings-state'
+import { COLLECTION_PLACES, TabNoticeView } from './notice-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -178,6 +180,7 @@ function Builder({ t }: { t: CollTab }): OrcaNode {
   return (
     <Collapsible title="Query Builder" description={n ? `${n} condition${n === 1 ? '' : 's'}` : 'Build a filter from fields and operators'} open={t.builderOpen} onChange={(open) => change(t.id, () => ({ builderOpen: open }))}>
       <Box gap="sm">
+        <TabNoticeView id={t.id} at="builder" places={COLLECTION_PLACES} />
         <GroupBlock t={t} g={t.builder} fields={fields} depth={0} />
         {fields.length === 0 ? <Text size="xs" muted>Run a query to list the fields of its results here.</Text> : null}
         <Row gap="xs" wrap>
@@ -211,6 +214,7 @@ function Library({ t }: { t: CollTab }): OrcaNode {
   return (
     <Collapsible title="History and saved queries" description={`${saved.length} saved · ${history.length} recent`}>
       <Box gap="sm">
+        <TabNoticeView id={t.id} at="library" places={COLLECTION_PLACES} />
         <Row gap="xs" align="end">
           <Input label="Save this query as" placeholder="Name" value={t.saveName} onChange={(v) => change(t.id, () => ({ saveName: v }))} onSubmit={() => void guard(t.id, () => saveQuery(t.id))()} />
           <Button icon="star" disabled={!t.saveName.trim()} onPress={guard(t.id, () => saveQuery(t.id))}>Save</Button>
@@ -273,18 +277,6 @@ function exportQuery(t: CollTab): void {
   openExport({ kind: 'query', ns: t.ns, collKind: t.kind }, queryText(t.text))
 }
 
-function Notice({ t }: { t: CollTab }): OrcaNode {
-  if (!t.notice) return null
-  return (
-    <Callout tone={t.notice.tone} icon={t.notice.tone === 'danger' ? 'error' : t.notice.tone === 'success' ? 'check' : 'info'}>
-      <Row justify="between" align="center">
-        <Text>{t.notice.text}</Text>
-        <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => change(t.id, () => ({ notice: undefined }))} />
-      </Row>
-    </Callout>
-  )
-}
-
 const KIND_LABEL: Partial<Record<CollTab['kind'], string>> = { view: 'View · read only', timeseries: 'Time-series' }
 
 export function CollectionTab({ id }: { id: string }): OrcaNode {
@@ -295,15 +287,17 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
   // A document opened on its own covers the query and results until Back; a document tab is only that.
   if (t.focus) {
     return (
-      <Box gap="sm">
-        <Notice t={t} />
+      <Box gap="md">
+        <TabNoticeView id={t.id} />
         <DocumentView t={t} />
         <Editors t={t} />
       </Box>
     )
   }
+  // Sections, top to bottom: the tab's header; the query and what runs it, with its notice and
+  // error; the results with what acts on them; then the sections that open on demand.
   return (
-    <Box gap="sm">
+    <Box gap="md">
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{nsLabel(t.ns)}</Text>
@@ -312,31 +306,44 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         </Box>
         <IconButton icon="close" label={`Close ${t.title}`} variant="ghost" size="sm" onPress={() => closeTab(t.id)} />
       </Row>
-      <QueryBar t={t} />
-      <Toolbar label="Query actions" gap="xs">
-        <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runQuery(t.id))}>
-          {t.loading ? 'Running…' : 'Run'}
-        </Button>
-        <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
-        <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
-        <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
-        {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
-        {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
-        {!t.readOnly ? <Button icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
-        {canUpdateMany(t) ? <Button icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id)}>Update many</Button> : null}
-        {t.shell ? null : <IconButton icon="download" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
-        {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" onPress={() => openImport(t.ns)} />}
-        {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
-      </Toolbar>
-      <Builder t={t} />
-      <Notice t={t} />
-      {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
-      <Results t={t} />
-      <Editors t={t} />
-      <UpdateMany t={t} />
-      <ExplainSection t={t} />
-      <Library t={t} />
-      <CodeSection op={tabOperation(t)} description="The query in the bar as driver code." />
+      <Box gap="sm">
+        <QueryBar t={t} />
+        <Toolbar label="Query actions" gap="xs">
+          <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runQuery(t.id))}>
+            {t.loading ? 'Running…' : 'Run'}
+          </Button>
+          <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
+          <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
+          <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
+          {t.shell ? null : <IconButton icon="download" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
+          {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
+          {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
+        </Toolbar>
+        <Toolbar label="Collection actions" gap="xs">
+          {!t.readOnly ? <Button size="sm" icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
+          {canUpdateMany(t) ? <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id)}>Update many</Button> : null}
+          {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(t.ns)} />}
+          {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" size="sm" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
+        </Toolbar>
+        <TabNoticeView id={t.id} at="top" places={COLLECTION_PLACES} />
+        {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
+        <Builder t={t} />
+      </Box>
+      {t.page || t.loading ? <Separator /> : null}
+      <Box gap="sm">
+        <Results t={t} />
+        <TabNoticeView id={t.id} at="results" places={COLLECTION_PLACES} />
+        <Editors t={t} />
+        <UpdateMany t={t} />
+      </Box>
+      <Separator />
+      <Box gap="sm">
+        <ExplainSection t={t} />
+        <Separator />
+        <Library t={t} />
+        <Separator />
+        <CodeSection op={tabOperation(t)} description="The query in the bar as driver code." />
+      </Box>
     </Box>
   )
 }

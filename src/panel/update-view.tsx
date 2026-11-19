@@ -20,8 +20,11 @@ import {
   type BulkUpdate,
   type CollTab
 } from './collection-state'
-import { guard } from './guard'
+import { guardAt } from './guard'
 import { settings } from './settings-state'
+
+// The Update many card opens under the results: its errors show there too.
+const guard = guardAt('results')
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${numberText(n)} ${n === 1 ? one : many}`
 

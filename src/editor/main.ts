@@ -63,9 +63,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 }
 
 const connectionSelect = el('select', { class: 'field', title: 'Connection' })
-const dbInput = el('input', { class: 'field', placeholder: 'database', title: 'Database: pick one or type a new name', spellcheck: false })
-const dbList = el('datalist', { id: 'ms-dbs' })
-dbInput.setAttribute('list', 'ms-dbs')
+// The database is a list of the connection's databases, with a button beside it to type a name
+// that is not there yet. (An <input> with a <datalist> showed only the names starting with what
+// the field held, so with a database chosen it offered that one alone, and its popup did not
+// open reliably in Orca's editor frame.) The button is not an option of the list: arrow keys on a
+// closed list change its value, and would land on it.
+const dbSelect = el('select', { class: 'field', title: 'Database' })
+const dbInput = el('input', { class: 'field', placeholder: 'new database name', title: 'A database name: Enter uses it, Escape goes back to the list', spellcheck: false, hidden: true })
+const dbOther = el('button', { class: 'btn icon', title: 'Another database: type its name' }, '+')
+let dbNames: string[] = []
+let dbState: 'idle' | 'loading' | 'listed' | 'error' = 'idle'
+/** The connection the database list was loaded for. */
+let dbFor: string | undefined
 const runButton = el('button', { class: 'btn primary', title: 'Run the selection, or the statement under the cursor (Ctrl+Enter)' }, '▶ Run')
 const runAllButton = el('button', { class: 'btn', title: 'Run the whole script (Ctrl+Shift+Enter)' }, 'Run script')
 const stopButton = el('button', { class: 'btn danger', title: 'Stop the running script', disabled: true }, 'Stop')
@@ -76,8 +85,7 @@ const bar = el(
   'div',
   { class: 'bar' },
   el('label', {}, 'Connection', connectionSelect),
-  el('label', {}, 'Database', dbInput),
-  dbList,
+  el('label', {}, 'Database', dbSelect, dbInput, dbOther),
   runButton,
   runAllButton,
   stopButton,
@@ -149,11 +157,19 @@ function errorText(error: unknown): string {
 // ---- Typography from Orca's editor ----
 
 type Typography = { cssFontFamily: string; fontSize: number; lineHeight: number }
+/** Orca's typography reaches the editor as a theme, not only as CSS variables: CodeMirror keeps
+ *  the line heights it measured and draws the line numbers from them, so a font that changes
+ *  under it leaves the numbers out of step with the lines until it measures again. A new theme
+ *  makes it measure. */
+const typography = new Compartment()
+let editorView: EditorView | undefined
 function applyTypography(t: Typography): void {
   const root = document.documentElement.style
+  const lineHeight = String(t.lineHeight > 4 ? `${t.lineHeight}px` : t.lineHeight || 1.5)
   root.setProperty('--ms-font', t.cssFontFamily)
   root.setProperty('--ms-font-size', `${t.fontSize}px`)
-  root.setProperty('--ms-line-height', String(t.lineHeight > 4 ? `${t.lineHeight}px` : t.lineHeight || 1.5))
+  root.setProperty('--ms-line-height', lineHeight)
+  editorView?.dispatch({ effects: typography.reconfigure(EditorView.theme({ '&': { fontSize: `${t.fontSize}px` }, '.cm-scroller': { fontFamily: t.cssFontFamily, lineHeight } })) })
 }
 if (orca.host.has('editor.readTypography')) {
   orca.host.call('editor.readTypography').then(applyTypography, () => undefined)
@@ -178,16 +194,52 @@ function renderConnections(): void {
   connectionSelect.value = chosen
 }
 
+function renderDatabases(): void {
+  const chosen = target.db
+  const options: HTMLOptionElement[] = []
+  if (!chosen) options.push(el('option', { value: '' }, !connectionId() ? 'Choose a connection first' : dbState === 'loading' ? 'Loading databases…' : 'Choose a database…'))
+  for (const n of dbNames) options.push(el('option', { value: n }, n))
+  // A name the script uses that the list does not have: new (created on the first write) only
+  // when the list loaded; while loading, or when it could not, it is just the name.
+  if (chosen && !dbNames.includes(chosen)) options.push(el('option', { value: chosen }, dbState === 'listed' ? `${chosen} (new)` : chosen))
+  if (dbState === 'error') options.push(el('option', { value: '', disabled: true }, 'Could not list the databases'))
+  dbSelect.replaceChildren(...options)
+  dbSelect.value = chosen
+  dbSelect.disabled = !connectionId()
+  dbOther.disabled = !connectionId()
+}
+
+/** Shows the name field in place of the list, to type a database the list does not have. */
+function typeDatabase(typing: boolean): void {
+  dbSelect.hidden = typing
+  dbOther.hidden = typing
+  dbInput.hidden = !typing
+  if (typing) {
+    dbInput.value = ''
+    dbInput.focus()
+  } else renderDatabases()
+}
+
+let dbRequest = 0
 async function loadDatabases(): Promise<void> {
   const id = connectionId()
-  dbList.replaceChildren()
+  const mine = ++dbRequest
+  dbFor = id
+  dbNames = []
+  dbState = id ? 'loading' : 'idle'
+  renderDatabases()
   if (!id) return
   try {
-    const { names: dbs } = await orca.plugin.request('shell.databases', { connectionId: id }, { timeoutMs: 60000 })
-    dbList.replaceChildren(...dbs.map((n) => el('option', { value: n })))
+    const { names } = await orca.plugin.request('shell.databases', { connectionId: id }, { timeoutMs: 60000 })
+    if (mine !== dbRequest) return
+    dbNames = names
+    dbState = 'listed'
   } catch (error) {
+    if (mine !== dbRequest) return
+    dbState = 'error'
     say(`Could not list databases: ${errorText(error)}`, true)
   }
+  renderDatabases()
 }
 
 function resetNames(): void {
@@ -200,7 +252,7 @@ function setTarget(next: ScriptTarget, fromFile: boolean): void {
   const connectionChanged = next.connection !== target.connection
   target = next
   if (connectionSelect.value !== next.connection) renderConnections()
-  if (dbInput.value !== next.db && document.activeElement !== dbInput) dbInput.value = next.db
+  if (dbSelect.value !== next.db && document.activeElement !== dbInput) renderDatabases()
   resetNames()
   if (connectionChanged) void loadDatabases()
   if (!fromFile) writeTargetToFile()
@@ -220,11 +272,47 @@ async function loadConnections(): Promise<void> {
 }
 
 connectionSelect.addEventListener('change', () => setTarget({ ...target, connection: connectionSelect.value }, false))
-dbInput.addEventListener('change', () => setTarget({ ...target, db: dbInput.value.trim() }, false))
+// Arrow keys on a closed list fire a change for each database passed; each change would rewrite
+// the script's header. The choice is kept once the list has been still for a moment, or at once
+// when it loses focus or a run starts.
+const DB_SETTLE_MS = 400
+let dbPending: ReturnType<typeof setTimeout> | undefined
+function flushDatabase(): void {
+  if (dbPending === undefined) return
+  clearTimeout(dbPending)
+  dbPending = undefined
+  if (dbSelect.value !== target.db) setTarget({ ...target, db: dbSelect.value }, false)
+}
+dbSelect.addEventListener('change', () => {
+  if (dbPending !== undefined) clearTimeout(dbPending)
+  dbPending = setTimeout(flushDatabase, DB_SETTLE_MS)
+})
+dbSelect.addEventListener('blur', flushDatabase)
+dbOther.addEventListener('click', () => typeDatabase(true))
+function useTypedDatabase(): void {
+  const name = dbInput.value.trim()
+  if (name) setTarget({ ...target, db: name }, false)
+  typeDatabase(false)
+}
+dbInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    useTypedDatabase()
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    typeDatabase(false)
+    dbSelect.focus()
+  }
+})
+// Losing focus keeps the field open with what was typed: switching windows mid-name must not
+// write a half-typed database into the script. Enter uses it; Escape goes back to the list.
 orca.plugin.on('connections.changed', (state) => {
   connections = state.connections
   renderConnections()
   resetNames()
+  // The script's connection may have just appeared, been renamed to its name, or gone.
+  if (connectionId() !== dbFor) void loadDatabases()
+  else renderDatabases()
 })
 
 // ---- The editor ----
@@ -258,6 +346,7 @@ const view = new EditorView({
       search({ top: true }),
       javascript(),
       editorTheme(),
+      typography.of([]),
       readOnly.of(EditorState.readOnly.of(doc.readOnly)),
       Prec.highest(
         keymap.of([
@@ -277,6 +366,7 @@ const view = new EditorView({
     ]
   })
 })
+editorView = view
 
 doc.onReplace((value) => {
   applyingOutside = true
@@ -361,6 +451,7 @@ let starting = false
 
 async function run(code: string, line: number, column: number, what: string): Promise<void> {
   if (running || starting) return
+  flushDatabase()
   const id = connectionId()
   if (!target.connection || !id) {
     say(target.connection ? `There is no saved connection named “${target.connection}”.` : 'Choose a connection first.', true)
@@ -369,7 +460,7 @@ async function run(code: string, line: number, column: number, what: string): Pr
   }
   if (!target.db) {
     say('Choose a database first.', true)
-    dbInput.focus()
+    dbSelect.focus()
     return
   }
   showTab('output')
@@ -603,6 +694,6 @@ view.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(doc.readOn
 if (doc.readOnly) say('This file is read only.')
 const first = readHeader(doc.value)
 target = { connection: first.connection, db: first.db }
-dbInput.value = target.db
+renderDatabases()
 void loadConnections()
 view.focus()

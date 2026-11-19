@@ -2,7 +2,7 @@
 // query bar, results, editors, Query Builder and history. All tabs live in one atom, changed
 // immutably through `change(id, ...)`, so a tab's state survives switching between tabs.
 import { atom, plugin, read, set, update } from 'orca'
-import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
+import type { AggOptions, CopyItem, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
 import type { ExplainVerbosity } from '../shared/explain'
 import { hasWriteStage, type StageDraft } from '../shared/pipeline'
 import { bsonType, fieldPaths, hasTruncated, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
@@ -46,7 +46,11 @@ export type DocEditor = {
   saving?: boolean
 }
 export type Editor = FieldEditor | DocEditor
-export type TabNotice = { tone: 'success' | 'danger' | 'neutral'; text: string }
+/** Where a tab shows a notice: next to what it is about. `top` is under the tab's Run toolbar,
+ *  for the query or pipeline and the tab itself; `results` under the results and their actions
+ *  (saving, deleting, copying documents); the others inside their own section. */
+export type NoticeAt = 'top' | 'builder' | 'results' | 'library' | 'view'
+export type TabNotice = { tone: 'success' | 'danger' | 'neutral'; text: string; at?: NoticeAt }
 
 /** One document, read whole from the server, shown on its own: over a tab's results (opened
  *  from them, closed with Back), or as a document tab's whole content. */
@@ -59,6 +63,8 @@ export type DocFocus = {
   deleted?: boolean
   view: DocView
   relaxed: boolean
+  /** Long strings shown whole in the JSON and Shell views, instead of shortened. */
+  fullValues?: boolean
   expanded: string[]
   selected?: string
 }
@@ -172,6 +178,8 @@ export type CollTab = {
   saveName: string
   librarySelected?: string
   notice?: TabNotice
+  /** Long strings shown whole in the JSON results, instead of shortened. */
+  fullValues?: boolean
   /** Results of a shell run, paged from the worker instead of a query. */
   shell?: { runId: string; index: number }
   /** An aggregation tab: results come from its pipeline. */
@@ -578,7 +586,7 @@ export async function goToPage(id: string, offset: number): Promise<void> {
   const ran = t.agg?.ran
   if (!(t.shell || (ran ? t.queryId : t.spec && t.queryId))) return
   if (ran && hasWriteStage(ran.pipeline)) {
-    say(id, 'neutral', 'This pipeline writes to a collection, so it is not run again for a page. Run it to repeat the write.')
+    say(id, 'neutral', 'This pipeline writes to a collection, so it is not run again for a page. Run it to repeat the write.', 'results')
     return
   }
   const token = t.runToken
@@ -644,11 +652,11 @@ export async function reloadPage(id: string): Promise<void> {
 /** Header click: sort by that column, flipping on a second click. */
 export async function sortBy(id: string, column: string, direction: 'asc' | 'desc'): Promise<void> {
   if (tab(id)?.shell) {
-    say(id, 'neutral', 'Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.')
+    say(id, 'neutral', 'Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.', 'results')
     return
   }
   if (tab(id)?.agg) {
-    say(id, 'neutral', 'A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.')
+    say(id, 'neutral', 'A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.', 'results')
     return
   }
   const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
@@ -704,8 +712,39 @@ export function sampledFields(t: CollTab): string[] {
   return [...out].sort((a, b) => (a === '_id' ? -1 : b === '_id' ? 1 : a.localeCompare(b)))
 }
 
-export function say(id: string, tone: TabNotice['tone'], text: string): void {
-  patch(id, { notice: { tone, text } })
+export function say(id: string, tone: TabNotice['tone'], text: string, at: NoticeAt = 'top'): void {
+  patch(id, { notice: { tone, text, at } })
+}
+
+/** Whether a document the page shortened can be read again whole for a copy: only from a
+ *  collection (in a view or a time-series collection `_id` need not be unique), by a query with no
+ *  projection (a re-read would add fields the person projected away and drop computed ones), and
+ *  with an `_id` that was not shortened itself. */
+function canReread(t: CollTab, doc: JsonObject): boolean {
+  if (t.shell || t.agg || t.kind !== 'coll') return false
+  if (t.spec?.projection && Object.keys(t.spec.projection).length) return false
+  return '_id' in doc && !hasTruncated(doc._id)
+}
+
+/** Copies documents to the system clipboard as Extended JSON, relaxed or canonical as the tab
+ *  shows it (or as `relaxed` says, for an open document): one document as an object, several as
+ *  an array. What is copied is what the page
+ *  shows; a document whose values the page shortened is read again whole when it can be. The
+ *  worker writes the text, so the page goes to it compact rather than indented. */
+export async function copyAsJson(id: string, docs: readonly JsonObject[], relaxed?: boolean): Promise<void> {
+  const t = tab(id)
+  if (!t || docs.length === 0) return
+  const page = t.page
+  const cut = (d: JsonObject): boolean => (page ? page.truncated.includes(page.docs.indexOf(d)) : false)
+  const items: CopyItem[] = docs.map((doc) => (cut(doc) && canReread(t, doc) ? { doc, reread: true } : { doc }))
+  const r = await plugin.request('clipboard.copyDocuments', { ns: t.ns, items, relaxed: relaxed ?? t.relaxed }, { timeoutMs: 60000 })
+  const shortened = items.filter((item) => !item.reread && cut(item.doc)).length + r.gone
+  const n = r.copied
+  const what = `${n.toLocaleString('en-US')} document${n === 1 ? '' : 's'}`
+  const note = shortened
+    ? ` ${shortened === n ? (n === 1 ? 'It has' : 'They have') : `${shortened.toLocaleString('en-US')} of them have`} long values shortened, as on this page.`
+    : ''
+  say(id, 'success', `Copied ${what} as JSON.${note}`, 'results')
 }
 
 async function fullDocument(t: CollTab, docId: JsonValue): Promise<JsonObject> {
@@ -724,7 +763,7 @@ export async function editField(id: string, docId: JsonValue, path: Path): Promi
     if (value === undefined) throw new Error('That field is not in the document any more. Run the query again.')
     patch(id, { editor: { kind: 'field', id: docId, path, original: value, draft: draftFromValue(value) }, confirmDelete: undefined })
   } catch (error) {
-    say(id, 'danger', errorText(error))
+    say(id, 'danger', errorText(error), 'results')
   }
 }
 
@@ -775,7 +814,7 @@ export async function saveField(id: string): Promise<void> {
   try {
     const r = await plugin.request('doc.updateField', { ns: t.ns, id: e.id, path, value: result.value }, { timeoutMs: 60000 })
     patch(id, { editor: undefined })
-    say(id, 'success', r.modified ? `Saved ${path.join('.')}.` : `${path.join('.')} already had that value.`)
+    say(id, 'success', r.modified ? `Saved ${path.join('.')}.` : `${path.join('.')} already had that value.`, 'results')
     await reloadPage(id)
   } catch (error) {
     editorError(id, errorText(error))
@@ -790,7 +829,7 @@ export async function removeField(id: string): Promise<void> {
   try {
     await plugin.request('doc.updateField', { ns: t.ns, id: e.id, path: e.path, remove: true }, { timeoutMs: 60000 })
     patch(id, { editor: undefined })
-    say(id, 'success', `Removed ${e.path.join('.')}.`)
+    say(id, 'success', `Removed ${e.path.join('.')}.`, 'results')
     await reloadPage(id)
   } catch (error) {
     editorError(id, errorText(error))
@@ -808,7 +847,7 @@ export async function editDocument(id: string, docId: JsonValue): Promise<void> 
     const doc = await fullDocument(t, docId)
     patch(id, { editor: { kind: 'doc', mode: 'edit', id: docId, syntax: 'shell', text: docText(doc, 'shell') }, confirmDelete: undefined })
   } catch (error) {
-    say(id, 'danger', errorText(error))
+    say(id, 'danger', errorText(error), 'results')
   }
 }
 
@@ -820,7 +859,7 @@ export async function cloneDocument(id: string, docId: JsonValue): Promise<void>
     void _drop
     patch(id, { editor: { kind: 'doc', mode: 'clone', syntax: 'shell', text: docText(copy, 'shell') }, confirmDelete: undefined })
   } catch (error) {
-    say(id, 'danger', errorText(error))
+    say(id, 'danger', errorText(error), 'results')
   }
 }
 
@@ -869,10 +908,10 @@ export async function saveDocument(id: string): Promise<void> {
   try {
     if (e.mode === 'edit') {
       const r = await plugin.request('doc.replace', { ns: t.ns, id: e.id!, doc }, { timeoutMs: 60000 })
-      say(id, 'success', r.modified ? 'Document saved.' : 'Nothing changed.')
+      say(id, 'success', r.modified ? 'Document saved.' : 'Nothing changed.', 'results')
     } else {
       const r = await plugin.request('doc.insert', { ns: t.ns, docs: [doc] }, { timeoutMs: 60000 })
-      say(id, 'success', `Inserted a document with _id ${toShellInline(r.insertedIds[0] ?? null)}.`)
+      say(id, 'success', `Inserted a document with _id ${toShellInline(r.insertedIds[0] ?? null)}.`, 'results')
     }
     patch(id, { editor: undefined })
     await reloadPage(id)
@@ -916,14 +955,14 @@ async function deleteDocuments(id: string, ids: JsonValue[]): Promise<void> {
   try {
     const r = await plugin.request('doc.deleteMany', { ns: t.ns, ids }, { timeoutMs: 120000 })
     patch(id, { confirmDelete: undefined, selectedRows: [] })
-    say(id, 'success', `Deleted ${r.deleted.toLocaleString('en-US')} document${r.deleted === 1 ? '' : 's'} from ${nsLabel(t.ns)}.`)
+    say(id, 'success', `Deleted ${r.deleted.toLocaleString('en-US')} document${r.deleted === 1 ? '' : 's'} from ${nsLabel(t.ns)}.`, 'results')
     const focused = t.focus && ids.some((x) => idKey(x) === idKey(t.focus!.id))
     if (focused && t.docTab) return setFocus(id, { deleted: true, doc: undefined, error: undefined })
     if (focused) patch(id, { focus: undefined })
     await reloadPage(id)
   } catch (error) {
     patch(id, { confirmDelete: undefined })
-    say(id, 'danger', errorText(error))
+    say(id, 'danger', errorText(error), 'results')
   } finally {
     deleting.delete(id)
   }
@@ -1055,7 +1094,7 @@ export async function runUpdateMany(id: string): Promise<void> {
   )
   if (end?.status === 'done' && end.result?.kind === 'update') {
     patch(id, { bulk: undefined, selectedRows: [] })
-    say(id, 'success', `Updated ${nsLabel(t.ns)}: ${end.result.matched.toLocaleString('en-US')} matched, ${end.result.modified.toLocaleString('en-US')} modified.`)
+    say(id, 'success', `Updated ${nsLabel(t.ns)}: ${end.result.matched.toLocaleString('en-US')} matched, ${end.result.modified.toLocaleString('en-US')} modified.`, 'results')
     await reloadPage(id)
     return
   }
@@ -1088,7 +1127,7 @@ export function addToQuery(id: string, path: Path, value: JsonValue | undefined)
   const usable = value !== undefined && bsonType(value) !== 'truncated' && bsonType(value) !== 'object' && bsonType(value) !== 'array'
   const cond = newCondition(field, usable ? 'eq' : 'exists', usable ? toShellInline(value) : '')
   change(id, (t) => ({ builder: { ...t.builder, items: [...t.builder.items, cond] }, builderOpen: true, builderProblems: [] }))
-  say(id, 'neutral', `Added ${field} to the Query Builder. Apply it to the filter to run it.`)
+  say(id, 'neutral', `Added ${field} to the Query Builder. Apply it to the filter to run it.`, 'builder')
 }
 
 /** Whether the table can filter by its selected rows: the tab's own query, which has a filter
@@ -1116,11 +1155,11 @@ export async function filterBySelection(id: string, filter: JsonObject, mode: 'r
       return
     }
     const merged = mergeFilterText(t.text.filter, base, filter)
-    if (merged === undefined) return say(id, 'neutral', 'The filter already has these conditions.')
+    if (merged === undefined) return say(id, 'neutral', 'The filter already has these conditions.', 'results')
     text = merged
   }
   if (text.length > QUERY_TEXT_MAX) {
-    return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`)
+    return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`, 'results')
   }
   replaceText(id, 'filter', text)
   // The new filter matches fewer documents: a skip typed for the old one could pass them all.
@@ -1148,7 +1187,7 @@ export function loadBuilderFromFilter(id: string): void {
     const filter = parseShellDocument(t.text.filter, 'filter', { now: Date.now() })
     const g = filterToBuilder(filter)
     if (!g) {
-      say(id, 'neutral', "This filter uses operators the Query Builder can't show. Keep editing it as text.")
+      say(id, 'neutral', "This filter uses operators the Query Builder can't show. Keep editing it as text.", 'builder')
       return
     }
     patch(id, { builder: g, builderProblems: [], builderOpen: true })
@@ -1180,9 +1219,9 @@ export async function saveQuery(id: string): Promise<void> {
   try {
     const library = await plugin.request('saved.save', { ns: t.ns, name: t.saveName, query: t.text })
     patch(id, { library, saveName: '' })
-    say(id, 'success', `Saved the query as "${t.saveName.trim()}".`)
+    say(id, 'success', `Saved the query as "${t.saveName.trim()}".`, 'library')
   } catch (error) {
-    say(id, 'danger', errorText(error))
+    say(id, 'danger', errorText(error), 'library')
   }
 }
 

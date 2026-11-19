@@ -13,6 +13,7 @@ import {
   Link,
   read,
   Row,
+  Separator,
   set,
   Skeleton,
   Text,
@@ -38,6 +39,7 @@ import { openExport, paste, type PasteTarget } from './export-state'
 import { openGridfs } from './gridfs-state'
 import { openImport } from './import-state'
 import { openTasks } from './tasks-state'
+import { NoticeCallout } from './notice-view'
 import { openSettings } from './settings-state'
 import { closeTabsFor, openCollection } from './collection-state'
 import {
@@ -334,6 +336,7 @@ function detailsBlock(): OrcaNode {
   const data = d.data!
   return (
     <Box gap="sm">
+      <Separator />
       <Box gap="none">
         <Text weight="semibold" truncate>{data.title}</Text>
         <Text muted size="xs">{data.subtitle}</Text>
@@ -351,8 +354,11 @@ export function TreeView(): OrcaNode {
   const sign = read(oidc)
   const n = read(notice)
   const clip = read(clipboard)
+  // A notice is about the last action, pressed in the action bar under the tree: it shows there.
+  // With no connections (or none loaded yet) there is no action bar, and it shows at the top.
+  const noticeView = n ? <NoticeCallout notice={n} onDismiss={() => set(notice, null)} /> : null
   return (
-    <Box gap="sm">
+    <Box gap="md">
       <Toolbar label="Connections">
         <IconButton icon="add" label="New connection" variant="solid" tone="accent" onPress={() => openNewConnection()} />
         <IconButton icon="upload" label="Import connections" onPress={() => set(view, 'transfer')} />
@@ -374,20 +380,13 @@ export function TreeView(): OrcaNode {
           <Link href={sign.url}>Open the sign-in page</Link> in your browser. Mongo Studio connects once you have signed in.
         </Callout>
       ) : null}
-      {n ? (
-        <Callout tone={n.tone === 'neutral' ? 'neutral' : n.tone} icon={n.tone === 'danger' ? 'error' : n.tone === 'neutral' ? 'info' : 'check'}>
-          <Row justify="between" align="center">
-            <Text>{n.text}</Text>
-            <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => set(notice, null)} />
-          </Row>
-        </Callout>
-      ) : null}
       {clip ? (
         <Row gap="xs" align="center" justify="between">
           <Text size="xs" muted truncate>{`Clipboard: ${clipText(clip)}`}</Text>
           <IconButton icon="close" label="Clear the clipboard" variant="ghost" size="xs" onPress={() => set(clipboard, null)} />
         </Row>
       ) : null}
+      {!state || state.connections.length === 0 ? noticeView : null}
       {!state ? (
         <Skeleton lines={5} label="Loading connections" />
       ) : state.connections.length === 0 ? (
@@ -398,7 +397,8 @@ export function TreeView(): OrcaNode {
           </Row>
         </EmptyState>
       ) : (
-        <Box gap="sm">
+        <Box gap="md">
+          <Box gap="sm">
           <Input label="Filter" labelHidden type="search" placeholder="Filter loaded connections, databases and collections" value={read(filter)} onChange={(v) => set(filter, v)} />
           <Tree
             label="Connections"
@@ -419,7 +419,10 @@ export function TreeView(): OrcaNode {
               else void act(() => toggleNode(real, !read(expanded).includes(real)))()
             }}
           />
+          </Box>
+          <Separator />
           {sel ? actionBar(sel) : <Text muted size="xs">Select a connection or collection to see its actions and details. Enter connects, or opens a collection.</Text>}
+          {noticeView}
           {pending ? (
             <Callout tone="danger" icon="warning" title={`Delete "${pending.name}"?`}>
               <Box gap="sm">

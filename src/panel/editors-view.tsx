@@ -21,7 +21,10 @@ import {
   type DocEditor,
   type FieldEditor
 } from './collection-state'
-import { guard } from './guard'
+import { guardAt } from './guard'
+
+// The editors open under the results: their errors show there too.
+const guard = guardAt('results')
 
 function ValueInputs({ t, draft }: { t: CollTab; draft: FieldDraft }): OrcaNode {
   const set = (values: Partial<FieldDraft>): void => setDraft(t.id, { ...draft, ...values })

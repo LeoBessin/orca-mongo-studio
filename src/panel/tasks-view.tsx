@@ -23,6 +23,7 @@ import { describeTask, taskConnections, taskKindLabel, taskWriteConnection, type
 import { aguard, connectionName, isReadOnly, numberText } from './admin-state'
 import { jobRunning } from './data-state'
 import { JobProgress } from './job-view'
+import { NoticeCallout } from './notice-view'
 import { connections, errorText } from './state'
 import {
   cancelTaskRun,
@@ -148,14 +149,7 @@ export function TasksView(): OrcaNode {
         <IconButton icon="refresh" label="Reload the tasks" variant="ghost" size="sm" onPress={() => openTasks()} />
         <IconButton icon="close" label="Close saved tasks" variant="ghost" size="sm" onPress={closeTasks} />
       </Row>
-      {u.notice ? (
-        <Callout tone={u.notice.tone} icon={u.notice.tone === 'danger' ? 'error' : u.notice.tone === 'success' ? 'check' : 'info'}>
-          <Row justify="between" align="center">
-            <Text>{u.notice.text}</Text>
-            <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => update(tasksUi, (x) => ({ ...x, notice: undefined }))} />
-          </Row>
-        </Callout>
-      ) : null}
+      {u.notice ? <NoticeCallout notice={u.notice} onDismiss={() => update(tasksUi, (x) => ({ ...x, notice: undefined }))} /> : null}
       {error ? <Callout tone="danger" icon="error" title="Could not read the saved tasks">{error}</Callout> : null}
       {!list && !error ? <Skeleton lines={3} label="Loading saved tasks" /> : null}
       {list && list.length === 0 ? (

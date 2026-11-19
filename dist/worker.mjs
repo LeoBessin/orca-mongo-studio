@@ -45146,8 +45146,8 @@ var require_mongocryptd_manager = __commonJS({
        */
       async spawn() {
         const cmdName = this.spawnPath || "mongocryptd";
-        const { spawn } = __require("child_process");
-        this._child = spawn(cmdName, this.spawnArgs, {
+        const { spawn: spawn2 } = __require("child_process");
+        this._child = spawn2(cmdName, this.spawnArgs, {
           stdio: "ignore",
           detached: true
         });
@@ -62848,7 +62848,7 @@ var require_agent = __commonJS({
     var { Duplex } = __require("stream");
     var { resolve } = __require("path");
     var { readFile: readFile5 } = __require("fs");
-    var { execFile, spawn } = __require("child_process");
+    var { execFile, spawn: spawn2 } = __require("child_process");
     var { isParsedKey, parseKey } = require_keyParser();
     var {
       makeBufferParser,
@@ -63025,7 +63025,7 @@ var require_agent = __commonJS({
             return cb(new Error("Unexpected multiple agent requests"));
           this.buffer = null;
           let error;
-          const proc = this.proc = spawn(EXEPATH, [data.length]);
+          const proc = this.proc = spawn2(EXEPATH, [data.length]);
           proc.stdout.on("data", (data2) => {
             this.push(data2);
           });
@@ -75511,6 +75511,9 @@ function toRelaxed(v) {
       return v;
   }
 }
+function toJsonText(v, relaxed, indent = 2) {
+  return JSON.stringify(relaxed ? toRelaxed(v) : v, null, indent);
+}
 var IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 function shellString(s2) {
   let out = "'";
@@ -77000,6 +77003,10 @@ async function getDocument(client, ns, id) {
   const canonical = toCanonical(doc);
   checkEditSize(canonical);
   return canonical;
+}
+async function readWhole(client, ns, id) {
+  const doc = await client.db(ns.db).collection(ns.collection).findOne(idFilter(id), { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS });
+  return doc ? toCanonical(doc) : null;
 }
 async function updateField(client, ns, id, path, value, remove) {
   if (path.length === 0) throw invalid("Choose a field to change.");
@@ -83012,6 +83019,101 @@ var TaskStore = class {
   }
 };
 
+// src/worker/clipboard.ts
+import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
+var TOOL_TIMEOUT_MS = 1e4;
+var STDERR_GRACE_MS = 200;
+var listDir = (dir) => {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+function sessionEnv(env2, list = listDir) {
+  const out = {};
+  const byNumber = (a6, b6) => Number(a6.replace(/\D/g, "")) - Number(b6.replace(/\D/g, ""));
+  if (env2.WAYLAND_DISPLAY) out.WAYLAND_DISPLAY = env2.WAYLAND_DISPLAY;
+  else if (env2.XDG_RUNTIME_DIR) {
+    const socket = list(env2.XDG_RUNTIME_DIR).filter((name) => /^wayland-\d+$/.test(name)).sort(byNumber)[0];
+    if (socket) out.WAYLAND_DISPLAY = socket;
+  }
+  if (env2.DISPLAY) out.DISPLAY = env2.DISPLAY;
+  else {
+    const x = list("/tmp/.X11-unix").filter((name) => /^X\d+$/.test(name)).sort(byNumber)[0];
+    if (x) out.DISPLAY = `:${x.slice(1)}`;
+  }
+  return out;
+}
+function clipboardTools(platform2, env2, list = listDir) {
+  if (platform2 === "darwin") return [{ command: "pbcopy", args: [], env: { LC_CTYPE: "UTF-8" } }];
+  if (platform2 === "win32") {
+    return [{ command: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())"] }];
+  }
+  const session = sessionEnv(env2, list);
+  const wayland = { command: "wl-copy", args: [], ...session.WAYLAND_DISPLAY ? { env: { WAYLAND_DISPLAY: session.WAYLAND_DISPLAY } } : {} };
+  const xEnv = session.DISPLAY ? { env: { DISPLAY: session.DISPLAY } } : {};
+  const x11 = [
+    { command: "xclip", args: ["-selection", "clipboard"], ...xEnv },
+    { command: "xsel", args: ["--clipboard", "--input"], ...xEnv }
+  ];
+  return session.WAYLAND_DISPLAY || !session.DISPLAY ? [wayland, ...x11] : [...x11, wayland];
+}
+var runTool = (tool, text) => new Promise((resolve, reject) => {
+  const child = spawn(tool.command, tool.args, {
+    stdio: ["pipe", "ignore", "pipe"],
+    windowsHide: true,
+    ...tool.env ? { env: { ...process.env, ...tool.env } } : {}
+  });
+  let stderr = "";
+  let stderrDone = false;
+  let settled = false;
+  const settle = (fn) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    child.stdin.destroy();
+    child.stderr.destroy();
+    child.unref();
+    fn();
+  };
+  const timer = setTimeout(() => {
+    child.kill();
+    settle(() => reject(new Error(`${tool.command} did not finish copying within ${TOOL_TIMEOUT_MS / 1e3} seconds.`)));
+  }, TOOL_TIMEOUT_MS);
+  const failure = (code) => new Error(`${tool.command} could not copy: ${stderr.trim() || `it ended with code ${code}`}`);
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => stderr += chunk);
+  child.stderr.on("end", () => stderrDone = true);
+  child.on("error", (error) => settle(() => error.code === "ENOENT" ? resolve("missing") : reject(error)));
+  child.on("exit", (code) => {
+    if (code === 0) return settle(() => resolve("ok"));
+    if (stderrDone) return settle(() => reject(failure(code)));
+    const done = () => settle(() => reject(failure(code)));
+    child.stderr.once("end", done);
+    setTimeout(done, STDERR_GRACE_MS);
+  });
+  child.stdin.on("error", () => void 0);
+  child.stdin.end(text, "utf8");
+});
+async function writeClipboard(text, platform2 = process.platform, env2 = process.env, run = runTool, list = listDir) {
+  const tools = clipboardTools(platform2, env2, list);
+  let failure;
+  for (const tool of tools) {
+    try {
+      if (await run(tool, text) === "ok") return;
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure) throw failure;
+  throw new Error(
+    platform2 === "linux" ? "No clipboard tool was found. Install wl-clipboard (Wayland) or xclip (X11), then copy again." : `The clipboard tool (${tools.map((t) => t.command).join(", ")}) was not found.`
+  );
+}
+var systemClipboard = { write: (text) => writeClipboard(text) };
+
 // src/worker.ts
 var pool;
 var queries;
@@ -83232,6 +83334,25 @@ function activate(orca) {
   orca.panels.handle("doc.insert", async ({ ns, docs: docs2 }) => {
     await writable(ns.connectionId, "inserting documents");
     return insertDocuments(await clientFor(ns.connectionId), ns, docs2);
+  });
+  orca.panels.handle("clipboard.copyDocuments", async ({ ns, items, relaxed }) => {
+    const docs2 = [];
+    let reread = 0;
+    let gone = 0;
+    for (const item4 of items) {
+      if (item4.reread && ns && "_id" in item4.doc) {
+        const whole = await readWhole(await clientFor(ns.connectionId), ns, item4.doc._id);
+        if (whole) {
+          docs2.push(whole);
+          reread++;
+          continue;
+        }
+        gone++;
+      }
+      docs2.push(item4.doc);
+    }
+    if (docs2.length) await systemClipboard.write(toJsonText(docs2.length === 1 ? docs2[0] : docs2, relaxed === true));
+    return { copied: docs2.length, reread, gone };
   });
   orca.panels.handle("doc.deleteMany", async ({ ns, ids }) => {
     await writable(ns.connectionId, "deleting documents");

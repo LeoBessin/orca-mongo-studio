@@ -417,6 +417,14 @@ export async function getDocument(client: MongoClient, ns: Namespace, id: JsonVa
   return canonical
 }
 
+/** A document read again by `_id`, untruncated, or null when it is no longer there. Only for a
+ *  collection, where `_id` is unique: in a view or a time-series collection several documents can
+ *  share one. */
+export async function readWhole(client: MongoClient, ns: Namespace, id: JsonValue): Promise<JsonObject | null> {
+  const doc = await client.db(ns.db).collection(ns.collection).findOne(idFilter(id), { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS })
+  return doc ? toCanonical(doc) : null
+}
+
 export async function updateField(
   client: MongoClient,
   ns: Namespace,

@@ -34,6 +34,9 @@ export type ConnectionsState = {
 }
 
 /** What a palette command asks the panel to show. */
+/** A document to copy: as the page holds it, or (`reread`) read again whole by its `_id`. */
+export type CopyItem = { doc: JsonObject; reread?: boolean }
+
 export type NavigateView = 'new' | 'import' | 'export' | 'tree' | 'shell' | 'tasks' | 'settings'
 
 export type FavouriteNode = { key: string; label: string; kind: NodeKind; path: string }
@@ -563,6 +566,11 @@ declare module 'orca' {
     'doc.replace': { input: { ns: Namespace; id: JsonValue; doc: JsonObject }; output: WriteResult }
     'doc.insert': { input: { ns: Namespace; docs: JsonObject[] }; output: { insertedIds: JsonValue[] } }
     'doc.deleteMany': { input: { ns: Namespace; ids: JsonValue[] }; output: { deleted: number } }
+    /** Copies documents to the system clipboard as Extended JSON (relaxed or canonical): one as an
+     *  object, several as an array, in order. Each is copied as the page holds it, unless `reread`
+     *  asks for it to be read again whole by its `_id` from `ns` (a collection), for values the
+     *  page shortened; one no longer there is copied as the page holds it, and counted in `gone`. */
+    'clipboard.copyDocuments': { input: { ns?: Namespace; items: CopyItem[]; relaxed: boolean }; output: { copied: number; reread: number; gone: number } }
     /** Counts what an update many reaches and tries it on one document, saving nothing. */
     'doc.updatePreview': { input: { ns: Namespace; scope: UpdateScope; update: UpdateSpec }; output: UpdatePreview }
     /** Starts `updateMany` on the documents of a scope (these `_id`s, a filter, or the whole

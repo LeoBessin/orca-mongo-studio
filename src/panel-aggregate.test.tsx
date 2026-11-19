@@ -120,6 +120,20 @@ async function openAggregation(host: ReturnType<typeof setup>['host']) {
 const stages = { type: 'Table', label: 'Stages' }
 const value = { type: 'Textarea', label: 'Value' }
 
+describe('aggregation notices', () => {
+  test('Add to query on a pipeline result shows its notice at the top: the tab has no Query Builder', async () => {
+    const { host } = setup()
+    const view = await openAggregation(host)
+    await view.press({ text: 'Run' })
+    await view.press({ text: 'Tree' })
+    const tree = { type: 'Tree', label: 'Documents' }
+    await view.expand(tree, 'r0')
+    await view.selectItem(tree, 'r0/status')
+    await view.press({ text: 'Add to query' })
+    assert.ok(view.find({ text: /^Added status to the Query Builder/ }))
+  })
+})
+
 describe('aggregation tabs', () => {
   test('Aggregate in the tree opens a tab with one $match stage, previewed', async () => {
     const { host, calls } = setup()

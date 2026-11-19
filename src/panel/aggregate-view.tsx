@@ -14,6 +14,7 @@ import {
   read,
   Row,
   Select,
+  Separator,
   Skeleton,
   Switch,
   Table,
@@ -23,6 +24,7 @@ import {
   type OrcaNode
 } from 'orca'
 import { toShell } from '../shared/ejson-view'
+import { arrayText, chunkForHighlight, chunkLabel } from '../shared/code-chunks'
 import { STAGE_OPTIONS, STAGE_TEMPLATES, stageSummary } from '../shared/pipeline'
 import type { PreviewDocs } from '../protocol'
 import {
@@ -58,6 +60,7 @@ import { change, closeTab, collTabs, type AggState, type CollTab } from './colle
 import { ExplainSection } from './explain-view'
 import { changeExplain, runExplain } from './explain-state'
 import { guard } from './guard'
+import { AGGREGATION_PLACES, TabNoticeView } from './notice-view'
 import { Results } from './results-view'
 import { CodeSection } from './shell-view'
 import { PlaceLine } from './place-view'
@@ -106,8 +109,18 @@ function StageList({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
 
 // ---- The selected stage ----
 
-function docsText(p: PreviewDocs): string {
-  return p.docs.length ? toShell(p.docs) : '[]'
+/** The preview's documents in shell syntax, split where Orca's highlighter would stop colouring
+ *  (see code-chunks): usually one view. */
+function PreviewCode({ label, p }: { label: string; p: PreviewDocs }): OrcaNode {
+  if (!p.docs.length) return <CodeView label={label} code="[]" language="javascript" maxHeight="md" />
+  const chunks = chunkForHighlight(p.docs.map((d) => toShell(d)))
+  return (
+    <>
+      {chunks.map((c) => (
+        <CodeView key={c.from} label={chunkLabel(label, c, 0, chunks.length)} code={arrayText(c.texts)} language="javascript" maxHeight="md" />
+      ))}
+    </>
+  )
 }
 
 function countLine(p: PreviewDocs, what: string): string {
@@ -144,7 +157,7 @@ function Preview({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
             <Text size="xs" muted>{countLine(docs, side === 'output' ? 'Output' : 'Input')}</Text>
             <Text size="xs" muted>{p.loading ? 'Updating…' : `${r!.ms.toLocaleString('en-US')} ms`}</Text>
           </Row>
-          <CodeView label={side === 'output' ? 'Stage output' : 'Stage input'} code={docsText(docs)} language="javascript" maxHeight="md" />
+          <PreviewCode label={side === 'output' ? 'Stage output' : 'Stage input'} p={docs} />
         </Box>
       ) : null}
     </Box>
@@ -197,9 +210,10 @@ function CreateView({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   return (
     <Collapsible title="Create a view" description={`A read-only view on ${t.ns.collection} from this pipeline`} open={a.viewOpen} onChange={(open) => changeAgg(t.id, () => ({ viewOpen: open }))}>
       <Box gap="sm">
+        <TabNoticeView id={t.id} at="view" places={AGGREGATION_PLACES} />
         <Row gap="xs" align="end">
-          <Input label="View name" placeholder="shipped_orders" value={a.viewName} onChange={(v) => changeAgg(t.id, () => ({ viewName: v }))} onSubmit={() => void guard(t.id, () => createViewFromPipeline(t.id))()} />
-          <Button icon="add" disabled={!a.viewName.trim()} onPress={guard(t.id, () => createViewFromPipeline(t.id))}>Create view</Button>
+          <Input label="View name" placeholder="shipped_orders" value={a.viewName} onChange={(v) => changeAgg(t.id, () => ({ viewName: v }))} onSubmit={() => void guard(t.id, () => createViewFromPipeline(t.id), 'view')()} />
+          <Button icon="add" disabled={!a.viewName.trim()} onPress={guard(t.id, () => createViewFromPipeline(t.id), 'view')}>Create view</Button>
         </Row>
         <Text size="xs" muted>{`The view is created in ${t.ns.db} with the stages that are on. It runs the pipeline each time it is read.`}</Text>
         {a.created ? (
@@ -219,9 +233,10 @@ function Saved({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   return (
     <Collapsible title="Saved pipelines" description={`${saved.length} saved`}>
       <Box gap="sm">
+        <TabNoticeView id={t.id} at="library" places={AGGREGATION_PLACES} />
         <Row gap="xs" align="end">
-          <Input label="Save this pipeline as" placeholder="Name" value={a.saveName} onChange={(v) => changeAgg(t.id, () => ({ saveName: v }))} onSubmit={() => void guard(t.id, () => savePipeline(t.id))()} />
-          <Button icon="star" disabled={!a.saveName.trim()} onPress={guard(t.id, () => savePipeline(t.id))}>Save</Button>
+          <Input label="Save this pipeline as" placeholder="Name" value={a.saveName} onChange={(v) => changeAgg(t.id, () => ({ saveName: v }))} onSubmit={() => void guard(t.id, () => savePipeline(t.id), 'library')()} />
+          <Button icon="star" disabled={!a.saveName.trim()} onPress={guard(t.id, () => savePipeline(t.id), 'library')}>Save</Button>
         </Row>
         <Table
           label="Saved pipelines"
@@ -240,7 +255,7 @@ function Saved({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
         />
         <Toolbar label="Saved pipeline actions" gap="xs">
           <Button size="sm" icon="download" disabled={!sel} onPress={guard(t.id, () => loadSavedPipeline(t.id, sel!.name))}>Load</Button>
-          <Button size="sm" icon="delete" variant="ghost" tone="danger" disabled={!sel} onPress={guard(t.id, () => deleteSavedPipeline(t.id, sel!.name))}>Delete</Button>
+          <Button size="sm" icon="delete" variant="ghost" tone="danger" disabled={!sel} onPress={guard(t.id, () => deleteSavedPipeline(t.id, sel!.name), 'library')}>Delete</Button>
         </Toolbar>
       </Box>
     </Collapsible>
@@ -254,8 +269,10 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
   const a = t?.agg
   if (!t || !a) return null
   const on = a.stages.filter((s) => s.enabled).length
+  // Sections: the header, what runs the pipeline (with its notice), the stages, the results, then
+  // the sections that open on demand.
   return (
-    <Box gap="sm">
+    <Box gap="md">
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>{aggTitle(t)}</Text>
@@ -267,37 +284,34 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
         </Box>
         <IconButton icon="close" label={`Close ${t.title}`} variant="ghost" size="sm" onPress={() => closeTab(t.id)} />
       </Row>
-      <Toolbar label="Pipeline actions" gap="xs">
-        <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runPipeline(t.id))}>
-          {t.loading ? 'Running…' : 'Run'}
-        </Button>
-        <Button icon="gauge" variant="ghost" onPress={guard(t.id, async () => {
-          changeExplain(t.id, { open: true })
-          await runExplain(t.id)
-        })}>Explain</Button>
-        {a.textMode ? null : <Button icon="code" variant="ghost" onPress={() => editAsText(t.id)}>Edit as text</Button>}
-        {a.textMode ? null : <IconButton icon="download" label="Export the results: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportPipeline(t.id))} />}
-      </Toolbar>
-      <Switch label="Allow disk use (for big $group and $sort stages)" checked={a.allowDiskUse} onChange={(v) => void guard(t.id, () => setAllowDiskUse(t.id, v))()} />
-      {a.confirmWrite ? (
-        <Callout tone="danger" icon="warning" title={`Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`}>
-          <Box gap="sm">
-            <Text>{`${a.confirmWrite.stage === '$out' ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}${a.confirmWrite.exists === false ? ' It does not exist yet.' : typeof a.confirmWrite.count === 'number' ? ` It holds ${a.confirmWrite.count.toLocaleString('en-US')} document${a.confirmWrite.count === 1 ? '' : 's'} now${a.confirmWrite.stage === '$out' ? ', all replaced' : ''}.` : ''}`}</Text>
-            <Row gap="xs">
-              <Button variant="solid" tone="danger" onPress={guard(t.id, () => runPipeline(t.id, true))}>Run and write</Button>
-              <Button variant="ghost" onPress={() => cancelWrite(t.id)}>Cancel</Button>
-            </Row>
-          </Box>
-        </Callout>
-      ) : null}
-      {t.notice ? (
-        <Callout tone={t.notice.tone} icon={t.notice.tone === 'danger' ? 'error' : t.notice.tone === 'success' ? 'check' : 'info'}>
-          <Row justify="between" align="center">
-            <Text>{t.notice.text}</Text>
-            <IconButton icon="close" label="Dismiss" variant="ghost" size="xs" onPress={() => change(t.id, () => ({ notice: undefined }))} />
-          </Row>
-        </Callout>
-      ) : null}
+      <Box gap="sm">
+        <Toolbar label="Pipeline actions" gap="xs">
+          <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runPipeline(t.id))}>
+            {t.loading ? 'Running…' : 'Run'}
+          </Button>
+          <Button icon="gauge" variant="ghost" onPress={guard(t.id, async () => {
+            changeExplain(t.id, { open: true })
+            await runExplain(t.id)
+          })}>Explain</Button>
+          {a.textMode ? null : <Button icon="code" variant="ghost" onPress={() => editAsText(t.id)}>Edit as text</Button>}
+          {a.textMode ? null : <IconButton icon="download" label="Export the results: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportPipeline(t.id))} />}
+        </Toolbar>
+        <Switch label="Allow disk use (for big $group and $sort stages)" checked={a.allowDiskUse} onChange={(v) => void guard(t.id, () => setAllowDiskUse(t.id, v))()} />
+        {a.confirmWrite ? (
+          <Callout tone="danger" icon="warning" title={`Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`}>
+            <Box gap="sm">
+              <Text>{`${a.confirmWrite.stage === '$out' ? `$out replaces everything in ${a.confirmWrite.target} with this pipeline's results.` : `$merge writes this pipeline's results into ${a.confirmWrite.target}.`}${a.confirmWrite.exists === false ? ' It does not exist yet.' : typeof a.confirmWrite.count === 'number' ? ` It holds ${a.confirmWrite.count.toLocaleString('en-US')} document${a.confirmWrite.count === 1 ? '' : 's'} now${a.confirmWrite.stage === '$out' ? ', all replaced' : ''}.` : ''}`}</Text>
+              <Row gap="xs">
+                <Button variant="solid" tone="danger" onPress={guard(t.id, () => runPipeline(t.id, true))}>Run and write</Button>
+                <Button variant="ghost" onPress={() => cancelWrite(t.id)}>Cancel</Button>
+              </Row>
+            </Box>
+          </Callout>
+        ) : null}
+        <TabNoticeView id={t.id} at="top" places={AGGREGATION_PLACES} />
+        {t.error ? <Callout tone="danger" icon="error" title="The pipeline failed">{t.error}</Callout> : null}
+      </Box>
+      <Separator />
       {a.textMode ? (
         <TextEditor t={t} a={a} />
       ) : (
@@ -306,13 +320,22 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
           <StageEditor t={t} a={a} />
         </Box>
       )}
-      {t.error ? <Callout tone="danger" icon="error" title="The pipeline failed">{t.error}</Callout> : null}
-      {t.page || t.loading ? <Text weight="semibold">Results</Text> : null}
-      <Results t={t} />
-      <ExplainSection t={t} />
-      <CreateView t={t} a={a} />
-      <Saved t={t} a={a} />
-      <CodeSection op={aggOperation(t)} description="The stages that are on, as driver code." emptyText="A stage does not parse yet: fix it to see its code." />
+      {t.page || t.loading ? <Separator /> : null}
+      <Box gap="sm">
+        {t.page || t.loading ? <Text weight="semibold">Results</Text> : null}
+        <Results t={t} />
+        <TabNoticeView id={t.id} at="results" places={AGGREGATION_PLACES} />
+      </Box>
+      <Separator />
+      <Box gap="sm">
+        <ExplainSection t={t} />
+        <Separator />
+        <CreateView t={t} a={a} />
+        <Separator />
+        <Saved t={t} a={a} />
+        <Separator />
+        <CodeSection op={aggOperation(t)} description="The stages that are on, as driver code." emptyText="A stage does not parse yet: fix it to see its code." />
+      </Box>
     </Box>
   )
 }
