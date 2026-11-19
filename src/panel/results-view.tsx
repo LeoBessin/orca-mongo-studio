@@ -63,7 +63,8 @@ import {
 } from './collection-state'
 import { copyToClipboard } from './data-state'
 import { guardAt } from './guard'
-import { arrayText, chunkForHighlight, chunkLabel } from '../shared/code-chunks'
+import { arrayText, chunkForHighlight, chunkLabel, shortenLongStrings } from '../shared/code-chunks'
+import { LongValues } from './long-values-view'
 
 // Errors from acting on results show under the results, where the action was pressed.
 const guard = guardAt('results')
@@ -278,8 +279,11 @@ function ResultTree({ t }: { t: CollTab }): OrcaNode {
 
 function ResultJson({ t }: { t: CollTab }): OrcaNode {
   const docs = t.page?.docs ?? []
-  // Split where Orca's highlighter would stop colouring (see code-chunks): usually one view.
-  const chunks = chunkForHighlight(docs.map((d) => toJsonText(d, t.relaxed)))
+  // Long strings are shortened for display, and what is left is split where Orca's highlighter
+  // would stop colouring (see code-chunks): usually one view.
+  const short = shortenLongStrings(docs)
+  const shown = t.fullValues ? docs : short.value
+  const chunks = chunkForHighlight(shown.map((d) => toJsonText(d, t.relaxed)))
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between" wrap>
@@ -291,6 +295,7 @@ function ResultJson({ t }: { t: CollTab }): OrcaNode {
       {chunks.map((c) => (
         <CodeView key={c.from} label={chunkLabel('Documents as Extended JSON', c, t.page?.offset ?? 0, chunks.length)} code={arrayText(c.texts)} language="json" lineNumbers maxHeight="lg" />
       ))}
+      <LongValues count={short.count} full={Boolean(t.fullValues)} onChange={(fullValues) => change(t.id, () => ({ fullValues }))} />
     </Box>
   )
 }

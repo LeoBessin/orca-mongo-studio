@@ -3,6 +3,8 @@
 // the same CodeView stays plain; it also leaves anything past the first 50,000 characters plain.
 // Each chunk stays under that size, and a document with a long line ends its chunk, so only that
 // document loses colour after its long line and the documents after it start fresh.
+// shortenLongStrings keeps such lines from happening in the first place, for display.
+import { setOwn } from './ejson-view'
 
 /** Orca's highlighter: the longest line it tokenizes, and how much of a CodeView it highlights. */
 export const HIGHLIGHT_LINE_MAX = 1000
@@ -74,4 +76,36 @@ export function chunkLabel(what: string, chunk: CodeChunk, offset: number, count
   const first = offset + chunk.from + 1
   const last = first + chunk.texts.length - 1
   return first === last ? `${what}: document ${first.toLocaleString('en-US')}` : `${what}: documents ${first.toLocaleString('en-US')}–${last.toLocaleString('en-US')}`
+}
+
+/** The longest string shown whole in a code view, and how much of a longer one is kept. Well under
+ *  the line Orca highlights, with room for the key and indentation. */
+export const LONG_STRING = 300
+const KEEP = 120
+
+/** A copy of the value for display, each string past LONG_STRING characters cut to its start
+ *  followed by how much was left out, inside the string so the code stays valid. One long line
+ *  (a base64 polyline, an encoded blob) would otherwise leave the rest of the view unhighlighted.
+ *  `count` is how many strings were shortened. */
+export function shortenLongStrings<T>(v: T): { value: T; count: number } {
+  let count = 0
+  const walk = (x: unknown): unknown => {
+    if (typeof x === 'string') {
+      if (x.length <= LONG_STRING) return x
+      // Counted in characters, not UTF-16 units, so a cut never splits an emoji.
+      const left = [...x]
+      if (left.length <= LONG_STRING) return x
+      count++
+      return `${left.slice(0, KEEP).join('')}… [${(left.length - KEEP).toLocaleString('en-US')} more characters]`
+    }
+    if (Array.isArray(x)) return x.map(walk)
+    if (x !== null && typeof x === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [k, val] of Object.entries(x)) setOwn(out, k, walk(val))
+      return out
+    }
+    return x
+  }
+  const value = walk(v) as T
+  return { value, count }
 }

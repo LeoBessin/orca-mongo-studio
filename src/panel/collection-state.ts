@@ -63,6 +63,8 @@ export type DocFocus = {
   deleted?: boolean
   view: DocView
   relaxed: boolean
+  /** Long strings shown whole in the JSON and Shell views, instead of shortened. */
+  fullValues?: boolean
   expanded: string[]
   selected?: string
 }
@@ -176,6 +178,8 @@ export type CollTab = {
   saveName: string
   librarySelected?: string
   notice?: TabNotice
+  /** Long strings shown whole in the JSON results, instead of shortened. */
+  fullValues?: boolean
   /** Results of a shell run, paged from the worker instead of a query. */
   shell?: { runId: string; index: number }
   /** An aggregation tab: results come from its pipeline. */

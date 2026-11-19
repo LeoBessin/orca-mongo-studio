@@ -165,6 +165,21 @@ describe('Copy as JSON', () => {
     assert.ok(view.find({ text: 'Copied 1 document as JSON.' }))
   })
 
+  test('an open document shortens long strings so it stays highlighted, and shows them on demand', async () => {
+    const poly = 'BG06m79C0z24M7'.repeat(300)
+    const { host } = setup({ 'doc.get': () => ({ doc: { ...orders[0]!, flexipoly: [poly] } }) })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ type: 'Button', text: 'Open' })
+    await view.press({ text: 'JSON' })
+    const code = (): string => view.find({ type: 'CodeView', label: 'Document as Extended JSON' })!.props.code as string
+    assert.equal(code().includes(poly), false)
+    assert.ok(code().includes('… [4,080 more characters]'))
+    assert.ok(view.find({ text: /^1 long value is shortened here so the rest stays highlighted/ }))
+    await view.toggle({ label: 'Show long values in full' })
+    assert.ok(code().includes(poly))
+  })
+
   test('the JSON view copies the whole page', async () => {
     const extra = shortened()
     const copies = (extra as unknown as { copies: { items: unknown[] }[] }).copies

@@ -27,6 +27,8 @@ import {
 } from './collection-state'
 import { guard } from './guard'
 import { PlaceLine } from './place-view'
+import { LongValues } from './long-values-view'
+import { shortenLongStrings } from '../shared/code-chunks'
 
 const VIEWS = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value: value as DocView, label }))
 
@@ -85,11 +87,23 @@ function DocTree({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): O
 
 function DocBody({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): OrcaNode {
   if (f.view === 'tree') return <DocTree t={t} f={f} doc={doc} />
-  if (f.view === 'shell') return <CodeView label="Document in shell syntax" code={toShell(doc)} language="javascript" lineNumbers maxHeight="lg" />
+  // Long strings are shortened for display, so a long line does not leave the rest plain.
+  const short = shortenLongStrings(doc)
+  const shown = f.fullValues ? doc : short.value
+  const longValues = <LongValues count={short.count} full={Boolean(f.fullValues)} onChange={(fullValues) => setFocus(t.id, { fullValues })} />
+  if (f.view === 'shell') {
+    return (
+      <Box gap="xs">
+        <CodeView label="Document in shell syntax" code={toShell(shown)} language="javascript" lineNumbers maxHeight="lg" />
+        {longValues}
+      </Box>
+    )
+  }
   return (
     <Box gap="xs">
       <Switch label="Relaxed Extended JSON" checked={f.relaxed} onChange={(relaxed) => setFocus(t.id, { relaxed })} />
-      <CodeView label="Document as Extended JSON" code={toJsonText(doc, f.relaxed)} language="json" lineNumbers maxHeight="lg" />
+      <CodeView label="Document as Extended JSON" code={toJsonText(shown, f.relaxed)} language="json" lineNumbers maxHeight="lg" />
+      {longValues}
     </Box>
   )
 }
