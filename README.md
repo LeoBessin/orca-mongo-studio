@@ -46,7 +46,8 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 - A tree of databases, collections, views, time-series collections, GridFS buckets, indexes,
   users and roles, with counts, sizes and a filter.
 - One tab per collection. The query bar takes filter, projection, sort, collation, skip and limit
-  in mongo shell syntax. Every tab names, under its title, the connection
+  in mongo shell syntax, says what doesn't parse as you type, and formats a long filter onto
+  several lines (Ctrl+Enter or Cmd+Enter runs it). Every tab names, under its title, the connection
   it works on, and for a copy, an import or a comparison, each side it reads and writes
   (`From: Prod › shop.orders · Into: Dev › shop.orders`).
 - Tabs, their queries and pipelines, and the tree's open nodes come back when you return to the

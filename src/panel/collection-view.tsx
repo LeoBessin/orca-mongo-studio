@@ -14,6 +14,7 @@ import {
   Select,
   Table,
   Text,
+  Textarea,
   Toolbar,
   type OrcaNode
 } from 'orca'
@@ -29,6 +30,9 @@ import {
   applyBuilder,
   change,
   clearHistory,
+  compactField,
+  formatField,
+  isMultiline,
   closeTab,
   collTabs,
   deleteSaved,
@@ -62,9 +66,33 @@ import { PlaceLine } from './place-view'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
+  const run = (): void => void guard(t.id, () => runQuery(t.id))()
+  const doc = field !== 'skip' && field !== 'limit'
+  if (!doc) {
+    return (
+      <Field label={label} {...(error ? { error } : {})}>
+        <Input label={label} labelHidden placeholder={placeholder} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
+      </Field>
+    )
+  }
+  const multi = isMultiline(t, field)
+  const rows = Math.min(12, Math.max(3, t.text[field].split('\n').length))
   return (
-    <Field label={label} {...(error ? { error } : {})}>
-      <Input label={label} labelHidden placeholder={placeholder} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={() => void guard(t.id, () => runQuery(t.id))()} />
+    <Field label={label} {...(error ? { error } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
+      <Box direction="row" gap="xs" align="start">
+        <Box grow>
+          {multi ? (
+            <Textarea label={label} labelHidden placeholder={placeholder} rows={rows} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
+          ) : (
+            <Input label={label} labelHidden placeholder={placeholder} value={t.text[field]} invalid={Boolean(error)} onChange={(v) => setText(t.id, field, v)} onSubmit={run} />
+          )}
+        </Box>
+        {multi ? (
+          <IconButton icon="collapse" label={`Put the ${label.toLowerCase()} on one line`} variant="ghost" size="sm" onPress={() => compactField(t.id, field)} />
+        ) : (
+          <IconButton icon="code" label={`Format the ${label.toLowerCase()} on several lines`} variant="ghost" size="sm" disabled={!t.text[field].trim()} onPress={() => formatField(t.id, field)} />
+        )}
+      </Box>
     </Field>
   )
 }

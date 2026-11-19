@@ -11,6 +11,7 @@ import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type Builde
 import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
+import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { followJob, type JobBox } from './data-state'
@@ -138,6 +139,8 @@ export type CollTab = {
   readOnly: boolean
   text: QueryText
   fieldErrors: Partial<Record<QueryField, string>>
+  /** Fields shown as several lines after Format; a field whose text has a line break is too. */
+  multiline: Partial<Record<QueryField, boolean>>
   pageSize: number
   /** The query as last run: paging and counting use it, not what is typed now. */
   spec?: QuerySpec
@@ -290,6 +293,7 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     readOnly: kind === 'view',
     text: { ...emptyText },
     fieldErrors: {},
+    multiline: {},
     pageSize: read(defaultPageSize),
     loading: false,
     runToken: 0,
@@ -399,9 +403,63 @@ export function askDeleteFocused(id: string): void {
 export function setText(id: string, field: QueryField, value: string): void {
   change(id, (t) => {
     const fieldErrors = { ...t.fieldErrors }
-    delete fieldErrors[field]
+    const problem = liveProblem(field, value)
+    if (problem) fieldErrors[field] = problem
+    else delete fieldErrors[field]
     return { text: { ...t.text, [field]: value }, fieldErrors }
   })
+}
+
+/** Parse errors that read as unfinished typing: a bracket, string or value not there yet. Shown
+ *  when the query runs, not while it is typed. */
+const UNFINISHED = /never closed|the text ended|^Expected a key after ","/
+
+/** The error to show while a field is typed: what running it would say, unless the text only
+ *  looks unfinished. */
+export function liveProblem(field: QueryField, value: string, now = Date.now()): string | undefined {
+  const error = specFromText({ ...emptyText, [field]: value }, now).errors[field]
+  if (!error) return undefined
+  if (field !== 'skip' && field !== 'limit') {
+    try {
+      parseShellDocument(value, FIELD_NAMES[field], { now })
+    } catch (e) {
+      if (e instanceof ShellParseError && UNFINISHED.test(e.reason)) return undefined
+    }
+  }
+  return error
+}
+
+export function isMultiline(t: CollTab, field: QueryField): boolean {
+  return Boolean(t.multiline[field]) || t.text[field].includes('\n')
+}
+
+/** Pretty-prints a field onto several lines and keeps it as a multi-line box. */
+export function formatField(id: string, field: QueryField): void {
+  change(id, (t) => {
+    const formatted = formatQuery(t.text[field])
+    if (formatted === undefined) return { multiline: { ...t.multiline, [field]: true }, fieldErrors: { ...t.fieldErrors, [field]: unbalanced(field, t.text[field]) } }
+    const fieldErrors = { ...t.fieldErrors }
+    const problem = liveProblem(field, formatted)
+    if (problem) fieldErrors[field] = problem
+    else delete fieldErrors[field]
+    return { text: { ...t.text, [field]: formatted }, multiline: { ...t.multiline, [field]: true }, fieldErrors }
+  })
+}
+
+/** Puts a field back on one line, as a single-line box. */
+export function compactField(id: string, field: QueryField): void {
+  change(id, (t) => {
+    const compact = compactQuery(t.text[field])
+    if (compact === undefined) return { fieldErrors: { ...t.fieldErrors, [field]: `${unbalanced(field, t.text[field])} Close it before putting it on one line.` } }
+    const multiline = { ...t.multiline }
+    delete multiline[field]
+    return { text: { ...t.text, [field]: compact }, multiline }
+  })
+}
+
+/** Why Format could not read a field: the parser's message, which says what is not closed. */
+function unbalanced(field: QueryField, value: string): string {
+  return specFromText({ ...emptyText, [field]: value }).errors[field] ?? 'A bracket, string or comment is not closed.'
 }
 
 const FIELD_NAMES: Record<QueryField, string> = { filter: 'filter', projection: 'projection', sort: 'sort', collation: 'collation', skip: 'skip', limit: 'limit' }
@@ -586,7 +644,7 @@ export function currentSort(t: CollTab): { column: string; direction: 'asc' | 'd
 }
 
 export function resetQuery(id: string): Promise<void> {
-  patch(id, { text: { ...emptyText }, fieldErrors: {} })
+  patch(id, { text: { ...emptyText }, fieldErrors: {}, multiline: {} })
   return runQuery(id)
 }
 
