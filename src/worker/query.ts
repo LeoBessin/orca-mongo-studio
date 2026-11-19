@@ -7,7 +7,7 @@ import { BSON, type AbstractCursor, type Collection, type Document, type MongoCl
 import type { AggOptions, CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
 import { hasWriteStage } from '../shared/pipeline'
 import { base64Length, bsonType, isObject, type JsonObject, type JsonValue } from '../shared/ejson-view'
-import { fitsHost, HOST_MAX_BYTES, HOST_MAX_OBJECTS, hostSize } from '../shared/host-size'
+import { fitsHost, HOST_MAX_BYTES, HOST_MAX_OBJECTS, hostSize, QUERY_TEXT_MAX } from '../shared/host-size'
 import type { JsonValue as WorkerJson, OrcaWorkerApi } from 'orca/worker'
 
 const { EJSON } = BSON
@@ -485,7 +485,7 @@ export async function deleteDocuments(client: MongoClient, ns: Namespace, ids: J
 // ---- History and saved queries ----
 
 const HISTORY_MAX = 50
-const TEXT_MAX = 4000
+const TEXT_MAX = QUERY_TEXT_MAX
 /** Orca refuses a storage value past 256 KiB; history gives way first. */
 const LIBRARY_MAX_BYTES = 200 * 1024
 

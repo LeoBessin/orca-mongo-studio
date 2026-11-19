@@ -52,3 +52,7 @@ export function fitsHost(value: unknown, share = 0.9): boolean {
   const s = hostSize(value)
   return s.bytes <= HOST_MAX_BYTES * share && s.objects <= HOST_MAX_OBJECTS * share && s.depth < HOST_MAX_DEPTH - 5
 }
+
+/** The longest query field the history and saved queries keep; the worker cuts longer text,
+ *  which would then no longer parse. */
+export const QUERY_TEXT_MAX = 4000

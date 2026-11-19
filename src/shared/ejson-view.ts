@@ -78,6 +78,13 @@ export function isTruncated(v: JsonValue | undefined): v is Truncated {
   return isObject(v) && isObject(v.$msTruncated) && Object.keys(v).length === 1
 }
 
+/** Whether a value, or anything inside it, was cut short for a results page. */
+export function hasTruncated(v: JsonValue | undefined): boolean {
+  if (isTruncated(v)) return true
+  if (Array.isArray(v)) return v.some(hasTruncated)
+  return isObject(v) && Object.values(v).some(hasTruncated)
+}
+
 /** The type of a canonical Extended JSON value; plain JSON numbers read as the shell stores them. */
 export function bsonType(v: JsonValue): BsonType {
   if (v === null) return 'null'

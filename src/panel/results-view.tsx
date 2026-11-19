@@ -21,7 +21,9 @@ import {
   type TableRow,
   type TreeItem
 } from 'orca'
-import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, valueAt, valueText, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, toShellInline, valueAt, valueText, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { QUERY_TEXT_MAX } from '../shared/host-size'
+import { filterablePath, filterFromRows, projectionKeeps } from '../shared/table-filter'
 import {
   addField,
   addToQuery,
@@ -29,12 +31,14 @@ import {
   canUpdateMany,
   dropBulkPreview,
   openUpdateMany,
+  canFilterBySelection,
   canOpenDocuments,
   change,
   cloneDocument,
   currentSort,
   editDocument,
   editField,
+  filterBySelection,
   goToPage,
   nextPage,
   openDocument,
@@ -50,6 +54,7 @@ import {
   setPageSize,
   setResultView,
   sortBy,
+  toggleFilterColumn,
   treeKey,
   type CollTab,
   type Path,
@@ -151,9 +156,11 @@ function cellValue(doc: JsonObject, column: ResultColumn): JsonValue | undefined
   return v !== undefined && isObject(v) && bsonType(v) === 'object' ? v[column.sub] : undefined
 }
 
-function ResultTable({ t }: { t: CollTab }): OrcaNode {
+type Columns = ReturnType<typeof tableColumns>
+
+function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const docs = t.page?.docs ?? []
-  const { columns: shown, total } = tableColumns(t)
+  const { columns: shown, total } = cols
   const colKeys = columnKeys(shown)
   const columns: TableColumn[] = shown.map((c, i) => ({ key: colKeys[i]!, label: c.name || '(empty name)', sortable: true, minWidth: c.field === '_id' ? 'md' : 'sm' }))
   const keys = rowKeys(docs)
@@ -176,7 +183,7 @@ function ResultTable({ t }: { t: CollTab }): OrcaNode {
         columns={columns}
         rows={rows}
         {...(sort ? { sort } : {})}
-        selectionMode={t.readOnly ? 'single' : 'multiple'}
+        selectionMode={canFilterBySelection(t) ? 'multiple' : 'single'}
         selected={t.selectedRows}
         loading={t.loading}
         emptyText="No documents match."
@@ -287,9 +294,18 @@ function OpenButtons({ t, doc }: { t: CollTab; doc: JsonObject | undefined }): O
   )
 }
 
-function TableActions({ t }: { t: CollTab }): OrcaNode {
+function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const docs = selectedDocs(t)
-  if (docs.length === 0) return <Text muted size="xs">{t.readOnly ? (canOpenDocuments(t) ? 'Select a row to open it. Enter on a row opens it.' : 'Select a row to look at it in the Tree view.') : 'Select rows to open, edit, clone or delete. Enter on a row edits it.'}</Text>
+  if (docs.length === 0) {
+    // Filtering goes with opening: both need the tab's own query (not shell results or a
+    // pipeline), and every tab that can edit has one.
+    const hint = !t.readOnly
+      ? 'Select rows to open, edit, clone, delete or filter by. Enter on a row edits it.'
+      : canFilterBySelection(t)
+        ? 'Select a row to open it, or rows to filter by. Enter on a row opens it.'
+        : 'Select a row to look at it in the Tree view.'
+    return <Text muted size="xs">{hint}</Text>
+  }
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
   const copy = hasId && !t.shell ? (
@@ -300,14 +316,17 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
   ) : null
   if (t.readOnly) {
     return (
-      <Toolbar label="Row actions" gap="xs">
-        <OpenButtons t={t} doc={one} />
-        {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
-              const key = treeKey(t.page!.docs.indexOf(one), [])
-              setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
-            }}>Show in Tree</Button> : null}
-        {copy}
-      </Toolbar>
+      <Box gap="xs">
+        <Toolbar label="Row actions" gap="xs">
+          <OpenButtons t={t} doc={one} />
+          {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
+                const key = treeKey(t.page!.docs.indexOf(one), [])
+                setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
+              }}>Show in Tree</Button> : null}
+          {copy}
+        </Toolbar>
+        <FilterBySelection t={t} docs={docs} cols={cols} />
+      </Box>
     )
   }
   // Orca refuses a Select option with an empty value, and $set can't name an empty field either.
@@ -335,6 +354,53 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
         </Row>
       ) : null}
       {!hasId ? <Text muted size="xs">Documents without an _id (from a projection or a view) can't be edited here.</Text> : null}
+      <FilterBySelection t={t} docs={docs} cols={cols} />
+    </Box>
+  )
+}
+
+/** The longest filter shown before it is cut short; the filter run is the whole of it. */
+const FILTER_PREVIEW_MAX = 300
+
+/** Filter by the selected rows: pick columns, and their values in those rows become the filter,
+ *  an equality per column or an `$in` where the rows differ. Orca's Table selects rows, not
+ *  cells, so the columns are picked here. */
+function FilterBySelection({ t, docs, cols }: { t: CollTab; docs: JsonObject[]; cols: Columns }): OrcaNode {
+  if (!canFilterBySelection(t)) return null
+  const options = cols.columns.filter(filterablePath)
+  if (!options.length) return null
+  // The page shows what the projection returned, but the filter matches stored documents: a
+  // column the projection changes would build a filter that misses the rows it came from.
+  const usable = (c: ResultColumn): boolean => projectionKeeps(t.spec?.projection, c.name)
+  const chosen = options.filter((c) => t.filterColumns.includes(c.name) && usable(c))
+  const built = chosen.length ? filterFromRows(docs, chosen) : undefined
+  const text = built?.filter ? toShellInline(built.filter) : ''
+  const error = built?.error ?? (text.length > QUERY_TEXT_MAX ? `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.` : undefined)
+  const filter = error ? undefined : built?.filter
+  return (
+    <Box gap="xs">
+      <Row gap="xs" align="end" wrap>
+        <Select
+          label="Filter by"
+          value=""
+          placeholder={chosen.length ? chosen.map((c) => c.name).join(', ') : 'Choose columns…'}
+          options={options.map((c) => ({
+            value: c.name,
+            label: !usable(c) ? `${c.name} (changed by the projection)` : t.filterColumns.includes(c.name) ? `${c.name} (remove)` : c.name,
+            disabled: !usable(c)
+          }))}
+          onChange={(name) => toggleFilterColumn(t.id, name)}
+        />
+        <Button size="sm" icon="filter" variant="ghost" disabled={!filter} onPress={guard(t.id, () => filterBySelection(t.id, filter!, 'replace'))}>Replace filter</Button>
+        <Button size="sm" icon="add" variant="ghost" disabled={!filter} onPress={guard(t.id, () => filterBySelection(t.id, filter!, 'merge'))}>Add to filter</Button>
+      </Row>
+      {error ? (
+        <Text size="xs" tone="danger">{error}</Text>
+      ) : filter ? (
+        <Text size="xs" muted>{text.length > FILTER_PREVIEW_MAX ? `${text.slice(0, FILTER_PREVIEW_MAX - 1)}…` : text}</Text>
+      ) : (
+        <Text size="xs" muted>Choose columns: their values in the selected rows become the filter.</Text>
+      )}
     </Box>
   )
 }
@@ -366,6 +432,8 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
   if (!t.page && t.loading) return <Skeleton lines={6} label="Running the query" />
   if (!t.page) return null
   const p = t.page
+  // Worked out once: the table and its Filter by both use the columns.
+  const cols = t.resultView === 'table' ? tableColumns(t) : undefined
   return (
     <Box gap="sm">
       <Row gap="xs" align="center" justify="between" wrap>
@@ -383,14 +451,14 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
       {p.truncated.length ? <Text size="xs" muted>{`${p.truncated.length} document${p.truncated.length === 1 ? ' has' : 's have'} long values cut short here. Editing loads the whole document.`}</Text> : null}
       {p.docs.length === 0 && !t.loading ? (
         <EmptyState icon="search" title="No documents" description={p.offset > 0 ? 'There are no more results.' : 'Nothing matches this query.'} />
-      ) : t.resultView === 'table' ? (
-        <ResultTable t={t} />
+      ) : cols ? (
+        <ResultTable t={t} cols={cols} />
       ) : t.resultView === 'tree' ? (
         <ResultTree t={t} />
       ) : (
         <ResultJson t={t} />
       )}
-      {p.docs.length && t.resultView === 'table' ? <TableActions t={t} /> : null}
+      {p.docs.length && cols ? <TableActions t={t} cols={cols} /> : null}
       {p.docs.length && t.resultView === 'tree' ? <TreeActions t={t} /> : null}
     </Box>
   )

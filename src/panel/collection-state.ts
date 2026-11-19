@@ -5,12 +5,13 @@ import { atom, plugin, read, set, update } from 'orca'
 import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
 import type { ExplainVerbosity } from '../shared/explain'
 import { hasWriteStage, type StageDraft } from '../shared/pipeline'
-import { bsonType, fieldPaths, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { bsonType, fieldPaths, hasTruncated, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { draftFromValue, valueFromDraft, type FieldDraft } from '../shared/field-edit'
 import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type BuilderProblem, type Group } from '../shared/query-builder'
-import { fitsHost } from '../shared/host-size'
+import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
+import { mergeFilterText } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { followJob, type JobBox } from './data-state'
 import { errorText, nodeIndex, view } from './state'
@@ -154,6 +155,8 @@ export type CollTab = {
   treeSelected?: string
   /** Sub-documents shown as dotted columns in the table. */
   flattened: string[]
+  /** Table columns (dotted names) chosen to filter by the selected rows' values. */
+  filterColumns: string[]
   editor?: Editor
   confirmDelete?: { ids: JsonValue[] }
   bulk?: BulkUpdate
@@ -295,6 +298,7 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     selectedRows: [],
     treeExpanded: [],
     flattened: [],
+    filterColumns: [],
     builder: emptyGroup(),
     builderProblems: [],
     builderOpen: false,
@@ -831,7 +835,7 @@ export function canUpdateMany(t: CollTab): boolean {
 
 /** A page shows long values cut down; such an `_id` would match nothing. */
 function usableId(id: JsonValue): boolean {
-  return !JSON.stringify(id).includes('"$msTruncated"')
+  return !hasTruncated(id)
 }
 
 /** The documents a scope stands for now, or why it can't be used. `skipped`: selected rows
@@ -981,6 +985,43 @@ export function addToQuery(id: string, path: Path, value: JsonValue | undefined)
   const cond = newCondition(field, usable ? 'eq' : 'exists', usable ? toShellInline(value) : '')
   change(id, (t) => ({ builder: { ...t.builder, items: [...t.builder.items, cond] }, builderOpen: true, builderProblems: [] }))
   say(id, 'neutral', `Added ${field} to the Query Builder. Apply it to the filter to run it.`)
+}
+
+/** Whether the table can filter by its selected rows: the tab's own query, which has a filter
+ *  to put them in. Document tabs show no table; shell results and pipelines have no filter. */
+export function canFilterBySelection(t: CollTab): boolean {
+  return canOpenDocuments(t)
+}
+
+export function toggleFilterColumn(id: string, name: string): void {
+  change(id, (t) => ({ filterColumns: t.filterColumns.includes(name) ? t.filterColumns.filter((c) => c !== name) : [...t.filterColumns, name] }))
+}
+
+/** Filter by the selected rows: `filter` (from `filterFromRows`) replaces the filter typed, or
+ *  is ANDed onto it as typed, and the query runs from its first match. */
+export async function filterBySelection(id: string, filter: JsonObject, mode: 'replace' | 'merge'): Promise<void> {
+  const t = tab(id)
+  if (!t) return
+  let text = toShellInline(filter)
+  if (mode === 'merge') {
+    let base: JsonObject
+    try {
+      base = parseShellDocument(t.text.filter, 'filter', { now: Date.now() })
+    } catch (error) {
+      patch(id, { fieldErrors: { ...t.fieldErrors, filter: errorText(error) } })
+      return
+    }
+    const merged = mergeFilterText(t.text.filter, base, filter)
+    if (merged === undefined) return say(id, 'neutral', 'The filter already has these conditions.')
+    text = merged
+  }
+  if (text.length > QUERY_TEXT_MAX) {
+    return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`)
+  }
+  setText(id, 'filter', text)
+  // The new filter matches fewer documents: a skip typed for the old one could pass them all.
+  setText(id, 'skip', '')
+  await runQuery(id)
 }
 
 export async function applyBuilder(id: string): Promise<void> {

@@ -76627,6 +76627,7 @@ function fitsHost(value, share = 0.9) {
   const s2 = hostSize(value);
   return s2.bytes <= HOST_MAX_BYTES * share && s2.objects <= HOST_MAX_OBJECTS * share && s2.depth < HOST_MAX_DEPTH - 5;
 }
+var QUERY_TEXT_MAX = 4e3;
 
 // src/worker/query.ts
 var import_mongodb = __toESM(require_lib2(), 1);
@@ -77047,7 +77048,7 @@ async function deleteDocuments(client, ns, ids) {
   return { deleted: r6.deletedCount };
 }
 var HISTORY_MAX = 50;
-var TEXT_MAX = 4e3;
+var TEXT_MAX = QUERY_TEXT_MAX;
 var LIBRARY_MAX_BYTES = 200 * 1024;
 function libraryKey(ns) {
   const hash = createHash4("sha256").update(`${ns.db}\0${ns.collection}`).digest("hex").slice(0, 20);
