@@ -369,16 +369,18 @@ function idKey(id) {
 
 // src/shared/shell-parse.ts
 var ShellParseError = class extends Error {
-  constructor(message, line, column, offset) {
+  constructor(message, line, column, offset, unfinished = false) {
     super(`${message} (line ${line}, column ${column})`);
     this.line = line;
     this.column = column;
     this.offset = offset;
+    this.unfinished = unfinished;
     this.name = "ShellParseError";
   }
   line;
   column;
   offset;
+  unfinished;
   /** The message without the position. */
   get reason() {
     return this.message.replace(/ \(line \d+, column \d+\)$/, "");
@@ -409,7 +411,8 @@ var Parser = class {
   src;
   options;
   pos = 0;
-  fail(message, at = this.pos) {
+  /** By default an error is unfinished when nothing but blanks follows where the parser stopped. */
+  fail(message, at = this.pos, unfinished = this.src.slice(this.pos).trim() === "") {
     let line = 1;
     let col = 1;
     for (let i = 0; i < at && i < this.src.length; i++) {
@@ -418,7 +421,11 @@ var Parser = class {
         col = 1;
       } else col++;
     }
-    throw new ShellParseError(message, line, col, at);
+    throw new ShellParseError(message, line, col, at, unfinished);
+  }
+  /** Whether the text from `from` is one word or number still being typed: `-`, `1.5e`, `0x`. */
+  typingAt(from) {
+    return /^[A-Za-z0-9_$.+-]*\s*$/.test(this.src.slice(from));
   }
   skip() {
     for (; ; ) {
@@ -428,7 +435,7 @@ var Parser = class {
         while (this.pos < this.src.length && this.src[this.pos] !== "\n") this.pos++;
       } else if (c === "/" && this.src[this.pos + 1] === "*") {
         const end = this.src.indexOf("*/", this.pos + 2);
-        if (end < 0) this.fail("This comment is never closed with */");
+        if (end < 0) this.fail("This comment is never closed with */", this.pos, true);
         this.pos = end + 2;
       } else return;
     }
@@ -476,7 +483,7 @@ var Parser = class {
       const keyAt = this.pos;
       const key2 = this.key();
       this.expect(":");
-      if (Object.prototype.hasOwnProperty.call(out, key2)) this.fail(`The key "${key2}" appears twice`, keyAt);
+      if (Object.prototype.hasOwnProperty.call(out, key2)) this.fail(`The key "${key2}" appears twice`, keyAt, false);
       setOwn(out, key2, this.value());
       const next = this.peek();
       if (next === ",") this.pos++;
@@ -618,13 +625,13 @@ var Parser = class {
   number() {
     const start = this.pos;
     const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity)/.exec(this.src.slice(this.pos));
-    if (!m) this.fail(`Expected a number`, start);
+    if (!m) this.fail(`Expected a number`, start, this.typingAt(start));
     this.pos += m[0].length;
     const text = m[0];
     const sign = text.startsWith("-") ? -1 : 1;
     const body = text.replace(/^[+-]/, "");
     const n2 = /^0[xX]/.test(body) ? sign * parseInt(body.slice(2), 16) : body === "Infinity" ? sign * Infinity : Number(text);
-    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? "")) this.fail(`Unexpected "${this.src[this.pos]}" after the number`);
+    if (/[A-Za-z_$]/.test(this.src[this.pos] ?? "")) this.fail(`Unexpected "${this.src[this.pos]}" after the number`, this.pos, this.typingAt(this.pos));
     if (!/^0[xX]/.test(body) && /[.eE]/.test(body)) return { $numberDouble: doubleText(n2) };
     return numberValue(n2);
   }
@@ -656,7 +663,7 @@ var Parser = class {
     const ctor = CONSTRUCTORS[name];
     if (!ctor) this.fail(`Unknown name "${name}"`, start);
     if (args === null && !ctor.bare) this.fail(`${name} needs arguments, as in ${ctor.example}`, start);
-    return ctor.build(args ?? [], (msg) => this.fail(msg, start), this.options, isNew);
+    return ctor.build(args ?? [], (msg) => this.fail(msg, start, false), this.options, isNew);
   }
   args() {
     this.pos++;
@@ -674,7 +681,7 @@ var Parser = class {
         const signed = c === "-" || c === "+" || c === "." || c !== void 0 && c >= "0" && c <= "9";
         if (signed) {
           const m = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/.exec(this.src.slice(this.pos));
-          if (!m) this.fail("Expected a number");
+          if (!m) this.fail("Expected a number", this.pos, this.typingAt(this.pos));
           this.pos += m[0].length;
           out.push({ kind: "number", text: m[0], at });
         } else out.push({ kind: "value", value: this.value(), at });
@@ -1035,8 +1042,8 @@ function stagesFromPipeline(pipeline) {
   return { stages };
 }
 function bodyText(v) {
-  const inline = toShellInline(v);
-  return inline.length <= 60 ? inline : toShell(v);
+  const inline2 = toShellInline(v);
+  return inline2.length <= 60 ? inline2 : toShell(v);
 }
 function parsePipelineText(text, now = Date.now()) {
   if (!text.trim()) return { stages: [] };
@@ -1478,7 +1485,7 @@ function fieldConditions(field, value) {
 }
 function filterToItems(filter2, depth) {
   if (depth > 6) return null;
-  const items = [];
+  const items2 = [];
   for (const [k, v] of Object.entries(filter2)) {
     if (k === "$and" || k === "$or") {
       if (!Array.isArray(v) || v.length === 0) return null;
@@ -1490,22 +1497,22 @@ function filterToItems(filter2, depth) {
         if (sub.length === 1 || group.join === "and") group.items.push(...sub);
         else group.items.push({ kind: "group", id: newId("g"), join: "and", items: sub });
       }
-      items.push(group);
+      items2.push(group);
     } else if (k.startsWith("$")) {
       return null;
     } else {
       const conds = fieldConditions(k, v);
       if (!conds) return null;
-      items.push(...conds);
+      items2.push(...conds);
     }
   }
-  return items;
+  return items2;
 }
 function filterToBuilder(filter2) {
-  const items = filterToItems(filter2, 0);
-  if (!items) return null;
-  if (items.length === 1 && items[0].kind === "group") return items[0];
-  return { kind: "group", id: newId("g"), join: "and", items };
+  const items2 = filterToItems(filter2, 0);
+  if (!items2) return null;
+  if (items2.length === 1 && items2[0].kind === "group") return items2[0];
+  return { kind: "group", id: newId("g"), join: "and", items: items2 };
 }
 function mapGroup(root, id, change2) {
   if (root.id === id) return change2(root);
@@ -1790,6 +1797,254 @@ function lex(src, from, stopAtUnmatchedBrace, keepComments) {
 }
 function tokenize(src, options4 = {}) {
   return lex(src, 0, false, options4.comments === true).tokens;
+}
+
+// src/shared/query-format.ts
+var PAIRS = { "{": "}", "[": "]", "(": ")" };
+var CLOSERS = /* @__PURE__ */ new Set(["}", "]", ")"]);
+var FORMAT_WIDTH = 60;
+function isGroup(n2) {
+  return n2 !== void 0 && "children" in n2;
+}
+function isComment(n2) {
+  return n2 !== void 0 && !isGroup(n2) && n2.type === "comment";
+}
+function isPunct(n2, ...values) {
+  return n2 !== void 0 && !isGroup(n2) && n2.type === "punct" && values.includes(n2.value);
+}
+var Refused = class {
+  constructor(problem, at) {
+    this.problem = problem;
+    this.at = at;
+  }
+  problem;
+  at;
+};
+function tree(text) {
+  const root = [];
+  const stack = [{ group: null, nodes: root }];
+  for (const t of tokenize(text, { comments: true })) {
+    if (t.open) {
+      const what = t.type === "comment" ? "This comment is never closed with */" : t.type === "regex" ? "This regular expression is never closed with /" : "This string is never closed";
+      throw new Refused(what, t.start);
+    }
+    const top = stack[stack.length - 1];
+    if (t.type === "punct" && PAIRS[t.value]) {
+      const group = { open: t.value, close: PAIRS[t.value], children: [], start: t.start, end: t.end };
+      top.nodes.push(group);
+      stack.push({ group, nodes: group.children });
+    } else if (t.type === "punct" && CLOSERS.has(t.value)) {
+      if (top.group?.close !== t.value) throw new Refused(top.group ? `Expected "${top.group.close}" but found "${t.value}"` : `Unexpected "${t.value}"`, t.start);
+      top.group.end = t.end;
+      stack.pop();
+    } else top.nodes.push(t);
+  }
+  const open = stack[stack.length - 1].group;
+  if (open) throw new Refused(`This ${open.open} is never closed with ${open.close}`, open.start);
+  return root;
+}
+var itemCache = /* @__PURE__ */ new WeakMap();
+function newItem() {
+  return { nodes: [], leading: [], trailing: [], after: [] };
+}
+function items(children2) {
+  const cached = itemCache.get(children2);
+  if (cached) return cached;
+  const out = [];
+  let cur = newItem();
+  let afterComma;
+  for (const n2 of children2) {
+    if (isComment(n2)) {
+      const c = n2;
+      if (afterComma && !c.nl) afterComma.trailing.push(c);
+      else if (cur.nodes.length) (c.nl || cur.after.length ? cur.after : cur.trailing).push(c);
+      else cur.leading.push(c);
+      continue;
+    }
+    afterComma = void 0;
+    if (isPunct(n2, ",")) {
+      cur.comma = n2;
+      out.push(cur);
+      afterComma = cur;
+      cur = newItem();
+      continue;
+    }
+    cur.nodes.push(...cur.trailing, ...cur.after, n2);
+    cur.trailing = [];
+    cur.after = [];
+  }
+  if (cur.nodes.length || cur.leading.length || cur.trailing.length || cur.after.length) out.push(cur);
+  const last = out[out.length - 1];
+  const before = out[out.length - 2];
+  if (last && before && !last.nodes.length && !last.comma) {
+    before.after.push(...last.leading, ...last.trailing, ...last.after);
+    out.pop();
+  }
+  itemCache.set(children2, out);
+  return out;
+}
+function check(nodes, top) {
+  const list = items(nodes);
+  for (const it of list) {
+    if (top && it.comma) throw new Refused('Only one document fits here; remove the ","', it.comma.start);
+    if (!it.nodes.length && it.comma) throw new Refused('Nothing before this ","', it.comma.start);
+    for (const n2 of it.nodes) if (isGroup(n2)) check(n2.children, false);
+  }
+}
+function isUnary(nodes, i) {
+  if (!isPunct(nodes[i], "-", "+", "!", "~")) return false;
+  let j = i - 1;
+  while (j >= 0 && isComment(nodes[j])) j--;
+  const prev = nodes[j];
+  return prev === void 0 || !isGroup(prev) && prev.type === "punct";
+}
+function spaceBefore(nodes, i) {
+  const a = nodes[i - 1];
+  const b = nodes[i];
+  if (isPunct(b, ",", ":", ".", "?.", ";")) return false;
+  if (isPunct(a, ".", "?.")) return false;
+  if (isPunct(a, ":", ",")) return true;
+  if (a.end === b.start) return false;
+  if (isUnary(nodes, i - 1)) return false;
+  if (isGroup(b) && (b.open === "(" || b.open === "[") && (isGroup(a) ? a.open !== "{" : a.type === "ident")) return false;
+  return true;
+}
+function blockComment(value) {
+  if (value.startsWith("//")) return `/* ${value.slice(2).trim().replace(/\*\//g, "* /")} */`;
+  return value.replace(/\s*[\r\n]\s*/g, " ");
+}
+function inline(nodes) {
+  let out = "";
+  nodes.forEach((n2, i) => {
+    if (i > 0 && spaceBefore(nodes, i)) out += " ";
+    out += isGroup(n2) ? inlineGroup(n2) : n2.type === "comment" ? blockComment(n2.value) : n2.value;
+  });
+  return out;
+}
+var inlineCache = /* @__PURE__ */ new WeakMap();
+function inlineGroup(g) {
+  const cached = inlineCache.get(g);
+  if (cached !== void 0) return cached;
+  const body = items(g.children).map((it) => inline([...it.leading, ...it.nodes, ...it.trailing, ...it.after])).join(", ");
+  const out = !body ? g.open + g.close : g.open === "{" ? `{ ${body} }` : g.open + body + g.close;
+  inlineCache.set(g, out);
+  return out;
+}
+var commentCache = /* @__PURE__ */ new WeakMap();
+function hasComment(nodes) {
+  let v = commentCache.get(nodes);
+  if (v === void 0) {
+    v = nodes.some((n2) => isGroup(n2) ? hasComment(n2.children) : n2.type === "comment");
+    commentCache.set(nodes, v);
+  }
+  return v;
+}
+var Writer = class {
+  constructor(indent2) {
+    this.indent = indent2;
+  }
+  indent;
+  text = "";
+  lineStart = 0;
+  col() {
+    return this.text.length - this.lineStart;
+  }
+  line(depth) {
+    let end = this.text.length;
+    while (end > this.lineStart && (this.text[end - 1] === " " || this.text[end - 1] === "	")) end--;
+    this.text = this.text.slice(0, end) + "\n";
+    this.lineStart = this.text.length;
+    this.text += this.indent.repeat(depth);
+  }
+};
+function writeNodes(w, nodes, depth, top = false) {
+  nodes.forEach((n2, i) => {
+    if (i > 0 && spaceBefore(nodes, i)) w.text += " ";
+    if (isGroup(n2)) writeGroup(w, n2, depth, top);
+    else {
+      w.text += n2.value;
+      if (isComment(n2) && n2.value.startsWith("//") && i < nodes.length - 1) w.line(depth);
+    }
+  });
+}
+function writeItem(w, it, depth, comma, top = false) {
+  it.leading.forEach((c, i) => {
+    w.text += c.value;
+    if (it.nodes.length || i < it.leading.length - 1) w.line(depth);
+  });
+  writeNodes(w, it.nodes, depth, top);
+  if (comma) w.text += ",";
+  for (const c of it.trailing) w.text += " " + c.value;
+  for (const c of it.after) {
+    w.line(depth);
+    w.text += c.value;
+  }
+}
+function writeGroup(w, g, depth, top) {
+  const list = items(g.children);
+  const breakable = g.open !== "(" && list.length > 0;
+  if (!hasComment(g.children)) {
+    const one = inlineGroup(g);
+    const wantBreak = top && g.open === "{" && list.length > 1;
+    if (!breakable || !wantBreak && w.col() + one.length <= FORMAT_WIDTH) {
+      w.text += one;
+      return;
+    }
+  }
+  if (!breakable) {
+    w.text += g.open;
+    list.forEach((it, i) => {
+      if (i > 0) w.text += ", ";
+      w.text += [...it.leading.map((c) => blockComment(c.value)), ""].join(" ");
+      writeNodes(w, it.nodes, depth);
+      for (const c of [...it.trailing, ...it.after]) w.text += " " + blockComment(c.value);
+    });
+    w.text += g.close;
+    return;
+  }
+  let lastCode = -1;
+  list.forEach((it, i) => {
+    if (it.nodes.length) lastCode = i;
+  });
+  w.text += g.open;
+  list.forEach((it, i) => {
+    w.line(depth + 1);
+    writeItem(w, it, depth + 1, i < lastCode);
+  });
+  w.line(depth);
+  w.text += g.close;
+}
+function position(text, at) {
+  const before = text.slice(0, at);
+  const line = before.split("\n").length;
+  const column = at - before.lastIndexOf("\n");
+  return `(line ${line}, column ${column})`;
+}
+function run(text, fn) {
+  try {
+    const nodes = tree(text);
+    check(nodes, true);
+    return { ok: true, text: fn(nodes) };
+  } catch (error) {
+    if (error instanceof Refused) return { ok: false, problem: `${error.problem} ${position(text, error.at)}` };
+    throw error;
+  }
+}
+function formatQuery(text, indent2 = "  ") {
+  if (!text.trim()) return { ok: true, text };
+  return run(text, (nodes) => {
+    const w = new Writer(indent2);
+    const list = items(nodes);
+    list.forEach((it) => writeItem(w, it, 0, false, true));
+    return w.text.replace(/[ \t]+$/gm, "");
+  });
+}
+function compactQuery(text) {
+  if (!text.trim()) return { ok: true, text: "" };
+  return run(
+    text,
+    (nodes) => items(nodes).map((it) => inline([...it.leading, ...it.nodes, ...it.trailing, ...it.after])).join(", ")
+  );
 }
 
 // src/shared/table-filter.ts
@@ -2802,8 +3057,19 @@ function change(id, fn) {
     const t = prev[id];
     if (!t) return prev;
     const next = fn(t);
-    return { ...prev, [id]: "id" in next && next.id === t.id ? next : { ...t, ...next } };
+    const out = "id" in next && next.id === t.id ? next : { ...t, ...next };
+    return { ...prev, [id]: withBoxes(t, out) };
   });
+}
+function withBoxes(before, after) {
+  if (after.text === before.text || after.multiline !== before.multiline) return after;
+  let multiline;
+  for (const field of Object.keys(after.text)) {
+    if (after.text[field] === before.text[field] || after.multiline[field] === void 0) continue;
+    multiline ??= { ...after.multiline };
+    delete multiline[field];
+  }
+  return multiline ? { ...after, multiline } : after;
 }
 function patch(id, values) {
   change(id, () => values);
@@ -2862,6 +3128,7 @@ function newTab(id, ns, kind, title) {
     readOnly: kind === "view",
     text: { ...emptyText },
     fieldErrors: {},
+    multiline: {},
     pageSize: read3(defaultPageSize),
     loading: false,
     runToken: 0,
@@ -2948,11 +3215,58 @@ function askDeleteFocused(id) {
   if (f) patch(id, { confirmDelete: { ids: [f.id] }, editor: void 0 });
 }
 function setText(id, field, value) {
+  change(id, (t) => ({
+    text: { ...t.text, [field]: value },
+    // Typing keeps the box it is typed in: joining the last two lines doesn't swap a multi-line
+    // box for a one-line one under the cursor.
+    multiline: { ...t.multiline, [field]: isMultiline(t, field) || value.includes("\n") },
+    fieldErrors: withLiveProblem(t.fieldErrors, field, value)
+  }));
+}
+function replaceText(id, field, value) {
   change(id, (t) => {
-    const fieldErrors = { ...t.fieldErrors };
-    delete fieldErrors[field];
-    return { text: { ...t.text, [field]: value }, fieldErrors };
+    const multiline = { ...t.multiline };
+    delete multiline[field];
+    return { text: { ...t.text, [field]: value }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, value) };
   });
+}
+function liveProblem(field, value, now = Date.now()) {
+  if (field === "skip" || field === "limit") return countProblem(field, value);
+  const problem = shellProblem(value, FIELD_NAMES[field], { now });
+  return problem && !problem.unfinished ? problem.message : void 0;
+}
+function withLiveProblem(errors, field, value) {
+  const out = { ...errors };
+  const problem = liveProblem(field, value);
+  if (problem) out[field] = problem;
+  else delete out[field];
+  return out;
+}
+function isMultiline(t, field) {
+  return t.multiline[field] ?? t.text[field].includes("\n");
+}
+function formatField(id, field) {
+  change(id, (t) => {
+    const result = formatQuery(t.text[field]);
+    const multiline = { ...t.multiline, [field]: true };
+    if (!result.ok) return { multiline, fieldErrors: { ...t.fieldErrors, [field]: `Can't format: ${result.problem}` } };
+    if (result.text.length > QUERY_TEXT_MAX) {
+      const size = (n2) => n2.toLocaleString("en-US");
+      return { fieldErrors: { ...t.fieldErrors, [field]: `Formatted, this would be ${size(result.text.length)} characters, and the query history keeps up to ${size(QUERY_TEXT_MAX)}. Left as it is.` } };
+    }
+    return { text: { ...t.text, [field]: result.text }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) };
+  });
+}
+function compactField(id, field) {
+  change(id, (t) => {
+    const result = compactQuery(t.text[field]);
+    if (!result.ok) return { fieldErrors: { ...t.fieldErrors, [field]: `Can't put on one line: ${result.problem}` } };
+    return { text: { ...t.text, [field]: result.text }, multiline: { ...t.multiline, [field]: false }, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) };
+  });
+}
+function countProblem(field, value) {
+  const v = value.trim();
+  return v === "" || /^\d+$/.test(v) ? void 0 : `${field === "skip" ? "Skip" : "Limit"} is a whole number, 0 or more.`;
 }
 var FIELD_NAMES = { filter: "filter", projection: "projection", sort: "sort", collation: "collation", skip: "skip", limit: "limit" };
 function specFromText(text, now = Date.now()) {
@@ -2966,13 +3280,9 @@ function specFromText(text, now = Date.now()) {
     }
   };
   const num = (field) => {
-    const v = text[field].trim();
-    if (v === "") return 0;
-    if (!/^\d+$/.test(v)) {
-      errors[field] = `${field === "skip" ? "Skip" : "Limit"} is a whole number, 0 or more.`;
-      return 0;
-    }
-    return Number(v);
+    const problem = countProblem(field, text[field]);
+    if (problem) errors[field] = problem;
+    return problem ? 0 : Number(text[field].trim() || 0);
   };
   const filter2 = doc("filter");
   const projection = doc("projection");
@@ -3093,7 +3403,7 @@ async function sortBy(id, column, direction) {
     return;
   }
   const key2 = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-  setText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
+  replaceText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
   await runQuery(id);
 }
 function currentSort(t) {
@@ -3106,7 +3416,7 @@ function currentSort(t) {
   return n2 === 1 || n2 === -1 ? { column, direction: n2 === 1 ? "asc" : "desc" } : void 0;
 }
 function resetQuery(id) {
-  patch(id, { text: { ...emptyText }, fieldErrors: {} });
+  patch(id, { text: { ...emptyText }, fieldErrors: {}, multiline: {} });
   return runQuery(id);
 }
 var ROW_KEY_MAX = 1e3;
@@ -3449,8 +3759,8 @@ async function filterBySelection(id, filter2, mode) {
   if (text.length > QUERY_TEXT_MAX) {
     return say2(id, "danger", `This filter would be ${text.length.toLocaleString("en-US")} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString("en-US")}. Select fewer rows.`);
   }
-  setText(id, "filter", text);
-  setText(id, "skip", "");
+  replaceText(id, "filter", text);
+  replaceText(id, "skip", "");
   await runQuery(id);
 }
 async function applyBuilder(id) {
@@ -3461,7 +3771,7 @@ async function applyBuilder(id) {
     patch(id, { builderProblems: problems });
     return;
   }
-  setText(id, "filter", Object.keys(filter2).length ? toShellInline(filter2) : "");
+  replaceText(id, "filter", Object.keys(filter2).length ? toShellInline(filter2) : "");
   patch(id, { builderProblems: [] });
   await runQuery(id);
 }
@@ -3534,10 +3844,10 @@ function changeAdmin(id, kind, fn) {
 function sayAdmin(id, tone, text) {
   update3(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
 }
-function aguard(id, run) {
+function aguard(id, run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       sayAdmin(id, "danger", errorText(error));
     }
@@ -4571,8 +4881,8 @@ async function checkValidation(id) {
   }
   changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: "checking" } }));
   try {
-    const check = await plugin6.request("admin.checkValidation", { ns: t.ns, validator }, { timeoutMs: 6e4 });
-    changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check } }));
+    const check2 = await plugin6.request("admin.checkValidation", { ns: t.ns, validator }, { timeoutMs: 6e4 });
+    changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: check2 } }));
   } catch (e) {
     changeAdmin(id, "manage", (x) => ({ validation: { ...x.validation, check: void 0 } }));
     throw e;
@@ -4735,8 +5045,8 @@ function fieldSchema(report, f, options4) {
   }
   if (types.includes("object")) Object.assign(out, objectSchema(report, f.path, f.count === 0 ? 0 : objectsOf(report, f), options4));
   if (types.includes("array")) {
-    const items = report.fields.find((x) => x.parent === f.path && x.name === ELEMENT);
-    if (items) out.items = fieldSchema(report, items, options4);
+    const items2 = report.fields.find((x) => x.parent === f.path && x.name === ELEMENT);
+    if (items2) out.items = fieldSchema(report, items2, options4);
   }
   return out;
 }
@@ -4991,7 +5301,7 @@ function Indexes({ t }) {
 }
 function Validation({ t }) {
   const v = t.validation;
-  const check = v.check;
+  const check2 = v.check;
   const ro = isReadOnly(t.connectionId);
   return /* @__PURE__ */ jsx4(
     Collapsible2,
@@ -5007,10 +5317,10 @@ function Validation({ t }) {
         ro ? null : /* @__PURE__ */ jsx4(Select2, { label: "Action", value: v.action, options: ACTIONS, onChange: (action) => setValidation(t.id, { action }) }),
         /* @__PURE__ */ jsxs4(Toolbar2, { label: "Validation actions", gap: "xs", children: [
           ro ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: aguard(t.id, () => saveValidation(t.id)), children: "Save rules" }),
-          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check === "checking" ? "Checking…" : "Check documents" }),
+          /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "search", variant: "ghost", disabled: check2 === "checking", onPress: aguard(t.id, () => checkValidation(t.id)), children: check2 === "checking" ? "Checking…" : "Check documents" }),
           /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "bar-chart-3", variant: "ghost", onPress: aguard(t.id, () => openSchema(t.ns, t.collKind, true)), children: "From the schema" })
         ] }),
-        check && check !== "checking" ? check.error ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check.error }) : /* @__PURE__ */ jsx4(Callout3, { tone: check.failing ? "warning" : "success", icon: check.failing ? "warning" : "check", children: check.failing ? `${numberText(check.failing)} of ${check.checked !== null ? numberText(check.checked) : "the"} documents break these rules${check.firstId !== void 0 ? `, the first with _id ${valueText(check.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check.checked !== null ? ` (${numberText(check.checked)})` : ""} passes these rules.` }) : null
+        check2 && check2 !== "checking" ? check2.error ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "error", title: "Could not check", children: check2.error }) : /* @__PURE__ */ jsx4(Callout3, { tone: check2.failing ? "warning" : "success", icon: check2.failing ? "warning" : "check", children: check2.failing ? `${numberText(check2.failing)} of ${check2.checked !== null ? numberText(check2.checked) : "the"} documents break these rules${check2.firstId !== void 0 ? `, the first with _id ${valueText(check2.firstId, 60)}` : ""}. With level strict, updates to them must fix them; moderate leaves them be.` : `Every document${check2.checked !== null ? ` (${numberText(check2.checked)})` : ""} passes these rules.` }) : null
       ] })
     }
   );
@@ -5141,18 +5451,18 @@ var BAR_COLUMNS = [
   { key: "bar", label: "Share", width: "md", hideBelow: "sm" }
 ];
 function FieldDetails({ f }) {
-  const items = [
+  const items2 = [
     { label: "Path", value: f.path, code: true },
     { label: "Present", value: presenceText(f) }
   ];
   const range = rangeText(f);
-  if (range) items.push({ label: "Range", value: range });
-  if (f.strings) items.push({ label: "Length", value: f.strings.minLength === f.strings.maxLength ? `${f.strings.minLength} characters` : `${f.strings.minLength} to ${f.strings.maxLength} characters` }, { label: "Distinct", value: `${numberText(f.strings.distinct)}${f.strings.distinctCapped ? "+" : ""}${f.strings.distinct === f.count && !f.strings.distinctCapped ? " (every value differs)" : ""}` });
-  if (f.arrays) items.push({ label: "Array length", value: `${f.arrays.minLength} to ${f.arrays.maxLength}, ${Math.round(f.arrays.avgLength * 10) / 10} on average` });
-  if (f.bools) items.push({ label: "true / false", value: `${numberText(f.bools.true)} / ${numberText(f.bools.false)}` });
+  if (range) items2.push({ label: "Range", value: range });
+  if (f.strings) items2.push({ label: "Length", value: f.strings.minLength === f.strings.maxLength ? `${f.strings.minLength} characters` : `${f.strings.minLength} to ${f.strings.maxLength} characters` }, { label: "Distinct", value: `${numberText(f.strings.distinct)}${f.strings.distinctCapped ? "+" : ""}${f.strings.distinct === f.count && !f.strings.distinctCapped ? " (every value differs)" : ""}` });
+  if (f.arrays) items2.push({ label: "Array length", value: `${f.arrays.minLength} to ${f.arrays.maxLength}, ${Math.round(f.arrays.avgLength * 10) / 10} on average` });
+  if (f.bools) items2.push({ label: "true / false", value: `${numberText(f.bools.true)} / ${numberText(f.bools.false)}` });
   const buckets = f.numbers?.buckets ?? f.dates?.buckets;
   return /* @__PURE__ */ jsx5(Card2, { title: f.name === ELEMENT ? `${f.parent} elements` : f.name, children: /* @__PURE__ */ jsxs5(Box3, { gap: "sm", children: [
-    /* @__PURE__ */ jsx5(KeyValue3, { label: `${f.path} details`, items }),
+    /* @__PURE__ */ jsx5(KeyValue3, { label: `${f.path} details`, items: items2 }),
     /* @__PURE__ */ jsx5(Box3, { gap: "xs", children: f.types.map((t) => /* @__PURE__ */ jsx5(Progress, { label: `${BSON_TYPE_LABELS[t.type]}: ${numberText(t.count)} (${percent(t.count, f.count)}%)`, value: percent(t.count, f.count) }, t.type)) }),
     buckets && buckets.length > 1 ? /* @__PURE__ */ jsx5(Table3, { label: f.dates ? "Dates" : "Values", columns: BAR_COLUMNS, rows: bucketRows(buckets, "b"), maxHeight: "sm" }) : null,
     f.strings && f.strings.top.length ? /* @__PURE__ */ jsx5(
@@ -6618,10 +6928,10 @@ function setTaskName(tabId, name) {
 
 // src/panel/tasks-view.tsx
 import { jsx as jsx9, jsxs as jsxs9 } from "orca/jsx-runtime";
-function tguard(run) {
+function tguard(run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       sayTasks("danger", errorText(error));
     }
@@ -7257,19 +7567,19 @@ function Selected2({ t }) {
   const f = selectedFile(t);
   if (!f) return /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "Select a file for its details, a preview, and to download, rename or delete it." });
   const p = t.preview?.key === t.selected ? t.preview : void 0;
-  const items = [
+  const items2 = [
     { label: "_id", value: valueText(f.id, 80), code: true },
     { label: "Size", value: `${bytesText(f.length)} (${numberText(f.length)} bytes)` },
     { label: "Uploaded", value: f.uploadDate ? isoDate(f.uploadDate) : "unknown" },
     { label: "Chunk size", value: bytesText(f.chunkSize) }
   ];
-  if (f.contentType) items.push({ label: "Content type", value: f.contentType });
-  if (f.metadata) items.push({ label: "Metadata", value: f.metadata, code: true });
-  if (p?.data && p.data.chunks !== p.data.expectedChunks) items.push({ label: "Chunks", value: `${p.data.chunks} of ${p.data.expectedChunks}: the file is incomplete`, tone: "danger" });
+  if (f.contentType) items2.push({ label: "Content type", value: f.contentType });
+  if (f.metadata) items2.push({ label: "Metadata", value: f.metadata, code: true });
+  if (p?.data && p.data.chunks !== p.data.expectedChunks) items2.push({ label: "Chunks", value: `${p.data.chunks} of ${p.data.expectedChunks}: the file is incomplete`, tone: "danger" });
   const d = t.download;
   const running = jobRunning(d.job);
   return /* @__PURE__ */ jsxs12(Box10, { gap: "sm", children: [
-    /* @__PURE__ */ jsx12(KeyValue8, { label: `${f.filename} details`, items }),
+    /* @__PURE__ */ jsx12(KeyValue8, { label: `${f.filename} details`, items: items2 }),
     p?.loading ? /* @__PURE__ */ jsx12(Skeleton8, { lines: 3, label: "Reading the start of the file" }) : null,
     p?.error ? /* @__PURE__ */ jsx12(Callout11, { tone: "danger", icon: "error", children: p.error }) : null,
     p?.data?.text !== void 0 ? /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
@@ -8012,10 +8322,10 @@ function toggleNode2(id, key2, open) {
 }
 
 // src/panel/guard.ts
-function guard(tabId, run) {
+function guard(tabId, run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       say2(tabId, "danger", errorText(error));
     }
@@ -8031,17 +8341,17 @@ function planText(s) {
   return { label: "Plan", value: "No collection read (computed, or from a stage such as $documents)" };
 }
 function summaryItems(s) {
-  const items = [planText(s)];
-  if (s.nReturned !== void 0) items.push({ label: "Returned", value: fmt2(s.nReturned) });
-  if (s.keysExamined !== void 0) items.push({ label: "Index keys examined", value: fmt2(s.keysExamined) });
-  if (s.docsExamined !== void 0) items.push({ label: "Documents examined", value: fmt2(s.docsExamined) });
-  if (s.timeMs !== void 0) items.push({ label: "Time on the server", value: `${fmt2(s.timeMs)} ms` });
-  if (s.inMemorySort) items.push({ label: "Sort", value: "In memory", tone: "warning" });
-  items.push({ label: "Rejected plans", value: s.rejectedPlans });
-  if (s.sharded) items.push({ label: "Sharded", value: true });
-  if (s.namespace) items.push({ label: "Namespace", value: s.namespace, code: true });
-  if (s.serverVersion) items.push({ label: "Server", value: s.serverVersion });
-  return items;
+  const items2 = [planText(s)];
+  if (s.nReturned !== void 0) items2.push({ label: "Returned", value: fmt2(s.nReturned) });
+  if (s.keysExamined !== void 0) items2.push({ label: "Index keys examined", value: fmt2(s.keysExamined) });
+  if (s.docsExamined !== void 0) items2.push({ label: "Documents examined", value: fmt2(s.docsExamined) });
+  if (s.timeMs !== void 0) items2.push({ label: "Time on the server", value: `${fmt2(s.timeMs)} ms` });
+  if (s.inMemorySort) items2.push({ label: "Sort", value: "In memory", tone: "warning" });
+  items2.push({ label: "Rejected plans", value: s.rejectedPlans });
+  if (s.sharded) items2.push({ label: "Sharded", value: true });
+  if (s.namespace) items2.push({ label: "Namespace", value: s.namespace, code: true });
+  if (s.serverVersion) items2.push({ label: "Server", value: s.serverVersion });
+  return items2;
 }
 function treeItem(n2, expanded2) {
   const item = { key: n2.key, label: nodeLabel(n2), icon: n2.warning ? "warning" : n2.stage.startsWith("$") ? "layers" : n2.stage.startsWith("Shard") ? "database" : "blocks" };
@@ -8054,16 +8364,16 @@ function treeItem(n2, expanded2) {
   return item;
 }
 function NodeDetails({ n: n2 }) {
-  const items = [];
-  if (n2.nReturned !== void 0) items.push({ label: "Returned", value: fmt2(n2.nReturned) });
-  if (n2.keysExamined !== void 0) items.push({ label: "Keys examined", value: fmt2(n2.keysExamined) });
-  if (n2.docsExamined !== void 0) items.push({ label: "Documents examined", value: fmt2(n2.docsExamined) });
-  if (n2.timeMs !== void 0) items.push({ label: "Time (estimate)", value: `${fmt2(n2.timeMs)} ms` });
-  for (const a of n2.attrs) items.push({ label: a.label, value: a.value, code: true });
+  const items2 = [];
+  if (n2.nReturned !== void 0) items2.push({ label: "Returned", value: fmt2(n2.nReturned) });
+  if (n2.keysExamined !== void 0) items2.push({ label: "Keys examined", value: fmt2(n2.keysExamined) });
+  if (n2.docsExamined !== void 0) items2.push({ label: "Documents examined", value: fmt2(n2.docsExamined) });
+  if (n2.timeMs !== void 0) items2.push({ label: "Time (estimate)", value: `${fmt2(n2.timeMs)} ms` });
+  for (const a of n2.attrs) items2.push({ label: a.label, value: a.value, code: true });
   return /* @__PURE__ */ jsxs14(Box12, { gap: "xs", children: [
     /* @__PURE__ */ jsx15(Text14, { weight: "semibold", children: n2.stage }),
     n2.warning ? /* @__PURE__ */ jsx15(Text14, { size: "xs", tone: "warning", children: n2.warning }) : null,
-    items.length ? /* @__PURE__ */ jsx15(KeyValue9, { label: `${n2.stage} details`, items }) : /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "No more details for this stage." })
+    items2.length ? /* @__PURE__ */ jsx15(KeyValue9, { label: `${n2.stage} details`, items: items2 }) : /* @__PURE__ */ jsx15(Text14, { size: "xs", muted: true, children: "No more details for this stage." })
   ] });
 }
 function Visual({ t }) {
@@ -8289,7 +8599,7 @@ function fieldItem(row, path, v, expanded2) {
 function ResultTree({ t }) {
   const docs2 = t.page?.docs ?? [];
   const expanded2 = new Set(t.treeExpanded);
-  const items = docs2.map((d, i) => {
+  const items2 = docs2.map((d, i) => {
     const key2 = treeKey(i, []);
     const item = { key: key2, label: "_id" in d ? valueText(d._id, 80) : `Document ${t.page.offset + i + 1}`, description: `${Object.keys(d).length} fields${t.page.truncated.includes(i) ? " · truncated" : ""}`, icon: "file-text" };
     if (expanded2.has(key2)) item.children = Object.entries(d).map(([k, v]) => fieldItem(i, [k], v, expanded2));
@@ -8300,7 +8610,7 @@ function ResultTree({ t }) {
     Tree3,
     {
       label: "Documents",
-      items,
+      items: items2,
       expanded: t.treeExpanded,
       ...t.treeSelected ? { selected: t.treeSelected } : {},
       maxHeight: "lg",
@@ -8451,8 +8761,8 @@ function shellCollection(collection) {
   return IDENT2.test(collection) && !reserved.test(collection) && !collection.startsWith("$") ? `db.${collection}` : `db.getCollection(${toShellInline(collection)})`;
 }
 function shellArg(value) {
-  const inline = toShellInline(value);
-  return inline.length <= 80 ? inline : toShell(value);
+  const inline2 = toShellInline(value);
+  return inline2.length <= 80 ? inline2 : toShell(value);
 }
 function operationToShell(op) {
   const coll = shellCollection(op.collection);
@@ -8553,8 +8863,8 @@ function hex2(n2) {
   return `0x${n2.toString(16).padStart(2, "0")}`;
 }
 var TRUNCATED = "the value was truncated in the results and is written as null; run the query on the full document";
-function render(s, ctx, v, pad, path, inline = false) {
-  const scalar = s.scalar(v, { ctx, path, sub: (x, p) => render(s, ctx, x, pad, p, inline) });
+function render(s, ctx, v, pad, path, inline2 = false) {
+  const scalar = s.scalar(v, { ctx, path, sub: (x, p) => render(s, ctx, x, pad, p, inline2) });
   if (scalar !== void 0) return scalar;
   const attempt = (multi) => {
     const childPad = multi ? pad + s.unit : pad;
@@ -8564,19 +8874,19 @@ function render(s, ctx, v, pad, path, inline = false) {
     return s.doc(keys.map((k) => [s.key(k), render(s, ctx, obj[k], childPad, `${path}.${k}`, !multi)]), multi, pad, keys);
   };
   const one = attempt(false);
-  if (inline || fits(one)) return one;
+  if (inline2 || fits(one)) return one;
   return attempt(true);
 }
 function fits(text) {
   return !text.includes("\n") && text.length <= WIDTH;
 }
-function fitList(items, join) {
-  const one = join(items(false), false);
-  return fits(one) ? one : join(items(true), true);
+function fitList(items2, join) {
+  const one = join(items2(false), false);
+  return fits(one) ? one : join(items2(true), true);
 }
-function block(open, close, items, pad, inner, trailingComma) {
+function block(open, close, items2, pad, inner, trailingComma) {
   return `${open}
-${items.map((x) => inner + x).join(",\n")}${trailingComma ? "," : ""}
+${items2.map((x) => inner + x).join(",\n")}${trailingComma ? "," : ""}
 ${pad}${close}`;
 }
 function noteLines(ctx, comment, pad) {
@@ -8706,13 +9016,13 @@ var node = {
     }
   },
   doc(entries2, multi, pad) {
-    const items = entries2.map(([k, v]) => `${k}: ${v}`);
-    if (!items.length) return "{}";
-    return multi ? block("{", "}", items, pad, pad + "  ", false) : `{ ${items.join(", ")} }`;
+    const items2 = entries2.map(([k, v]) => `${k}: ${v}`);
+    if (!items2.length) return "{}";
+    return multi ? block("{", "}", items2, pad, pad + "  ", false) : `{ ${items2.join(", ")} }`;
   },
-  arr(items, multi, pad) {
-    if (!items.length) return "[]";
-    return multi ? block("[", "]", items, pad, pad + "  ", false) : `[${items.join(", ")}]`;
+  arr(items2, multi, pad) {
+    if (!items2.length) return "[]";
+    return multi ? block("[", "]", items2, pad, pad + "  ", false) : `[${items2.join(", ")}]`;
   }
 };
 function nodeCode(op) {
@@ -8852,13 +9162,13 @@ var python = {
     }
   },
   doc(entries2, multi, pad) {
-    const items = entries2.map(([k, v]) => `${k}: ${v}`);
-    if (!items.length) return "{}";
-    return multi ? block("{", "}", items, pad, pad + "    ", true) : `{${items.join(", ")}}`;
+    const items2 = entries2.map(([k, v]) => `${k}: ${v}`);
+    if (!items2.length) return "{}";
+    return multi ? block("{", "}", items2, pad, pad + "    ", true) : `{${items2.join(", ")}}`;
   },
-  arr(items, multi, pad) {
-    if (!items.length) return "[]";
-    return multi ? block("[", "]", items, pad, pad + "    ", true) : `[${items.join(", ")}]`;
+  arr(items2, multi, pad) {
+    if (!items2.length) return "[]";
+    return multi ? block("[", "]", items2, pad, pad + "    ", true) : `[${items2.join(", ")}]`;
   }
 };
 var PY_STDLIB = /* @__PURE__ */ new Set(["base64", "datetime", "uuid"]);
@@ -8898,7 +9208,7 @@ cursor = collection.aggregate(pipeline)
       const sort = p.sort;
       const pairs = fitList(
         (multi) => Object.entries(sort).map(([k, v]) => `(${pyStr(k)}, ${render(python, ctx, v, multi ? inner + "    " : inner, `sort.${k}`, !multi)})`),
-        (items, multi) => multi ? block("[", "]", items, inner, inner + "    ", true) : `[${items.join(", ")}]`
+        (items2, multi) => multi ? block("[", "]", items2, inner, inner + "    ", true) : `[${items2.join(", ")}]`
       );
       args.push(`sort=${pairs}`);
     }
@@ -9025,8 +9335,8 @@ ${pad}    .append(${k}, ${v})`).join("")}`;
     const [[k0, v0], ...rest] = entries2;
     return `new Document(${k0}, ${v0})${rest.map(([k, v]) => `.append(${k}, ${v})`).join("")}`;
   },
-  arr(items, multi, pad) {
-    const list = items.length === 1 && items[0] === "null" ? ["(Object) null"] : items;
+  arr(items2, multi, pad) {
+    const list = items2.length === 1 && items2[0] === "null" ? ["(Object) null"] : items2;
     if (multi) return `Arrays.asList(
 ${list.map((x) => pad + "    " + x).join(",\n")})`;
     return `Arrays.asList(${list.join(", ")})`;
@@ -9215,17 +9525,17 @@ var csharp = {
   },
   doc(entries2, multi, pad) {
     if (!entries2.length) return "new BsonDocument()";
-    const items = entries2.map(([k, v]) => `{ ${k}, ${v} }`);
+    const items2 = entries2.map(([k, v]) => `{ ${k}, ${v} }`);
     if (multi) return `new BsonDocument
-${pad}${block("{", "}", items, pad, pad + "    ", false)}`;
+${pad}${block("{", "}", items2, pad, pad + "    ", false)}`;
     if (entries2.length === 1) return `new BsonDocument(${entries2[0][0]}, ${entries2[0][1]})`;
-    return `new BsonDocument { ${items.join(", ")} }`;
+    return `new BsonDocument { ${items2.join(", ")} }`;
   },
-  arr(items, multi, pad) {
-    if (!items.length) return "new BsonArray()";
+  arr(items2, multi, pad) {
+    if (!items2.length) return "new BsonArray()";
     if (multi) return `new BsonArray
-${pad}${block("{", "}", items, pad, pad + "    ", false)}`;
-    return `new BsonArray { ${items.join(", ")} }`;
+${pad}${block("{", "}", items2, pad, pad + "    ", false)}`;
+    return `new BsonArray { ${items2.join(", ")} }`;
   }
 };
 function csBinary(b) {
@@ -9279,8 +9589,8 @@ function csharpCode(op) {
     const pipeline = op.pipeline;
     const stages = fitList(
       (multi) => pipeline.map((s, i) => render(csharp, ctx, s, multi ? "    " : "", `pipeline[${i}]`, !multi)),
-      (items, multi) => !items.length ? "Array.Empty<BsonDocument>()" : multi ? `new BsonDocument[]
-${block("{", "}", items, "", "    ", false)}` : `new BsonDocument[] { ${items.join(", ")} }`
+      (items2, multi) => !items2.length ? "Array.Empty<BsonDocument>()" : multi ? `new BsonDocument[]
+${block("{", "}", items2, "", "    ", false)}` : `new BsonDocument[] { ${items2.join(", ")} }`
     );
     query = `var pipeline = ${stages};
 
@@ -9423,13 +9733,13 @@ var php = {
   },
   doc(entries2, multi, pad, keys) {
     const cast = keys.every((k, i) => k === String(i)) ? "(object) " : "";
-    const items = entries2.map(([k, v]) => `${k} => ${v}`);
-    if (!items.length) return `${cast}[]`;
-    return cast + (multi ? block("[", "]", items, pad, pad + "    ", true) : `[${items.join(", ")}]`);
+    const items2 = entries2.map(([k, v]) => `${k} => ${v}`);
+    if (!items2.length) return `${cast}[]`;
+    return cast + (multi ? block("[", "]", items2, pad, pad + "    ", true) : `[${items2.join(", ")}]`);
   },
-  arr(items, multi, pad) {
-    if (!items.length) return "[]";
-    return multi ? block("[", "]", items, pad, pad + "    ", true) : `[${items.join(", ")}]`;
+  arr(items2, multi, pad) {
+    if (!items2.length) return "[]";
+    return multi ? block("[", "]", items2, pad, pad + "    ", true) : `[${items2.join(", ")}]`;
   }
 };
 function phpBinary(b, use) {
@@ -9569,13 +9879,13 @@ var ruby = {
     }
   },
   doc(entries2, multi, pad) {
-    const items = entries2.map(([k, v]) => `${k} => ${v}`);
-    if (!items.length) return "{}";
-    return multi ? block("{", "}", items, pad, pad + "  ", false) : `{ ${items.join(", ")} }`;
+    const items2 = entries2.map(([k, v]) => `${k} => ${v}`);
+    if (!items2.length) return "{}";
+    return multi ? block("{", "}", items2, pad, pad + "  ", false) : `{ ${items2.join(", ")} }`;
   },
-  arr(items, multi, pad) {
-    if (!items.length) return "[]";
-    return multi ? block("[", "]", items, pad, pad + "  ", false) : `[${items.join(", ")}]`;
+  arr(items2, multi, pad) {
+    if (!items2.length) return "[]";
+    return multi ? block("[", "]", items2, pad, pad + "  ", false) : `[${items2.join(", ")}]`;
   }
 };
 function rubyBinary(b) {
@@ -9644,28 +9954,28 @@ function resultTitle(r) {
   const count = r.count !== void 0 ? ` · ${r.count.toLocaleString("en-US")} ${r.count === 1 ? "document" : "documents"}` : "";
   return `${r.index + 1}. ${r.title || `Line ${r.line}: ${what}`}${count}`;
 }
-function resultOptions(run) {
-  return run.results.map((r) => ({ value: String(r.index), label: resultTitle(r) }));
+function resultOptions(run2) {
+  return run2.results.map((r) => ({ value: String(r.index), label: resultTitle(r) }));
 }
-async function showRun(run, focus) {
-  set8(shellRun, run);
-  if (!run.results.length) return;
-  await selectResult(run.results.length - 1);
+async function showRun(run2, focus) {
+  set8(shellRun, run2);
+  if (!run2.results.length) return;
+  await selectResult(run2.results.length - 1);
   if (focus) set8(view, SHELL_TAB);
 }
 async function selectResult(index) {
-  const run = read20(shellRun);
-  const info = run?.results[index];
-  if (!run || !info) return;
+  const run2 = read20(shellRun);
+  const info = run2?.results[index];
+  if (!run2 || !info) return;
   const previous = tab(SHELL_TAB);
-  const ns = { connectionId: run.connectionId, db: info.op?.db ?? run.db, collection: info.op?.collection ?? "(shell)" };
+  const ns = { connectionId: run2.connectionId, db: info.op?.db ?? run2.db, collection: info.op?.collection ?? "(shell)" };
   const t = {
     ...newTab(SHELL_TAB, ns, "coll", "Shell"),
     readOnly: true,
     pageSize: previous?.pageSize ?? read20(defaultPageSize),
     resultView: previous?.resultView ?? startResultView(),
     relaxed: previous?.relaxed ?? true,
-    shell: { runId: run.runId, index },
+    shell: { runId: run2.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,
     ...info.count !== void 0 ? { count: { count: info.count, approximate: false, ms: 0 } } : {}
   };
@@ -9683,8 +9993,8 @@ function closeShell() {
 }
 async function loadLatestRun() {
   try {
-    const { run } = await plugin16.request("shell.latest");
-    if (run && !read20(shellRun)) await showRun(run, false);
+    const { run: run2 } = await plugin16.request("shell.latest");
+    if (run2 && !read20(shellRun)) await showRun(run2, false);
   } catch {
   }
 }
@@ -9700,10 +10010,10 @@ function queryTextOf(op) {
   };
 }
 async function openAsQuery(info) {
-  const run = read20(shellRun);
-  if (!run || info.op?.kind !== "find") return;
+  const run2 = read20(shellRun);
+  if (!run2 || info.op?.kind !== "find") return;
   try {
-    await openNamespace({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
+    await openNamespace({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
   } catch (error) {
     update8(collTabs, (prev) => {
       const t = prev[SHELL_TAB];
@@ -9712,11 +10022,11 @@ async function openAsQuery(info) {
   }
 }
 async function openAsPipeline(info) {
-  const run = read20(shellRun);
-  if (!run || info.op?.kind !== "aggregate") return;
+  const run2 = read20(shellRun);
+  if (!run2 || info.op?.kind !== "aggregate") return;
   const { stages, error } = stagesFromPipeline(info.op.pipeline);
   if (!stages) throw new Error(error);
-  await openAggregation({ connectionId: run.connectionId, db: info.op.db, collection: info.op.collection }, "coll", stages, `the shell (line ${info.line})`);
+  await openAggregation({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", stages, `the shell (line ${info.line})`);
 }
 
 // src/panel/shell-view.tsx
@@ -9734,22 +10044,22 @@ function tabOperation(t) {
   return { kind: "find", db: t.ns.db, collection: t.ns.collection, ...spec };
 }
 function ShellTab() {
-  const run = read21(shellRun);
+  const run2 = read21(shellRun);
   const t = read21(collTabs)[SHELL_TAB];
-  if (!run || !t?.shell) return null;
-  const info = run.results[t.shell.index];
+  if (!run2 || !t?.shell) return null;
+  const info = run2.results[t.shell.index];
   return /* @__PURE__ */ jsxs16(Box14, { gap: "sm", children: [
     /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsxs16(Box14, { gap: "none", grow: true, children: [
         /* @__PURE__ */ jsx17(Text16, { weight: "semibold", truncate: true, children: "Shell results" }),
         /* @__PURE__ */ jsxs16(Row16, { gap: "xs", align: "center", children: [
-          /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, truncate: true, children: `${run.connectionName} › ${run.db} ·` }),
-          /* @__PURE__ */ jsx17(RelativeTime3, { at: run.at, muted: true })
+          /* @__PURE__ */ jsx17(Text16, { size: "xs", muted: true, truncate: true, children: `${run2.connectionName} › ${run2.db} ·` }),
+          /* @__PURE__ */ jsx17(RelativeTime3, { at: run2.at, muted: true })
         ] })
       ] }),
       /* @__PURE__ */ jsx17(IconButton13, { icon: "close", label: "Close the shell results", variant: "ghost", size: "sm", onPress: closeShell })
     ] }),
-    run.results.length > 1 ? /* @__PURE__ */ jsx17(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
+    run2.results.length > 1 ? /* @__PURE__ */ jsx17(Select10, { label: "Result", value: String(t.shell.index), options: resultOptions(run2), onChange: (v) => void guard(SHELL_TAB, () => selectResult(Number(v)))() }) : null,
     info ? /* @__PURE__ */ jsxs16(Toolbar12, { label: "Result actions", gap: "xs", children: [
       /* @__PURE__ */ jsx17(Badge5, { tone: "neutral", children: info.op ? `${info.op.kind} on ${info.op.db}.${info.op.collection}` : info.kind === "cursor" ? "cursor" : "documents" }),
       info.op?.kind === "find" ? /* @__PURE__ */ jsx17(Button14, { size: "sm", icon: "open-external", variant: "ghost", onPress: guard(SHELL_TAB, () => openAsQuery(info)), children: "Open as query" }) : null,
@@ -9979,6 +10289,7 @@ import {
   Select as Select13,
   Table as Table15,
   Text as Text21,
+  Textarea as Textarea9,
   Toolbar as Toolbar15
 } from "orca";
 
@@ -10006,7 +10317,7 @@ function fieldItem2(path, v, expanded2) {
 }
 function DocTree({ t, f, doc }) {
   const expanded2 = new Set(f.expanded);
-  const items = Object.entries(doc).map(([k, v]) => fieldItem2([k], v, expanded2));
+  const items2 = Object.entries(doc).map(([k, v]) => fieldItem2([k], v, expanded2));
   const selected2 = f.selected ? parseTreeKey(f.selected).path : void 0;
   const value = selected2?.length ? valueAt(doc, selected2) : void 0;
   const canEdit = !t.readOnly && selected2?.length && selected2[0] !== "_id";
@@ -10015,7 +10326,7 @@ function DocTree({ t, f, doc }) {
       Tree4,
       {
         label: "Fields",
-        items,
+        items: items2,
         expanded: f.expanded,
         ...f.selected ? { selected: f.selected } : {},
         maxHeight: "lg",
@@ -10294,7 +10605,16 @@ function UpdateMany({ t }) {
 import { jsx as jsx22, jsxs as jsxs21 } from "orca/jsx-runtime";
 function QueryInput({ t, field, label, placeholder }) {
   const error = t.fieldErrors[field];
-  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx22(Input14, { label, labelHidden: true, placeholder, value: t.text[field], invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }) });
+  const value = t.text[field];
+  const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() };
+  const formats = field !== "skip" && field !== "limit";
+  const multi = formats && isMultiline(t, field);
+  const name = label.toLowerCase();
+  const input = multi ? /* @__PURE__ */ jsx22(Textarea9, { ...box, rows: Math.min(12, Math.max(3, value.split("\n").length)) }) : /* @__PURE__ */ jsx22(Input14, { ...box });
+  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : multi ? { description: "Ctrl+Enter or Cmd+Enter runs the query." } : {}, children: formats ? /* @__PURE__ */ jsxs21(Box19, { direction: "row", gap: "xs", align: "start", children: [
+    /* @__PURE__ */ jsx22(Box19, { grow: true, children: input }),
+    multi ? /* @__PURE__ */ jsx22(IconButton16, { icon: "collapse", label: `Put the ${name} on one line`, variant: "ghost", size: "sm", onPress: () => compactField(t.id, field) }) : /* @__PURE__ */ jsx22(IconButton16, { icon: "code", label: `Format the ${name} on several lines`, variant: "ghost", size: "sm", disabled: !value.trim(), onPress: () => formatField(t.id, field) })
+  ] }) : input });
 }
 function QueryBar({ t }) {
   const extras = [t.text.collation && "collation", t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(", ");
@@ -10516,7 +10836,7 @@ import {
   set as set10,
   Switch as Switch5,
   Text as Text22,
-  Textarea as Textarea9
+  Textarea as Textarea10
 } from "orca";
 import { jsx as jsx23, jsxs as jsxs22 } from "orca/jsx-runtime";
 var MECHANISM_ORDER = ["none", "DEFAULT", "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-X509", "PLAIN", "MONGODB-AWS", "MONGODB-OIDC", "GSSAPI"];
@@ -10589,7 +10909,7 @@ function pemInput(label, source3, secret, onSource, field, allowNone = true) {
     ),
     source3.kind === "path" ? /* @__PURE__ */ jsx23(Input15, { label: `${label} path`, labelHidden: true, value: source3.path, placeholder: "/path/to/file.pem", onChange: (path) => onSource({ kind: "path", path }) }) : null,
     source3.kind === "inline" ? /* @__PURE__ */ jsx23(
-      Textarea9,
+      Textarea10,
       {
         label: `${label} PEM`,
         labelHidden: true,
@@ -10632,7 +10952,7 @@ function serverSection(def) {
     t === "standalone" ? /* @__PURE__ */ jsxs22(Row22, { gap: "sm", align: "start", children: [
       /* @__PURE__ */ jsx23(Box20, { grow: true, children: textInput("Host", first.host, (host) => edit((d) => d.hosts = [{ ...first, host }]), { field: "hosts" }) }),
       /* @__PURE__ */ jsx23(Box20, { width: 110, children: numberInput("Port", first.port ?? null, (port) => edit((d) => d.hosts = port === null ? [{ host: first.host }] : [{ host: first.host, port }]), String(DEFAULT_PORT), "hosts") })
-    ] }) : t === "srv" ? textInput("Cluster host name", first.host, (host) => edit((d) => d.hosts = [{ host: host.replace(/^mongodb\+srv:\/\//, "") }]), { placeholder: "cluster0.abcde.mongodb.net", field: "hosts" }) : /* @__PURE__ */ jsx23(Field3, { label: "Hosts", description: "One host:port per line.", ...errorFor("hosts") ? { error: errorFor("hosts") } : {}, children: /* @__PURE__ */ jsx23(Textarea9, { label: "Hosts", labelHidden: true, rows: 3, defaultValue: hostsText(def.hosts), onChange: (v) => edit((d) => d.hosts = parseHosts(v)) }) }),
+    ] }) : t === "srv" ? textInput("Cluster host name", first.host, (host) => edit((d) => d.hosts = [{ host: host.replace(/^mongodb\+srv:\/\//, "") }]), { placeholder: "cluster0.abcde.mongodb.net", field: "hosts" }) : /* @__PURE__ */ jsx23(Field3, { label: "Hosts", description: "One host:port per line.", ...errorFor("hosts") ? { error: errorFor("hosts") } : {}, children: /* @__PURE__ */ jsx23(Textarea10, { label: "Hosts", labelHidden: true, rows: 3, defaultValue: hostsText(def.hosts), onChange: (v) => edit((d) => d.hosts = parseHosts(v)) }) }),
     t === "replicaSet" ? textInput("Replica set name", def.replicaSet, (v) => edit((d) => d.replicaSet = v), { placeholder: "rs0", field: "replicaSet" }) : null,
     t === "standalone" ? /* @__PURE__ */ jsx23(
       Checkbox9,
@@ -10858,7 +11178,7 @@ function ConnectionForm() {
       )
     ] }),
     mode === "uri" ? /* @__PURE__ */ jsxs22(Box20, { gap: "sm", children: [
-      /* @__PURE__ */ jsx23(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx23(Textarea9, { label: "Connection string", labelHidden: true, rows: 4, value: read24(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
+      /* @__PURE__ */ jsx23(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx23(Textarea10, { label: "Connection string", labelHidden: true, rows: 4, value: read24(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
       problem.warnings.map((w) => /* @__PURE__ */ jsx23(Text22, { tone: "warning", size: "sm", children: w }, w)),
       /* @__PURE__ */ jsx23(Text22, { muted: true, size: "sm", children: "Set the SSH tunnel, pasted certificates and AWS keys in Form mode." })
     ] }) : /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
@@ -11087,14 +11407,14 @@ function resetLayoutRun() {
 }
 
 // src/panel/transfer-view.tsx
-import { Box as Box21, Button as Button21, Callout as Callout21, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read26, Row as Row23, set as set12, Text as Text23, Textarea as Textarea10 } from "orca";
+import { Box as Box21, Button as Button21, Callout as Callout21, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read26, Row as Row23, set as set12, Text as Text23, Textarea as Textarea11 } from "orca";
 import { jsx as jsx24, jsxs as jsxs23 } from "orca/jsx-runtime";
 function importSection() {
   const result = read26(importResult);
   return /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
     /* @__PURE__ */ jsx24(Heading2, { level: 3, children: "Import" }),
     /* @__PURE__ */ jsx24(
-      Textarea10,
+      Textarea11,
       {
         label: "Connection strings or an export file's JSON",
         rows: 6,
@@ -11227,11 +11547,11 @@ function connectionItem(c) {
     hasChildren: true
   });
 }
-function filterItems(items, text) {
-  if (!text) return [...items];
+function filterItems(items2, text) {
+  if (!text) return [...items2];
   const needle = text.toLowerCase();
   const out = [];
-  for (const item of items) {
+  for (const item of items2) {
     const kids = item.children ? filterItems(item.children, text) : [];
     if (item.label.toLowerCase().includes(needle) || kids.length) {
       out.push(item.children ? { ...item, children: kids.length ? kids : item.children } : item);
@@ -11242,9 +11562,9 @@ function filterItems(items, text) {
 function treeItems2() {
   const state = read27(connections);
   if (!state) return [];
-  const items = [];
+  const items2 = [];
   if (state.favourites.length) {
-    items.push({
+    items2.push({
       key: "favourites",
       label: "Favourites",
       icon: "star",
@@ -11257,19 +11577,19 @@ function treeItems2() {
   for (const g of read27(savedGroups)) {
     const members = g.ids.map((id) => byId.get(id)).filter((c) => Boolean(c));
     for (const id of g.ids) grouped.add(id);
-    items.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
+    items2.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
   }
-  items.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
-  return filterItems(items, read27(filter).trim());
+  items2.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
+  return filterItems(items2, read27(filter).trim());
 }
 function connectionIdOf(key2) {
   const m = /^conn:([^/]+)/.exec(key2);
   return m ? decodeURIComponent(m[1]) : null;
 }
-function act(run) {
+function act(run2) {
   return async () => {
     try {
-      await run();
+      await run2();
     } catch (error) {
       set13(notice, { tone: "danger", text: error instanceof Error ? error.message : String(error) });
     }
@@ -11499,7 +11819,7 @@ function setup(ctx) {
     }),
     plugin18.on("oidc.signIn", (payload) => set14(oidc, payload)),
     plugin18.on("oidc.done", () => set14(oidc, null)),
-    plugin18.on("shell.results", (run) => void showRun(run, true)),
+    plugin18.on("shell.results", (run2) => void showRun(run2, true)),
     plugin18.on("tasks.changed", (state) => setTasks(state))
   );
   void loadLatestRun();
