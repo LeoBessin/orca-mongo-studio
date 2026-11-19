@@ -36,6 +36,7 @@ import {
 } from './database-state'
 import { openUsers } from './users-state'
 import { PlaceLine } from './place-view'
+import { settings } from './settings-state'
 
 const KINDS = [
   { value: 'plain', label: 'Collection', description: 'Documents of any shape' },
@@ -241,6 +242,7 @@ function Profiler({ t }: { t: DatabaseTab }): OrcaNode {
 
 function Drop({ t }: { t: DatabaseTab }): OrcaNode {
   const system = ['admin', 'local', 'config'].includes(t.db)
+  const byName = settings().confirmByName
   return (
     <Collapsible title="Drop the database" description={system ? 'System databases are never dropped here' : 'Remove it with everything in it'} open={t.open.drop} onChange={(open) => toggleDbSection(t.id, 'drop', open)}>
       {system ? (
@@ -248,10 +250,10 @@ function Drop({ t }: { t: DatabaseTab }): OrcaNode {
       ) : (
         <Callout tone="danger" icon="warning" title={`Drop ${t.db}?`}>
           <Box gap="sm">
-            <Text>{`Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ''}, document${typeof t.info?.documents === 'number' ? ` (${numberText(t.info.documents)})` : ''}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone. Type the database's name to confirm.`}</Text>
-            <Input label="Database name" placeholder={t.db} value={t.dropName} onChange={(dropName) => changeAdmin(t.id, 'database', () => ({ dropName }))} />
+            <Text>{`Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ''}, document${typeof t.info?.documents === 'number' ? ` (${numberText(t.info.documents)})` : ''}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone.${byName ? " Type the database's name to confirm." : ''}`}</Text>
+            {byName ? <Input label="Database name" placeholder={t.db} value={t.dropName} onChange={(dropName) => changeAdmin(t.id, 'database', () => ({ dropName }))} /> : null}
             <Row gap="xs">
-              <Button variant="solid" tone="danger" icon="delete" disabled={t.dropName !== t.db} onPress={aguard(t.id, () => dropDatabase(t.id))}>Drop database</Button>
+              <Button variant="solid" tone="danger" icon="delete" disabled={byName && t.dropName !== t.db} onPress={aguard(t.id, () => dropDatabase(t.id))}>Drop database</Button>
             </Row>
           </Box>
         </Callout>

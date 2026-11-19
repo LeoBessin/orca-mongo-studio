@@ -83534,6 +83534,7 @@ function activate(orca) {
   orca.commands.register("mongoStudio.exportConnections", () => navigate("export"));
   orca.commands.register("mongoStudio.showShellResults", () => navigate("shell"));
   orca.commands.register("mongoStudio.showTasks", () => navigate("tasks"));
+  orca.commands.register("mongoStudio.showSettings", () => navigate("settings"));
   orca.commands.register("mongoStudio.disconnectAll", async () => {
     await shells.closeAll();
     await sessions.closeAll();

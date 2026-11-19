@@ -45,6 +45,123 @@
       {
         "id": "mongoStudio.showTasks",
         "title": "Mongo Studio: Show saved tasks"
+      },
+      {
+        "id": "mongoStudio.showSettings",
+        "title": "Mongo Studio: Settings"
+      }
+    ],
+    "settings": [
+      {
+        "key": "resultView",
+        "title": "Results view",
+        "description": "The view new result tabs open in. Last used starts where you left off.",
+        "type": "string",
+        "default": "last",
+        "enum": [
+          "last",
+          "table",
+          "tree",
+          "json"
+        ],
+        "enumLabels": [
+          "Last used",
+          "Table",
+          "Tree",
+          "JSON"
+        ]
+      },
+      {
+        "key": "docView",
+        "title": "Document view",
+        "description": "The view an opened document starts in.",
+        "type": "string",
+        "default": "last",
+        "enum": [
+          "last",
+          "tree",
+          "json",
+          "shell"
+        ],
+        "enumLabels": [
+          "Last used",
+          "Tree",
+          "JSON",
+          "Shell"
+        ]
+      },
+      {
+        "key": "pageSize",
+        "title": "Page size",
+        "description": "Documents per page in new tabs.",
+        "type": "integer",
+        "default": 0,
+        "enum": [
+          0,
+          20,
+          50,
+          100,
+          200,
+          500
+        ],
+        "enumLabels": [
+          "Last used",
+          "20 per page",
+          "50 per page",
+          "100 per page",
+          "200 per page",
+          "500 per page"
+        ]
+      },
+      {
+        "key": "ejson",
+        "title": "Extended JSON",
+        "description": "How new tabs, opened documents, shell results and new JSON exports show Extended JSON.",
+        "type": "string",
+        "default": "relaxed",
+        "enum": [
+          "relaxed",
+          "canonical"
+        ],
+        "enumLabels": [
+          "Relaxed: numbers and dates as plain JSON",
+          "Canonical: every BSON type exact"
+        ]
+      },
+      {
+        "key": "liveCheck",
+        "title": "Check query bar fields as you type",
+        "description": "Say what doesn't parse while it is typed. Off, errors wait for Run.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "formatButtons",
+        "title": "Query bar Format buttons",
+        "description": "Format a filter, projection, sort or collation onto several lines.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "confirmDeleteDocs",
+        "title": "Ask before deleting documents",
+        "description": "The selected rows, or the open document.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "confirmDrop",
+        "title": "Ask before dropping collections and indexes",
+        "description": "Dropping a collection, a view or an index, or deleting all of a collection's documents.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "confirmByName",
+        "title": "Type the name to confirm",
+        "description": "Before dropping a database, or updating every document of a collection.",
+        "type": "boolean",
+        "default": true
       }
     ],
     "keybindings": [
@@ -83,6 +200,9 @@
     },
     {
       "kind": "secrets:own"
+    },
+    {
+      "kind": "settings:own"
     }
   ],
   "license": "MIT",

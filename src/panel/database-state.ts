@@ -18,6 +18,7 @@ import {
   type DatabaseTab
 } from './admin-state'
 import { openNamespace } from './collection-state'
+import { settings } from './settings-state'
 import { errorText } from './state'
 
 export function databaseTabId(connectionId: string, db: string): string {
@@ -242,7 +243,7 @@ export async function readProfile(id: string): Promise<void> {
 
 export async function dropDatabase(id: string): Promise<void> {
   const t = tabOf(id, 'database')
-  if (!t || t.dropName !== t.db) return
+  if (!t || (settings().confirmByName && t.dropName !== t.db)) return
   await plugin.request('admin.dropDatabase', { connectionId: t.connectionId, db: t.db }, { timeoutMs: 60000 })
   closeTabsForNs({ connectionId: t.connectionId, db: t.db })
   await refreshTree(t.connectionId)

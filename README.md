@@ -32,10 +32,11 @@ orca plugin install LeoBessin/orca-mongo-studio
 ```
 
 Mongo Studio runs its own code in a background worker, so Orca asks you to approve it. It asks
-for two permissions:
+for three permissions:
 
 - `storage:own` keeps your connections, query history, saved pipelines and tasks.
 - `secrets:own` keeps passwords and keys in your operating system's keyring.
+- `settings:own` keeps Mongo Studio's settings, which Orca's Settings shows under the plugin too.
 
 Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 
@@ -151,6 +152,12 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   shell.
 - **Confirmations** before anything is dropped, cleared or replaced. Each one names the namespace
   and its document count.
+- **Settings** (the gear in the Connections toolbar, or **Mongo Studio: Settings**): the results
+  view, document view, page size and Extended JSON new tabs start with; checking the query bar
+  as you type and its Format buttons; and which confirmations ask first. They are Orca plugin
+  settings, so Orca's Settings shows them too; they are kept across restarts, apart from your
+  connections, and **Reset to defaults** puts them back. Read-only connections refuse writes
+  whatever the settings say.
 - Command palette entries and shortcuts that never clash with Orca's own:
   **Mod+Alt+Shift+T** shows saved tasks and **Mod+Alt+Shift+R** shows shell results.
 

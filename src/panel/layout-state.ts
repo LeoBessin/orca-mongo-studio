@@ -260,7 +260,11 @@ export async function restoreLayout(): Promise<void> {
     const known = new Set(before.map((c) => c.id))
     const open = new Set(before.filter((c) => c.connected).map((c) => c.id))
     const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable))
+    const shown = read(view)
     for (const id of await resume(again)) open.add(id)
+    // Reconnecting can take a while: a tab the person chose meanwhile (Settings, a new connection)
+    // stays in front of the saved one.
+    const chosen = read(view) !== shown ? read(view) : undefined
 
     const existing = new Set(read(tabOrder))
     for (const t of saved.tabs) {
@@ -274,7 +278,7 @@ export async function restoreLayout(): Promise<void> {
     const order = read(tabOrder)
     const rank = new Map(saved.order.map((id, i) => [id, i]))
     set(tabOrder, [...order].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)))
-    set(view, saved.view === 'tree' || order.includes(saved.view) ? saved.view : 'tree')
+    set(view, chosen ?? (saved.view === 'tree' || order.includes(saved.view) ? saved.view : 'tree'))
 
     // The tree: open nodes of open connections, parents before children.
     const keys = saved.expanded.filter((k) => {

@@ -24,12 +24,13 @@ const orders: JsonObject[] = Array.from({ length: 3 }, (_, i) => ({
 
 type Calls = { runs: { spec: QuerySpec; pageSize: number; text?: QueryText }[]; pages: { offset: number }[]; [k: string]: unknown[] }
 
-function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage: Record<string, JsonValue> = {}) {
+function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage: Record<string, JsonValue> = {}, settings: Record<string, JsonValue> = {}) {
   const calls: Calls = { runs: [], pages: [], updates: [], replaces: [], inserts: [], deletes: [] }
   let library: QueryLibrary = { history: [], saved: [] }
   const page = (offset: number, docs: JsonObject[], hasMore: boolean): QueryPage => ({ queryId: 'q1', offset, docs, truncated: [], hasMore, stoppedForSize: false, ms: 3 })
   const host = mockHost({
     storage,
+    settings,
     requests: {
       'connections.state': state,
       'tree.children': ({ key }) =>
@@ -956,5 +957,93 @@ describe('switching sidebar tabs', () => {
     assert.equal(treeReads(), 0)
     assert.equal(calls.runs.length, 0)
     assert.ok(after.find({ text: /This connection is not open/ }))
+  })
+})
+
+// The Settings tab itself is tested in panel.test.tsx; these are what each setting does here.
+describe('settings', () => {
+  test('new tabs start in the chosen view, page size and Extended JSON, whatever was used last', async () => {
+    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree', [DOC_VIEW]: 'tree' }, { resultView: 'json', docView: 'shell', pageSize: 20, ejson: 'canonical' })
+    const view = await openOrders(host)
+    assert.equal(calls.runs[0]!.pageSize, 20)
+    const code = view.find({ type: 'CodeView', label: 'Documents as Extended JSON' })!.props.code as string
+    assert.match(code, /"\$numberDecimal": "10.5"/, 'canonical keeps the type')
+    assert.match(code, /"\$numberInt": "1"/)
+    await view.press({ text: 'Table' })
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    await view.press({ text: 'Open' })
+    assert.ok(view.find({ type: 'CodeView', label: 'Document in shell syntax' }), 'documents open in Shell, not the Tree used last')
+    await view.press({ type: 'Button', text: 'JSON' })
+    assert.equal(view.valueOf({ type: 'Switch', label: 'Relaxed Extended JSON' }), false)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('"Last used" page size and views follow what was chosen last', async () => {
+    const { host, calls } = setup({}, 'coll', { [RESULT_VIEW]: 'tree' }, { pageSize: 0 })
+    const view = await openOrders(host, 'coll', { plugin: { 'mongo-studio.pageSize': 100 } })
+    assert.equal(calls.runs[0]!.pageSize, 100)
+    assert.ok(view.find({ type: 'Tree', label: 'Documents' }))
+  })
+
+  test('with confirmations off, deleting documents and updating every document go ahead', async () => {
+    const { host, calls } = setup({
+      'doc.updatePreview': () => ({ count: 4, approximate: false, ms: 2 }),
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { jobId: 'u1' }
+      },
+      'job.poll': ({ jobId }) => updateJob(jobId, 4, 4)
+    }, 'coll', {}, { confirmDeleteDocs: false, confirmByName: false })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    await view.press({ text: 'Delete' })
+    assert.deepEqual((calls.deletes![0] as { ids: JsonValue[] }).ids, [oid(2)])
+    assert.equal(view.find({ type: 'Callout', label: 'Delete 1 document from shop.orders?' }), null)
+    assert.ok(view.find({ text: 'Deleted 1 document from shop.orders.' }))
+    await view.press({ text: 'Update many' })
+    await view.select({ type: 'RadioGroup', label: 'Documents' }, 'all')
+    await view.type({ label: 'Update' }, '{ $set: { n: 1 } }')
+    await view.press({ text: 'Preview' })
+    assert.equal(view.find({ label: 'Type orders to confirm' }), null)
+    await view.press({ type: 'Button', text: 'Update every document' })
+    assert.equal(calls.updates!.length, 1)
+  })
+
+  test('with checking while typing off, errors wait for Run; with Format buttons off, there are none', async () => {
+    const { host, calls } = setup({}, 'coll', {}, { liveCheck: false, formatButtons: false })
+    const view = await openOrders(host)
+    assert.equal(view.find({ type: 'IconButton', label: 'Format the filter on several lines' }), null)
+    await view.type({ label: 'Filter' }, '{ a: 1 ]')
+    assert.equal(view.find({ type: 'Field', label: 'Filter' })!.props.error, undefined)
+    await view.submit({ label: 'Filter' })
+    assert.ok(view.find({ type: 'Field', label: 'Filter' })!.props.error, 'Run still says what is wrong')
+    assert.equal(calls.runs.length, 1)
+    await view.type({ label: 'Filter' }, '{\n  a: 1\n}', { replace: true })
+    assert.ok(view.find({ type: 'IconButton', label: 'Put the filter on one line' }), 'a multi-line box can always go back')
+  })
+})
+
+describe('settings: deleting without asking', () => {
+  test('shows no confirmation while the deletion runs, and a second press sends nothing', async () => {
+    let finish: (() => void) | undefined
+    const { host, calls } = setup({
+      'doc.deleteMany': (input) => {
+        calls.deletes!.push(input)
+        return new Promise((resolve) => (finish = () => resolve({ deleted: input.ids.length })))
+      }
+    }, 'coll', {}, { confirmDeleteDocs: false })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    const pressing = view.press({ text: 'Delete' })
+    await new Promise((r) => setTimeout(r, 0))
+    assert.equal(view.find({ type: 'Callout', label: 'Delete 1 document from shop.orders?' }), null)
+    assert.equal(view.find({ text: 'Delete document' }), null, 'nothing to confirm or cancel')
+    void view.press({ text: 'Delete' }).catch(() => undefined)
+    await new Promise((r) => setTimeout(r, 0))
+    finish!()
+    await pressing
+    await view.settled()
+    assert.equal(calls.deletes!.length, 1)
+    assert.ok(view.find({ text: 'Deleted 1 document from shop.orders.' }))
   })
 })

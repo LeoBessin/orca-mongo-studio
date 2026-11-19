@@ -659,3 +659,41 @@ describe('closing', () => {
     assert.equal(view.find({ type: 'Tab', label: 'orders' }), null)
   })
 })
+
+describe('settings for dropping', () => {
+  test('with "Ask before dropping" off, Drop and Delete all documents go ahead at once', async () => {
+    const { host, calls } = setup()
+    const view = await atCollection(host)
+    await view.press({ type: 'IconButton', label: 'Settings' })
+    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping collections and indexes' })
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.press({ label: 'Manage the collection: indexes, validation, rename, drop' })
+    const table = { type: 'Table', label: 'Indexes' }
+    await view.selectRows(table, ['i:ttl_at'])
+    await view.press({ text: 'Drop' })
+    assert.deepEqual(calls.dropIndex, [{ ns, name: 'ttl_at' }])
+    assert.equal(view.find({ type: 'Callout', label: 'Drop ttl_at from shop.orders?' }), null)
+    await view.toggle({ type: 'Collapsible', label: 'Rename, clear and drop' })
+    await view.press({ text: 'Delete all documents' })
+    assert.deepEqual(calls.clearCollection, [{ ns }])
+    assert.equal(view.find({ type: 'Callout', label: 'Delete every document in shop.orders?' }), null)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('a drop that fails without asking says why, and leaves no confirmation behind', async () => {
+    const { host } = setup({
+      'admin.dropIndex': () => {
+        throw Object.assign(new Error('not authorized on shop to execute command { dropIndexes: "orders" }'), { code: 'action_failed' })
+      }
+    })
+    const view = await atCollection(host)
+    await view.press({ type: 'IconButton', label: 'Settings' })
+    await view.toggle({ type: 'Checkbox', label: 'Ask before dropping collections and indexes' })
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.press({ label: 'Manage the collection: indexes, validation, rename, drop' })
+    await view.selectRows({ type: 'Table', label: 'Indexes' }, ['i:ttl_at'])
+    await view.press({ text: 'Drop' })
+    assert.ok(view.find({ text: /not authorized on shop/ }))
+    assert.equal(view.find({ type: 'Callout', label: 'Drop ttl_at from shop.orders?' }), null)
+  })
+})

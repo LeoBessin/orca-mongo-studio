@@ -6,7 +6,8 @@ import type { QueryText, ShellResultInfo, ShellRunSummary } from '../protocol'
 import type { CodeLanguage } from '../shared/codegen'
 import { toShellInline } from '../shared/ejson-view'
 import type { Operation } from '../shared/operation'
-import { collTabs, defaultPageSize, goToPage, newTab, openNamespace, startResultView, tab, type CollTab } from './collection-state'
+import { collTabs, goToPage, newTab, openNamespace, startPageSize, startResultView, tab, type CollTab } from './collection-state'
+import { startRelaxed } from './settings-state'
 import { stagesFromPipeline } from '../shared/pipeline'
 import { openAggregation } from './aggregate-state'
 import { errorText, view } from './state'
@@ -43,9 +44,9 @@ export async function selectResult(index: number): Promise<void> {
   const t: CollTab = {
     ...newTab(SHELL_TAB, ns, 'coll', 'Shell'),
     readOnly: true,
-    pageSize: previous?.pageSize ?? read(defaultPageSize),
+    pageSize: previous?.pageSize ?? startPageSize(),
     resultView: previous?.resultView ?? startResultView(),
-    relaxed: previous?.relaxed ?? true,
+    relaxed: previous?.relaxed ?? startRelaxed(),
     shell: { runId: run.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,
     ...(info.count !== undefined ? { count: { count: info.count, approximate: false, ms: 0 } } : {})

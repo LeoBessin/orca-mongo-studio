@@ -2,10 +2,10 @@
 
 
 // src/panel.tsx
-import { plugin as plugin18, read as read28, set as set14, Tab, Tabs } from "orca";
+import { plugin as plugin18, read as read30, set as set15, Tab, Tabs } from "orca";
 
 // src/panel/collection-state.ts
-import { atom as atom3, plugin as plugin3, read as read3, set as set3, update as update2 } from "orca";
+import { atom as atom4, plugin as plugin3, read as read4, set as set4, update as update3 } from "orca";
 
 // src/shared/ejson-view.ts
 var BSON_TYPE_LABELS = {
@@ -2204,6 +2204,60 @@ function scopeIsEverything(scope) {
   return scope.kind === "all" || scope.kind === "filter" && Object.keys(scope.filter).length === 0;
 }
 
+// src/shared/settings.ts
+var RESULT_VIEW_KEYS = ["table", "tree", "json"];
+var DOC_VIEW_KEYS = ["tree", "json", "shell"];
+var PAGE_SIZES = [20, 50, 100, 200, 500];
+var DEFAULT_PAGE_SIZE = 50;
+var DEFAULT_SETTINGS = {
+  resultView: "last",
+  docView: "last",
+  pageSize: "last",
+  ejson: "relaxed",
+  liveCheck: true,
+  formatButtons: true,
+  confirmDeleteDocs: true,
+  confirmDrop: true,
+  confirmByName: true
+};
+var SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
+var PAGE_SIZE_LAST = 0;
+function oneOf(value, allowed, fallback) {
+  return allowed.includes(value) ? value : fallback;
+}
+function flag(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function readSetting(key2, raw) {
+  const d = DEFAULT_SETTINGS;
+  const read31 = {
+    resultView: (r) => oneOf(r, ["last", ...RESULT_VIEW_KEYS], d.resultView),
+    docView: (r) => oneOf(r, ["last", ...DOC_VIEW_KEYS], d.docView),
+    pageSize: (r) => r === PAGE_SIZE_LAST ? "last" : oneOf(r, ["last", ...PAGE_SIZES], d.pageSize),
+    ejson: (r) => oneOf(r, ["relaxed", "canonical"], d.ejson),
+    liveCheck: (r) => flag(r, d.liveCheck),
+    formatButtons: (r) => flag(r, d.formatButtons),
+    confirmDeleteDocs: (r) => flag(r, d.confirmDeleteDocs),
+    confirmDrop: (r) => flag(r, d.confirmDrop),
+    confirmByName: (r) => flag(r, d.confirmByName)
+  };
+  return read31[key2](raw);
+}
+function storedSetting(key2, value) {
+  return key2 === "pageSize" && value === "last" ? PAGE_SIZE_LAST : value;
+}
+function normalizeSettings(raw) {
+  const r = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return Object.fromEntries(SETTING_KEYS.map((k) => [k, readSetting(k, r[k])]));
+}
+function isDefault(s) {
+  return SETTING_KEYS.every((k) => s[k] === DEFAULT_SETTINGS[k]);
+}
+function startValue(setting, remembered, allowed, fallback) {
+  if (setting !== "last") return setting;
+  return oneOf(remembered, allowed, fallback);
+}
+
 // src/panel/data-state.ts
 import { atom as atom2, files, plugin as plugin2, read as read2, set as set2 } from "orca";
 
@@ -2952,13 +3006,13 @@ async function followJob(jobId, get, put) {
   }
 }
 async function fetchDownload(jobId, d, get, put) {
-  const update11 = (download) => {
+  const update12 = (download) => {
     const box = get();
     if (box?.jobId === jobId) put({ ...box, download });
   };
   const parts = [];
   let offset = 0;
-  update11({ ...d, fetched: 0, ready: false });
+  update12({ ...d, fetched: 0, ready: false });
   try {
     while (offset < d.size) {
       if (get()?.jobId !== jobId) return;
@@ -2967,12 +3021,12 @@ async function fetchDownload(jobId, d, get, put) {
       if (bytes.length === 0) break;
       parts.push(bytes);
       offset += bytes.length;
-      update11({ ...d, fetched: offset, ready: false });
+      update12({ ...d, fetched: offset, ready: false });
     }
     fetched.set(jobId, joinBytes(parts));
-    update11({ ...d, fetched: offset, ready: true });
+    update12({ ...d, fetched: offset, ready: true });
   } catch (error) {
-    update11({ ...d, fetched: offset, ready: false, error: errorText(error) });
+    update12({ ...d, fetched: offset, ready: false, error: errorText(error) });
   } finally {
     void plugin2.request("job.close", { jobId }).catch(() => void 0);
   }
@@ -3031,29 +3085,97 @@ function progressPercent(s) {
   return Math.max(0, Math.min(100, Math.round(s.done / s.total * 100)));
 }
 
+// src/panel/settings-state.ts
+import { atom as atom3, read as read3, set as set3, settings as orcaSettings, update as update2 } from "orca";
+var SETTINGS_TAB = "settings";
+var settingsAtom = atom3({ ...DEFAULT_SETTINGS });
+var settingsOpen = atom3(false);
+var settingsError = atom3(null);
+var inFlight = /* @__PURE__ */ new Map();
+function settings() {
+  return read3(settingsAtom);
+}
+function isSettingKey(key2) {
+  return SETTING_KEYS.includes(key2);
+}
+async function loadSettings() {
+  let listener = { dispose: () => void 0 };
+  try {
+    listener = orcaSettings.onDidChange(({ key: key2 }) => {
+      if (!isSettingKey(key2) || inFlight.get(key2)) return;
+      void orcaSettings.get(key2).then(
+        (value) => {
+          if (!inFlight.get(key2)) update2(settingsAtom, (s) => ({ ...s, [key2]: readSetting(key2, value) }));
+        },
+        () => void 0
+      );
+    });
+  } catch {
+  }
+  try {
+    set3(settingsAtom, normalizeSettings(await orcaSettings.get()));
+  } catch {
+  }
+  return listener;
+}
+function write(key2, value) {
+  inFlight.set(key2, (inFlight.get(key2) ?? 0) + 1);
+  return orcaSettings.set(key2, storedSetting(key2, value)).finally(() => {
+    const left = (inFlight.get(key2) ?? 1) - 1;
+    if (left > 0) inFlight.set(key2, left);
+    else inFlight.delete(key2);
+  });
+}
+function changeSettings(values) {
+  const keys = Object.keys(values).filter(isSettingKey);
+  update2(settingsAtom, (s) => ({ ...s, ...values }));
+  set3(settingsError, null);
+  return Promise.all(keys.map((k) => write(k, values[k]))).then(() => void 0).catch(async (error) => {
+    set3(settingsError, `Could not save the setting: ${errorText(error)}`);
+    try {
+      set3(settingsAtom, normalizeSettings(await orcaSettings.get()));
+    } catch {
+    }
+  });
+}
+function resetSettings() {
+  return changeSettings({ ...DEFAULT_SETTINGS });
+}
+function startRelaxed() {
+  return settings().ejson === "relaxed";
+}
+function openSettings() {
+  set3(settingsOpen, true);
+  set3(view, SETTINGS_TAB);
+}
+function closeSettings() {
+  set3(settingsOpen, false);
+  if (read3(view) === SETTINGS_TAB) set3(view, "tree");
+}
+
 // src/panel/collection-state.ts
-var PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500];
-var collTabs = atom3({});
-var tabOrder = atom3([]);
-var defaultPageSize = atom3("mongo-studio.pageSize", 50, { persist: "plugin" });
-var lastResultView = atom3("mongo-studio.resultView", "table", { persist: "storage" });
-var lastDocView = atom3("mongo-studio.docView", "tree", { persist: "storage" });
+var collTabs = atom4({});
+var tabOrder = atom4([]);
+var defaultPageSize = atom4("mongo-studio.pageSize", DEFAULT_PAGE_SIZE, { persist: "plugin" });
+var lastResultView = atom4("mongo-studio.resultView", "table", { persist: "storage" });
+var lastDocView = atom4("mongo-studio.docView", "tree", { persist: "storage" });
 var RESULT_VIEWS = { table: "Table", tree: "Tree", json: "JSON" };
 var DOC_VIEWS = { tree: "Tree", json: "JSON", shell: "Shell" };
 function startResultView() {
-  const v = read3(lastResultView);
-  return typeof v === "string" && Object.hasOwn(RESULT_VIEWS, v) ? v : "table";
+  return startValue(settings().resultView, read4(lastResultView), RESULT_VIEW_KEYS, "table");
 }
 function startDocView() {
-  const v = read3(lastDocView);
-  return typeof v === "string" && Object.hasOwn(DOC_VIEWS, v) ? v : "tree";
+  return startValue(settings().docView, read4(lastDocView), DOC_VIEW_KEYS, "tree");
+}
+function startPageSize() {
+  return startValue(settings().pageSize, read4(defaultPageSize), PAGE_SIZES, DEFAULT_PAGE_SIZE);
 }
 var emptyText = { filter: "", projection: "", sort: "", collation: "", skip: "", limit: "" };
 function tab(id) {
-  return read3(collTabs)[id];
+  return read4(collTabs)[id];
 }
 function change(id, fn) {
-  update2(collTabs, (prev) => {
+  update3(collTabs, (prev) => {
     const t = prev[id];
     if (!t) return prev;
     const next = fn(t);
@@ -3095,16 +3217,16 @@ async function openCollection(nodeKey2) {
   const target = nodeTarget(nodeKey2);
   if (!target.connectionId || !target.db || !target.collection) return;
   const ns = { connectionId: target.connectionId, db: target.db, collection: target.collection };
-  const meta = read3(nodeIndex)[nodeKey2];
+  const meta = read4(nodeIndex)[nodeKey2];
   await openNamespace(ns, meta?.kind ?? target.kind);
 }
 async function openNamespace(ns, kind, text) {
-  const existing = read3(tabOrder).find((id2) => {
+  const existing = read4(tabOrder).find((id2) => {
     const t2 = tab(id2);
     return t2 && !t2.docTab && !t2.agg && t2.ns.connectionId === ns.connectionId && t2.ns.db === ns.db && t2.ns.collection === ns.collection;
   });
   if (existing) {
-    set3(view, existing);
+    set4(view, existing);
     if (text) {
       patch(existing, { text, fieldErrors: {} });
       await runQuery(existing);
@@ -3114,9 +3236,9 @@ async function openNamespace(ns, kind, text) {
   const id = tabIdFor(ns);
   const t = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() };
   if (text) t.text = text;
-  update2(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update2(tabOrder, (prev) => [...prev, id]);
-  set3(view, id);
+  update3(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update3(tabOrder, (prev) => [...prev, id]);
+  set4(view, id);
   await Promise.all([runQuery(id, text !== void 0), loadLibrary(id)]);
 }
 function newTab(id, ns, kind, title) {
@@ -3129,11 +3251,11 @@ function newTab(id, ns, kind, title) {
     text: { ...emptyText },
     fieldErrors: {},
     multiline: {},
-    pageSize: read3(defaultPageSize),
+    pageSize: startPageSize(),
     loading: false,
     runToken: 0,
     resultView: "table",
-    relaxed: true,
+    relaxed: startRelaxed(),
     selectedRows: [],
     treeExpanded: [],
     flattened: [],
@@ -3148,25 +3270,25 @@ function newTab(id, ns, kind, title) {
 function closeTab(id) {
   const t = tab(id);
   if (t?.queryId && !t.shell) void plugin3.request("query.close", { queryId: t.queryId }).catch(() => void 0);
-  const order = read3(tabOrder);
+  const order = read4(tabOrder);
   const at = order.indexOf(id);
   const rest = order.filter((x) => x !== id);
-  set3(tabOrder, rest);
-  update2(collTabs, (prev) => {
+  set4(tabOrder, rest);
+  update3(collTabs, (prev) => {
     const next = { ...prev };
     delete next[id];
     return next;
   });
-  if (read3(view) === id) set3(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
+  if (read4(view) === id) set4(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
 }
 function closeTabsFor(connectionId) {
-  for (const id of read3(tabOrder)) if (tab(id)?.ns.connectionId === connectionId) closeTab(id);
+  for (const id of read4(tabOrder)) if (tab(id)?.ns.connectionId === connectionId) closeTab(id);
 }
 function canOpenDocuments(t) {
   return !t.shell && !t.agg;
 }
 function newFocus(docId, view2 = "tree") {
-  return { id: docId, loading: true, view: view2, relaxed: true, expanded: [treeKey(0, [])] };
+  return { id: docId, loading: true, view: view2, relaxed: startRelaxed(), expanded: [treeKey(0, [])] };
 }
 async function loadFocus(id) {
   const t = tab(id);
@@ -3194,17 +3316,17 @@ async function openDocumentTab(fromId, docId) {
   if (!from) return;
   const id = docTabIdFor(from.ns, docId);
   if (tab(id)) {
-    set3(view, id);
+    set4(view, id);
     await loadFocus(id);
     return;
   }
   const t = { ...newTab(id, from.ns, from.kind, `${from.ns.collection} · ${toShellInline(docId).slice(0, 24)}`), readOnly: from.readOnly, docTab: { id: docId }, focus: newFocus(docId, from.focus?.view ?? startDocView()) };
-  update2(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update2(tabOrder, (prev) => {
+  update3(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update3(tabOrder, (prev) => {
     const at = prev.indexOf(fromId);
     return at < 0 ? [...prev, id] : [...prev.slice(0, at + 1), id, ...prev.slice(at + 1)];
   });
-  set3(view, id);
+  set4(view, id);
   await loadFocus(id);
 }
 function setFocus(id, values) {
@@ -3212,7 +3334,7 @@ function setFocus(id, values) {
 }
 function askDeleteFocused(id) {
   const f = tab(id)?.focus;
-  if (f) patch(id, { confirmDelete: { ids: [f.id] }, editor: void 0 });
+  return f ? askDeleteIds(id, [f.id]) : Promise.resolve();
 }
 function setText(id, field, value) {
   change(id, (t) => ({
@@ -3237,7 +3359,7 @@ function liveProblem(field, value, now = Date.now()) {
 }
 function withLiveProblem(errors, field, value) {
   const out = { ...errors };
-  const problem = liveProblem(field, value);
+  const problem = settings().liveCheck ? liveProblem(field, value) : void 0;
   if (problem) out[field] = problem;
   else delete out[field];
   return out;
@@ -3369,15 +3491,15 @@ function previousPage(id) {
 }
 function setResultView(id, v, extra = {}) {
   const t = tab(id);
-  if (t && canOpenDocuments(t) && read3(lastResultView) !== v) set3(lastResultView, v);
+  if (t && canOpenDocuments(t) && read4(lastResultView) !== v) set4(lastResultView, v);
   patch(id, { ...extra, resultView: v });
 }
 function setDocView(id, v) {
-  if (read3(lastDocView) !== v) set3(lastDocView, v);
+  if (read4(lastDocView) !== v) set4(lastDocView, v);
   setFocus(id, { view: v });
 }
 async function setPageSize(id, size) {
-  set3(defaultPageSize, size);
+  set4(defaultPageSize, size);
   patch(id, { pageSize: size });
   const t = tab(id);
   if (t?.page) await goToPage(id, t.page.offset);
@@ -3595,15 +3717,27 @@ async function saveDocument(id) {
 }
 function askDelete(id) {
   const t = tab(id);
-  if (!t) return;
+  if (!t) return Promise.resolve();
   const docs2 = selectedDocs(t).filter((d) => "_id" in d);
-  if (docs2.length === 0) return;
-  patch(id, { confirmDelete: { ids: docs2.map((d) => d._id) }, editor: void 0 });
+  return docs2.length ? askDeleteIds(id, docs2.map((d) => d._id)) : Promise.resolve();
 }
-async function confirmDeletion(id) {
+function askDeleteIds(id, ids) {
+  if (!settings().confirmDeleteDocs) {
+    patch(id, { editor: void 0 });
+    return deleteDocuments(id, ids);
+  }
+  patch(id, { confirmDelete: { ids }, editor: void 0 });
+  return Promise.resolve();
+}
+function confirmDeletion(id) {
+  const ids = tab(id)?.confirmDelete?.ids;
+  return ids ? deleteDocuments(id, ids) : Promise.resolve();
+}
+var deleting = /* @__PURE__ */ new Set();
+async function deleteDocuments(id, ids) {
   const t = tab(id);
-  const ids = t?.confirmDelete?.ids;
-  if (!t || !ids) return;
+  if (!t || deleting.has(id)) return;
+  deleting.add(id);
   try {
     const r = await plugin3.request("doc.deleteMany", { ns: t.ns, ids }, { timeoutMs: 12e4 });
     patch(id, { confirmDelete: void 0, selectedRows: [] });
@@ -3615,6 +3749,8 @@ async function confirmDeletion(id) {
   } catch (error) {
     patch(id, { confirmDelete: void 0 });
     say2(id, "danger", errorText(error));
+  } finally {
+    deleting.delete(id);
   }
 }
 function canUpdateMany(t) {
@@ -3674,11 +3810,11 @@ async function previewUpdateMany(id) {
   if (!t?.bulk || t.bulk.running) return;
   const plan = bulkPlan(t);
   if (!plan.scope || !plan.update || !plan.basis) return;
-  const { scope, update: update11, basis } = plan;
-  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, error: void 0, confirmName: "", preview: { basis, scope, update: update11, loading: true } } } : {});
+  const { scope, update: update12, basis } = plan;
+  change(id, (x) => x.bulk ? { bulk: { ...x.bulk, error: void 0, confirmName: "", preview: { basis, scope, update: update12, loading: true } } } : {});
   let next;
   try {
-    next = { loading: false, result: await plugin3.request("doc.updatePreview", { ns: t.ns, scope, update: update11 }, { timeoutMs: 12e4 }) };
+    next = { loading: false, result: await plugin3.request("doc.updatePreview", { ns: t.ns, scope, update: update12 }, { timeoutMs: 12e4 }) };
   } catch (error) {
     next = { loading: false, error: errorText(error) };
   }
@@ -3687,7 +3823,7 @@ async function previewUpdateMany(id) {
 function bulkConfirmed(t, plan = bulkPlan(t)) {
   const p = currentPreview(t, plan);
   if (!t.bulk || t.bulk.running || !p?.result || p.result.sample?.error) return false;
-  return !scopeIsEverything(p.scope) || t.bulk.confirmName === t.ns.collection;
+  return !scopeIsEverything(p.scope) || !settings().confirmByName || t.bulk.confirmName === t.ns.collection;
 }
 async function runUpdateMany(id) {
   const t = tab(id);
@@ -3825,24 +3961,24 @@ async function clearHistory(id) {
 }
 
 // src/panel/admin-state.ts
-import { atom as atom4, read as read4, set as set4, update as update3 } from "orca";
-var adminTabs = atom4({});
+import { atom as atom5, read as read5, set as set5, update as update4 } from "orca";
+var adminTabs = atom5({});
 function adminTab(id) {
-  return read4(adminTabs)[id];
+  return read5(adminTabs)[id];
 }
 function tabOf(id, kind) {
   const t = adminTab(id);
   return t && t.kind === kind ? t : void 0;
 }
 function changeAdmin(id, kind, fn) {
-  update3(adminTabs, (prev) => {
+  update4(adminTabs, (prev) => {
     const t = prev[id];
     if (!t || t.kind !== kind) return prev;
     return { ...prev, [id]: { ...t, ...fn(t) } };
   });
 }
 function sayAdmin(id, tone, text) {
-  update3(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
+  update4(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: { tone, text } } } : prev);
 }
 function aguard(id, run2) {
   return async () => {
@@ -3862,18 +3998,18 @@ function adminTabId(kind, parts) {
   return `adm-${kind}-${h.toString(36)}`;
 }
 function isReadOnly(connectionId) {
-  return Boolean(connectionId && read4(connections)?.connections.find((c) => c.id === connectionId)?.readOnly);
+  return Boolean(connectionId && read5(connections)?.connections.find((c) => c.id === connectionId)?.readOnly);
 }
 function connectionName(connectionId) {
-  return read4(connections)?.connections.find((c) => c.id === connectionId)?.name ?? "Connection";
+  return read5(connections)?.connections.find((c) => c.id === connectionId)?.name ?? "Connection";
 }
 function showOrAdd(tab2) {
   const exists = Boolean(adminTab(tab2.id));
   if (!exists) {
-    update3(adminTabs, (prev) => ({ ...prev, [tab2.id]: tab2 }));
-    update3(tabOrder, (prev) => [...prev, tab2.id]);
+    update4(adminTabs, (prev) => ({ ...prev, [tab2.id]: tab2 }));
+    update4(tabOrder, (prev) => [...prev, tab2.id]);
   }
-  set4(view, tab2.id);
+  set5(view, tab2.id);
   return !exists;
 }
 function closeAdmin(id) {
@@ -3881,19 +4017,19 @@ function closeAdmin(id) {
   if (t?.kind === "server") changeAdmin(id, "server", (s) => ({ live: false, liveToken: s.liveToken + 1 }));
   if (t?.kind === "export") dropDownload(t.job);
   if (t?.kind === "gridfs") dropDownload(t.download.job);
-  const order = read4(tabOrder);
+  const order = read5(tabOrder);
   const at = order.indexOf(id);
   const rest = order.filter((x) => x !== id);
-  set4(tabOrder, rest);
-  update3(adminTabs, (prev) => {
+  set5(tabOrder, rest);
+  update4(adminTabs, (prev) => {
     const next = { ...prev };
     delete next[id];
     return next;
   });
-  if (read4(view) === id) set4(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
+  if (read5(view) === id) set5(view, rest[Math.min(at, rest.length - 1)] ?? "tree");
 }
 function closeAdminTabsFor(connectionId) {
-  for (const id of Object.keys(read4(adminTabs))) {
+  for (const id of Object.keys(read5(adminTabs))) {
     const t = adminTab(id);
     if (t?.connectionId === connectionId || t?.kind === "compare" && (t.b.connectionId === connectionId || t.ran?.b.connectionId === connectionId)) closeAdmin(id);
   }
@@ -3903,9 +4039,9 @@ function sameNs(a, b) {
 }
 function closeTabsForNs(ns, keep) {
   const matches = (other) => "collection" in ns ? sameNs(other, ns) : other.connectionId === ns.connectionId && other.db === ns.db;
-  for (const id of [...read4(tabOrder)]) {
+  for (const id of [...read5(tabOrder)]) {
     if (id === keep) continue;
-    const c = read4(collTabs)[id];
+    const c = read5(collTabs)[id];
     if (c && matches(c.ns)) closeTab(id);
     const a = adminTab(id);
     if (a && "ns" in a && matches(a.ns)) closeAdmin(id);
@@ -3920,12 +4056,12 @@ async function refreshTree(connectionId, db) {
   await refreshNode(treeKeyOf(connectionId, db)).catch(() => void 0);
 }
 function backToTree(tone, text) {
-  set4(view, "tree");
-  set4(notice, { tone, text });
+  set5(view, "tree");
+  set5(notice, { tone, text });
 }
 function nodeNamespace(nodeKey2) {
   const t = nodeTarget(nodeKey2);
-  const kind = read4(nodeIndex)[nodeKey2]?.kind ?? t.kind;
+  const kind = read5(nodeIndex)[nodeKey2]?.kind ?? t.kind;
   const out = { kind };
   if (t.connectionId) out.connectionId = t.connectionId;
   if (t.db) out.db = t.db;
@@ -3935,7 +4071,7 @@ function nodeNamespace(nodeKey2) {
 var numberText = (n2) => n2.toLocaleString("en-US");
 
 // src/panel/admin-view.tsx
-import { read as read17 } from "orca";
+import { read as read18 } from "orca";
 
 // src/panel/database-view.tsx
 import {
@@ -3948,7 +4084,7 @@ import {
   Input,
   KeyValue,
   RadioGroup,
-  read as read6,
+  read as read7,
   Row as Row3,
   Select,
   Skeleton,
@@ -3959,7 +4095,7 @@ import {
 } from "orca";
 
 // src/panel/admin-notice.tsx
-import { Callout, IconButton, Row, Text, update as update4 } from "orca";
+import { Callout, IconButton, Row, Text, update as update5 } from "orca";
 import { jsx, jsxs } from "orca/jsx-runtime";
 function NoticeBar({ id, notice: notice2 }) {
   if (!notice2) return null;
@@ -3972,7 +4108,7 @@ function NoticeBar({ id, notice: notice2 }) {
         label: "Dismiss",
         variant: "ghost",
         size: "xs",
-        onPress: () => update4(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: void 0 } } : prev)
+        onPress: () => update5(adminTabs, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], notice: void 0 } } : prev)
       }
     )
   ] }) });
@@ -4177,7 +4313,7 @@ async function readProfile(id) {
 }
 async function dropDatabase(id) {
   const t = tabOf(id, "database");
-  if (!t || t.dropName !== t.db) return;
+  if (!t || settings().confirmByName && t.dropName !== t.db) return;
   await plugin4.request("admin.dropDatabase", { connectionId: t.connectionId, db: t.db }, { timeoutMs: 6e4 });
   closeTabsForNs({ connectionId: t.connectionId, db: t.db });
   await refreshTree(t.connectionId);
@@ -4318,7 +4454,7 @@ async function dropConfirmed(id) {
 }
 
 // src/panel/place-view.tsx
-import { Badge, read as read5, Row as Row2, Text as Text2 } from "orca";
+import { Badge, read as read6, Row as Row2, Text as Text2 } from "orca";
 import { jsx as jsx2, jsxs as jsxs2 } from "orca/jsx-runtime";
 function placeText(p, name) {
   const db = p.db?.trim();
@@ -4327,7 +4463,7 @@ function placeText(p, name) {
   return `${p.label ? `${p.label}: ` : ""}${name}${where}`;
 }
 function PlaceLine({ places, detail }) {
-  const byId = new Map((read5(connections)?.connections ?? []).map((c) => [c.id, c]));
+  const byId = new Map((read6(connections)?.connections ?? []).map((c) => [c.id, c]));
   const locked = places.filter((p) => p.writes && byId.get(p.connectionId)?.readOnly);
   const text = places.map((p) => placeText(p, byId.get(p.connectionId)?.name ?? "Connection")).join(" · ");
   return /* @__PURE__ */ jsxs2(Row2, { gap: "xs", align: "center", children: [
@@ -4521,14 +4657,15 @@ function Profiler({ t }) {
 }
 function Drop({ t }) {
   const system = ["admin", "local", "config"].includes(t.db);
+  const byName = settings().confirmByName;
   return /* @__PURE__ */ jsx3(Collapsible, { title: "Drop the database", description: system ? "System databases are never dropped here" : "Remove it with everything in it", open: t.open.drop, onChange: (open) => toggleDbSection(t.id, "drop", open), children: system ? /* @__PURE__ */ jsx3(Text3, { size: "sm", muted: true, children: `${t.db} is a system database. Mongo Studio does not drop it.` }) : /* @__PURE__ */ jsx3(Callout2, { tone: "danger", icon: "warning", title: `Drop ${t.db}?`, children: /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
-    /* @__PURE__ */ jsx3(Text3, { children: `Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ""}, document${typeof t.info?.documents === "number" ? ` (${numberText(t.info.documents)})` : ""}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone. Type the database's name to confirm.` }),
-    /* @__PURE__ */ jsx3(Input, { label: "Database name", placeholder: t.db, value: t.dropName, onChange: (dropName) => changeAdmin(t.id, "database", () => ({ dropName })) }),
-    /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button, { variant: "solid", tone: "danger", icon: "delete", disabled: t.dropName !== t.db, onPress: aguard(t.id, () => dropDatabase(t.id)), children: "Drop database" }) })
+    /* @__PURE__ */ jsx3(Text3, { children: `Every collection${t.info ? ` (${numberText(t.info.collections.length)})` : ""}, document${typeof t.info?.documents === "number" ? ` (${numberText(t.info.documents)})` : ""}, index and user of ${t.db} on ${connectionName(t.connectionId)} is deleted. This can't be undone.${byName ? " Type the database's name to confirm." : ""}` }),
+    byName ? /* @__PURE__ */ jsx3(Input, { label: "Database name", placeholder: t.db, value: t.dropName, onChange: (dropName) => changeAdmin(t.id, "database", () => ({ dropName })) }) : null,
+    /* @__PURE__ */ jsx3(Row3, { gap: "xs", children: /* @__PURE__ */ jsx3(Button, { variant: "solid", tone: "danger", icon: "delete", disabled: byName && t.dropName !== t.db, onPress: aguard(t.id, () => dropDatabase(t.id)), children: "Drop database" }) })
   ] }) }) });
 }
 function DatabaseTabView({ id }) {
-  const t = read6(adminTabs)[id];
+  const t = read7(adminTabs)[id];
   if (!t || t.kind !== "database") return null;
   const ro = isReadOnly(t.connectionId);
   return /* @__PURE__ */ jsxs3(Box, { gap: "sm", children: [
@@ -4568,7 +4705,7 @@ import {
   IconButton as IconButton3,
   Input as Input2,
   KeyValue as KeyValue2,
-  read as read7,
+  read as read8,
   Row as Row4,
   Select as Select2,
   Skeleton as Skeleton2,
@@ -4836,15 +4973,35 @@ async function saveTtl(id, name) {
   sayAdmin(id, "success", `Documents now expire ${numberText(Number(text))} s after ${name}'s date.`);
   await loadManage(id);
 }
-async function dropIndexConfirmed(id) {
-  const t = tabOf(id, "manage");
-  const name = t?.confirmDropIndex;
-  if (!t || !name) return;
-  await plugin6.request("admin.dropIndex", { ns: t.ns, name });
-  changeAdmin(id, "manage", () => ({ confirmDropIndex: void 0, indexSelected: void 0 }));
-  sayAdmin(id, "success", `Index ${name} dropped.`);
-  await loadManage(id);
-  await refreshTree(t.connectionId, t.ns.db);
+var busy2 = /* @__PURE__ */ new Set();
+async function once(id, run2) {
+  if (busy2.has(id)) return;
+  busy2.add(id);
+  try {
+    await run2();
+  } finally {
+    busy2.delete(id);
+  }
+}
+function askDropIndex(id, name) {
+  if (!settings().confirmDrop) return dropIndex(id, name);
+  changeAdmin(id, "manage", () => ({ confirmDropIndex: name }));
+  return Promise.resolve();
+}
+function dropIndexConfirmed(id) {
+  const name = tabOf(id, "manage")?.confirmDropIndex;
+  return name ? dropIndex(id, name) : Promise.resolve();
+}
+function dropIndex(id, name) {
+  return once(id, async () => {
+    const t = tabOf(id, "manage");
+    if (!t) return;
+    await plugin6.request("admin.dropIndex", { ns: t.ns, name });
+    changeAdmin(id, "manage", () => ({ confirmDropIndex: void 0, indexSelected: void 0 }));
+    sayAdmin(id, "success", `Index ${name} dropped.`);
+    await loadManage(id);
+    await refreshTree(t.connectionId, t.ns.db);
+  });
 }
 function setValidation(id, change2) {
   changeAdmin(id, "manage", (t) => ({ validation: { ...t.validation, ...change2, error: change2.text !== void 0 ? void 0 : t.validation.error, loaded: true } }));
@@ -4928,13 +5085,22 @@ async function convertToCapped(id) {
   await refreshTree(t.connectionId, t.ns.db);
 }
 function askConfirm(id, confirm) {
+  if (confirm && !settings().confirmDrop) return clearOrDrop(id, confirm);
   changeAdmin(id, "manage", () => ({ confirm }));
+  return Promise.resolve();
 }
-async function confirmed(id) {
+function confirmed(id) {
+  const kind = tabOf(id, "manage")?.confirm;
+  return kind ? clearOrDrop(id, kind) : Promise.resolve();
+}
+function clearOrDrop(id, kind) {
+  return once(id, () => clearOrDropNow(id, kind));
+}
+async function clearOrDropNow(id, kind) {
   const t = tabOf(id, "manage");
-  if (!t?.confirm) return;
+  if (!t) return;
   const what = nsLabel(t.ns);
-  if (t.confirm === "clear") {
+  if (kind === "clear") {
     const { deleted } = await plugin6.request("admin.clearCollection", { ns: t.ns }, { timeoutMs: 12e4 });
     changeAdmin(id, "manage", () => ({ confirm: void 0 }));
     sayAdmin(id, "success", `Deleted ${numberText(deleted)} document${deleted === 1 ? "" : "s"} from ${what}. Its indexes and options stay.`);
@@ -5023,14 +5189,14 @@ function fieldSchema(report, f, options4) {
     if (names.length === 1) out.bsonType = names[0];
     else if (names.length) out.bsonType = names;
   } else {
-    const set15 = new Set(types);
-    if (set15.has("double") || set15.has("decimal")) {
-      set15.delete("int");
-      set15.delete("long");
+    const set16 = new Set(types);
+    if (set16.has("double") || set16.has("decimal")) {
+      set16.delete("int");
+      set16.delete("long");
     }
     const simple = [];
     const rich = [];
-    for (const t of set15) {
+    for (const t of set16) {
       const s = JSON_TYPES[t];
       if (!s) continue;
       if (Object.keys(s).length === 1) {
@@ -5179,7 +5345,7 @@ function IndexActions({ t, i }) {
   return /* @__PURE__ */ jsxs4(Box2, { gap: "xs", children: [
     ro || isId ? null : /* @__PURE__ */ jsxs4(Toolbar2, { label: `${i.name} actions`, gap: "xs", children: [
       /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: i.hidden ? "play" : "pause", variant: "ghost", onPress: aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden)), children: i.hidden ? "Unhide" : "Hide" }),
-      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "manage", () => ({ confirmDropIndex: i.name })), children: "Drop" })
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: aguard(t.id, () => askDropIndex(t.id, i.name)), children: "Drop" })
     ] }),
     i.ttl !== void 0 && !ro ? /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
       /* @__PURE__ */ jsx4(Input2, { label: "Expire after (seconds)", value: t.ttlText ?? String(i.ttl), onChange: (v) => changeAdmin(t.id, "manage", () => ({ ttlText: v })), onSubmit: () => void aguard(t.id, () => saveTtl(t.id, i.name))() }),
@@ -5351,20 +5517,20 @@ function Operations({ t }) {
       /* @__PURE__ */ jsx4(Button2, { size: "sm", disabled: !t.cappedSize.trim(), onPress: aguard(t.id, () => convertToCapped(t.id)), children: "Make capped" })
     ] }),
     /* @__PURE__ */ jsxs4(Toolbar2, { label: "Remove", gap: "xs", children: [
-      view2 || t.info?.capped ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "remove", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "clear"), children: "Delete all documents" }),
-      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askConfirm(t.id, "drop"), children: view2 ? "Drop view" : "Drop collection" })
+      view2 || t.info?.capped ? null : /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "remove", variant: "ghost", tone: "danger", onPress: aguard(t.id, () => askConfirm(t.id, "clear")), children: "Delete all documents" }),
+      /* @__PURE__ */ jsx4(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: aguard(t.id, () => askConfirm(t.id, "drop")), children: view2 ? "Drop view" : "Drop collection" })
     ] }),
     t.confirm ? /* @__PURE__ */ jsx4(Callout3, { tone: "danger", icon: "warning", title: t.confirm === "clear" ? `Delete every document in ${what}?` : `Drop ${what}?`, children: /* @__PURE__ */ jsxs4(Box2, { gap: "sm", children: [
       /* @__PURE__ */ jsx4(Text4, { children: t.confirm === "clear" ? `${countText(t)} are deleted. The collection, its indexes and its rules stay.` : view2 ? "The view is removed. Its source collection is not touched." : `The collection is removed with ${countText(t)} and its ${t.indexes ? `${t.indexes.indexes.length} index${t.indexes.indexes.length === 1 ? "" : "es"}` : "indexes"}. This can't be undone.` }),
       /* @__PURE__ */ jsxs4(Row4, { gap: "xs", children: [
         /* @__PURE__ */ jsx4(Button2, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => confirmed(t.id)), children: t.confirm === "clear" ? "Delete documents" : view2 ? "Drop view" : "Drop collection" }),
-        /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => askConfirm(t.id, void 0), children: "Cancel" })
+        /* @__PURE__ */ jsx4(Button2, { variant: "ghost", onPress: () => void askConfirm(t.id, void 0), children: "Cancel" })
       ] })
     ] }) }) : null
   ] }) });
 }
 function ManageTabView({ id }) {
-  const t = read7(adminTabs)[id];
+  const t = read8(adminTabs)[id];
   if (!t || t.kind !== "manage") return null;
   const info = t.info;
   const noIndexes = readonlyReason(t);
@@ -5412,7 +5578,7 @@ import {
   KeyValue as KeyValue3,
   Progress,
   RadioGroup as RadioGroup2,
-  read as read8,
+  read as read9,
   Row as Row5,
   Select as Select3,
   Skeleton as Skeleton3,
@@ -5505,7 +5671,7 @@ function Export({ t }) {
   ] }) });
 }
 function SchemaTabView({ id }) {
-  const t = read8(adminTabs)[id];
+  const t = read9(adminTabs)[id];
   if (!t || t.kind !== "schema") return null;
   const r = t.report;
   const selected2 = r?.fields.find((f) => fieldKey(f.path) === t.selected);
@@ -5563,7 +5729,7 @@ import {
   IconButton as IconButton5,
   Input as Input4,
   KeyValue as KeyValue4,
-  read as read9,
+  read as read10,
   RelativeTime,
   Row as Row6,
   Skeleton as Skeleton4,
@@ -5752,7 +5918,7 @@ function Ops({ t }) {
   ] }) });
 }
 function ServerTabView({ id }) {
-  const t = read9(adminTabs)[id];
+  const t = read10(adminTabs)[id];
   if (!t || t.kind !== "server") return null;
   const s = t.status;
   return /* @__PURE__ */ jsxs6(Box4, { gap: "sm", children: [
@@ -5809,7 +5975,7 @@ import {
   IconButton as IconButton6,
   Input as Input5,
   KeyValue as KeyValue5,
-  read as read10,
+  read as read11,
   Row as Row7,
   Select as Select4,
   Skeleton as Skeleton5,
@@ -5895,7 +6061,7 @@ function RoleForm({ t, e }) {
   ] }) });
 }
 function UsersTabView({ id }) {
-  const t = read10(adminTabs)[id];
+  const t = read11(adminTabs)[id];
   if (!t || t.kind !== "users") return null;
   const s = t.state;
   const user = s?.users.find((u) => u.user === t.userSelected);
@@ -5996,7 +6162,7 @@ import {
   Input as Input7,
   KeyValue as KeyValue7,
   RadioGroup as RadioGroup3,
-  read as read13,
+  read as read14,
   Row as Row10,
   Select as Select5,
   Skeleton as Skeleton7,
@@ -6165,14 +6331,14 @@ import {
   IconButton as IconButton7,
   Input as Input6,
   KeyValue as KeyValue6,
-  read as read12,
+  read as read13,
   RelativeTime as RelativeTime2,
   Row as Row9,
   Skeleton as Skeleton6,
   Table as Table7,
   Text as Text9,
   Toolbar as Toolbar6,
-  update as update6
+  update as update7
 } from "orca";
 
 // src/shared/tasks.ts
@@ -6317,7 +6483,7 @@ function JobProgress({ box, what, onCancel, onSave }) {
 }
 
 // src/panel/tasks-state.ts
-import { atom as atom5, plugin as plugin12, read as read11, set as set5, update as update5 } from "orca";
+import { atom as atom6, plugin as plugin12, read as read12, set as set6, update as update6 } from "orca";
 
 // src/panel/export-state.ts
 import { plugin as plugin10 } from "orca";
@@ -6339,7 +6505,7 @@ function newTab3(from, query) {
     query: { filter: "", projection: "", sort: "", limit: "", ...query },
     queryErrors: {},
     format: "json",
-    json: { layout: "lines", relaxed: true, pretty: false },
+    json: { layout: "lines", relaxed: startRelaxed(), pretty: false },
     csv: { fields: [], delimiter: ",", header: true, loading: false, add: "", selected: [] },
     bsonMetadata: true,
     target: { connectionId, db: from.kind === "database" ? `${db}_copy` : db, collection: from.kind === "database" ? "" : `${from.ns.collection}_copy`, mode: "insert", indexes: true, options: true },
@@ -6723,19 +6889,19 @@ function importPlaces(t) {
 
 // src/panel/tasks-state.ts
 var TASKS_TAB = "tasks";
-var tasksOpen = atom5(false);
-var taskList = atom5(null);
-var tasksError = atom5(null);
-var tasksUi = atom5({ runs: {} });
+var tasksOpen = atom6(false);
+var taskList = atom6(null);
+var tasksError = atom6(null);
+var tasksUi = atom6({ runs: {} });
 function ui(change2) {
-  update5(tasksUi, (u) => ({ ...u, ...typeof change2 === "function" ? change2(u) : change2 }));
+  update6(tasksUi, (u) => ({ ...u, ...typeof change2 === "function" ? change2(u) : change2 }));
 }
 function sayTasks(tone, text) {
   ui({ notice: { tone, text } });
 }
 function setTasks(state) {
-  set5(taskList, state.tasks);
-  set5(tasksError, null);
+  set6(taskList, state.tasks);
+  set6(tasksError, null);
   const ids = new Set(state.tasks.map((t) => t.id));
   ui((u) => u.selected && !ids.has(u.selected) ? { selected: void 0, confirmRun: void 0, confirmDelete: void 0, renaming: void 0 } : {});
 }
@@ -6743,23 +6909,23 @@ async function loadTasks() {
   try {
     setTasks(await plugin12.request("tasks.list"));
   } catch (error) {
-    set5(tasksError, errorText(error));
+    set6(tasksError, errorText(error));
   }
 }
 function openTasks(select) {
-  set5(tasksOpen, true);
-  set5(view, TASKS_TAB);
+  set6(tasksOpen, true);
+  set6(view, TASKS_TAB);
   if (select) ui({ selected: select, confirmRun: void 0, confirmDelete: void 0, renaming: void 0 });
   void loadTasks();
 }
 function closeTasks() {
-  for (const box of Object.values(read11(tasksUi).runs)) dropDownload(box);
-  set5(tasksOpen, false);
+  for (const box of Object.values(read12(tasksUi).runs)) dropDownload(box);
+  set6(tasksOpen, false);
   ui({ runs: {} });
-  if (read11(view) === TASKS_TAB) set5(view, "tree");
+  if (read12(view) === TASKS_TAB) set6(view, "tree");
 }
 function taskById(id) {
-  return id ? read11(taskList)?.find((t) => t.id === id) : void 0;
+  return id ? read12(taskList)?.find((t) => t.id === id) : void 0;
 }
 function selectTask(id) {
   ui({ selected: id, confirmRun: void 0, confirmDelete: void 0, renaming: void 0 });
@@ -6789,7 +6955,7 @@ async function runTask(id, confirmed2 = false) {
   });
   const { jobId } = await plugin12.request("tasks.run", { id });
   putRun(id, { jobId });
-  const end = await followJob(jobId, () => read11(tasksUi).runs[id], (box) => putRun(id, box));
+  const end = await followJob(jobId, () => read12(tasksUi).runs[id], (box) => putRun(id, box));
   if (end?.status === "done" && end.result) {
     const touched = writtenTo(task.request);
     if (touched) await refreshTree(touched.connectionId, touched.db);
@@ -6803,10 +6969,10 @@ function writtenTo(r) {
   return void 0;
 }
 async function cancelTaskRun(id) {
-  await cancelJob(read11(tasksUi).runs[id]);
+  await cancelJob(read12(tasksUi).runs[id]);
 }
 async function saveTaskDownload(id) {
-  const box = read11(tasksUi).runs[id];
+  const box = read12(tasksUi).runs[id];
   if (await saveDownload(box)) sayTasks("success", `Saved ${box?.download?.name ?? "the file"}.`);
 }
 function startRename(id) {
@@ -6904,12 +7070,12 @@ function tabRequest(tabId, kind) {
   if (kind === "sync" && t.kind === "compare") return { kind: "sync", ...syncRequest(tabId) };
   throw new Error("This tab can't be saved as that kind of task.");
 }
-async function saveTabAsTask(tabId, kind, update11) {
+async function saveTabAsTask(tabId, kind, update12) {
   const t = adminTab(tabId);
   if (!t || t.kind !== "export" && t.kind !== "import" && t.kind !== "compare") return;
   const name = t.taskName.trim() || t.task?.name || t.title;
   const request = tabRequest(tabId, kind);
-  const id = update11 && t.task && (t.kind !== "compare" || t.task.kind === kind) ? t.task.id : void 0;
+  const id = update12 && t.task && (t.kind !== "compare" || t.task.kind === kind) ? t.task.id : void 0;
   const r = await plugin12.request("tasks.save", { ...id ? { id } : {}, name, request });
   setTasks(r);
   const saved = r.tasks.find((x) => x.id === r.id);
@@ -6939,11 +7105,11 @@ function tguard(run2) {
 }
 var STATUS_TEXT = { done: "Done", failed: "Failed", cancelled: "Cancelled", running: "Running" };
 function missingConnection(task) {
-  const known = new Set(read12(connections)?.connections.map((c) => c.id) ?? []);
+  const known = new Set(read13(connections)?.connections.map((c) => c.id) ?? []);
   return taskConnections(task.request).some((id) => !known.has(id));
 }
 function Selected({ task }) {
-  const u = read12(tasksUi);
+  const u = read13(tasksUi);
   const box = u.runs[task.id];
   const running = jobRunning(box);
   const writesTo = taskWriteConnection(task.request);
@@ -6957,26 +7123,26 @@ function Selected({ task }) {
       /* @__PURE__ */ jsx9(Button7, { size: "sm", icon: "open-external", variant: "ghost", onPress: tguard(() => openTaskInTab(task.id)), children: "Open in its tab" }),
       /* @__PURE__ */ jsx9(IconButton7, { icon: "edit", label: "Rename", variant: "ghost", size: "sm", onPress: () => startRename(task.id) }),
       /* @__PURE__ */ jsx9(IconButton7, { icon: "copy", label: "Duplicate", variant: "ghost", size: "sm", onPress: tguard(() => duplicateTask(task.id)) }),
-      /* @__PURE__ */ jsx9(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "delete", label: `Delete ${task.name}`, variant: "ghost", tone: "danger", size: "sm", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmDelete: task.id, confirmRun: void 0 })) })
     ] }),
     blocked ? /* @__PURE__ */ jsx9(Text9, { size: "xs", tone: "warning", children: `It writes to ${connectionName(writesTo)}, which is read only: turn that off in the connection's settings to run it.` }) : null,
     renaming ? /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx9(Box7, { grow: true, children: /* @__PURE__ */ jsx9(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update6(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
+      /* @__PURE__ */ jsx9(Box7, { grow: true, children: /* @__PURE__ */ jsx9(Input6, { label: "Task name", value: renaming.name, onChange: (name) => update7(tasksUi, (x) => ({ ...x, renaming: { id: task.id, name } })), onSubmit: (name) => void tguard(() => renameTask(task.id, name))() }) }),
       /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "accent", onPress: tguard(() => renameTask(task.id, renaming.name)), children: "Rename" }),
-      /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
+      /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, renaming: void 0 })), children: "Cancel" })
     ] }) : null,
     u.confirmDelete === task.id ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: `Delete the task "${task.name}"?`, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
       /* @__PURE__ */ jsx9(Text9, { children: "Only the saved task is removed. Its collections and files are not touched." }),
       /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
         /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => deleteTask(task.id)), children: "Delete task" }),
-        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmDelete: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
     confirm ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "warning", title: confirm.title, children: /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
       /* @__PURE__ */ jsx9(Text9, { children: `${confirm.text}${confirm.exists ? confirm.count === null ? "" : ` It holds ${numberText(confirm.count)} document${confirm.count === 1 ? "" : "s"} now.` : " It does not exist yet."}` }),
       /* @__PURE__ */ jsxs9(Row9, { gap: "xs", children: [
         /* @__PURE__ */ jsx9(Button7, { variant: "solid", tone: "danger", onPress: tguard(() => runTask(task.id, true)), children: "Run the task" }),
-        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update6(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
+        /* @__PURE__ */ jsx9(Button7, { variant: "ghost", onPress: () => update7(tasksUi, (x) => ({ ...x, confirmRun: void 0 })), children: "Cancel" })
       ] })
     ] }) }) : null,
     /* @__PURE__ */ jsx9(JobProgress, { box, what: taskKindLabel(task.request).toLowerCase(), onCancel: tguard(() => cancelTaskRun(task.id)), onSave: tguard(() => saveTaskDownload(task.id)) }),
@@ -6995,9 +7161,9 @@ function Selected({ task }) {
   ] });
 }
 function TasksView() {
-  const list = read12(taskList);
-  const error = read12(tasksError);
-  const u = read12(tasksUi);
+  const list = read13(taskList);
+  const error = read13(tasksError);
+  const u = read13(tasksUi);
   const selected2 = list?.find((t) => t.id === u.selected);
   return /* @__PURE__ */ jsxs9(Box7, { gap: "sm", children: [
     /* @__PURE__ */ jsxs9(Row9, { gap: "xs", align: "center", justify: "between", children: [
@@ -7010,7 +7176,7 @@ function TasksView() {
     ] }),
     u.notice ? /* @__PURE__ */ jsx9(Callout8, { tone: u.notice.tone, icon: u.notice.tone === "danger" ? "error" : u.notice.tone === "success" ? "check" : "info", children: /* @__PURE__ */ jsxs9(Row9, { justify: "between", align: "center", children: [
       /* @__PURE__ */ jsx9(Text9, { children: u.notice.text }),
-      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update6(tasksUi, (x) => ({ ...x, notice: void 0 })) })
+      /* @__PURE__ */ jsx9(IconButton7, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => update7(tasksUi, (x) => ({ ...x, notice: void 0 })) })
     ] }) }) : null,
     error ? /* @__PURE__ */ jsx9(Callout8, { tone: "danger", icon: "error", title: "Could not read the saved tasks", children: error }) : null,
     !list && !error ? /* @__PURE__ */ jsx9(Skeleton6, { lines: 3, label: "Loading saved tasks" }) : null,
@@ -7058,7 +7224,7 @@ function TaskSaver({ tabId, task, taskName, placeholder, kinds }) {
 // src/panel/compare-view.tsx
 import { jsx as jsx10, jsxs as jsxs10 } from "orca/jsx-runtime";
 function Other({ t }) {
-  const conns = read13(connections)?.connections ?? [];
+  const conns = read14(connections)?.connections ?? [];
   return /* @__PURE__ */ jsxs10(Box8, { gap: "xs", children: [
     /* @__PURE__ */ jsx10(Select5, { label: "Compare with, on", value: t.b.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setCompare(t.id, { b: { ...t.b, connectionId: v } }) }),
     /* @__PURE__ */ jsxs10(Box8, { columns: 2, gap: "xs", children: [
@@ -7145,7 +7311,7 @@ function SyncSection({ t }) {
   const running = jobRunning(s.job);
   const from = s.direction === "aToB" ? "A" : "B";
   const to = s.direction === "aToB" ? "B" : "A";
-  const set15 = (change2) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, ...change2, confirm: false } }));
+  const set16 = (change2) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, ...change2, confirm: false } }));
   const total = plan.insert + plan.replace + plan.remove;
   return /* @__PURE__ */ jsx10(Collapsible6, { title: "Sync", description: `Make one side like the other`, open: s.open, onChange: (open) => changeAdmin(t.id, "compare", (x) => ({ sync: { ...x.sync, open } })), children: /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
     /* @__PURE__ */ jsx10(
@@ -7157,25 +7323,25 @@ function SyncSection({ t }) {
           { value: "aToB", label: `A → B: change ${t.ran.b.db}.${t.ran.b.collection}` },
           { value: "bToA", label: `B → A: change ${t.ran.a.db}.${t.ran.a.collection}` }
         ],
-        onChange: (v) => set15({ direction: v })
+        onChange: (v) => set16({ direction: v })
       }
     ),
-    /* @__PURE__ */ jsx10(Checkbox5, { label: `Insert what is only in ${from}`, checked: s.insert, onChange: (insert) => set15({ insert }) }),
-    /* @__PURE__ */ jsx10(Checkbox5, { label: `Replace the documents that differ with ${from}'s`, checked: s.replace, onChange: (replace) => set15({ replace }) }),
-    /* @__PURE__ */ jsx10(Checkbox5, { label: `Delete what is only in ${to}`, checked: s.remove, onChange: (remove) => set15({ remove }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Insert what is only in ${from}`, checked: s.insert, onChange: (insert) => set16({ insert }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Replace the documents that differ with ${from}'s`, checked: s.replace, onChange: (replace) => set16({ replace }) }),
+    /* @__PURE__ */ jsx10(Checkbox5, { label: `Delete what is only in ${to}`, checked: s.remove, onChange: (remove) => set16({ remove }) }),
     t.ran.rules.ignoreFields.length ? /* @__PURE__ */ jsx10(Text10, { size: "xs", muted: true, children: "Replacing writes the whole document, the left-out fields included." }) : null,
     s.confirm ? /* @__PURE__ */ jsx10(Callout9, { tone: "danger", icon: "warning", title: `Change ${plan.to}?`, children: /* @__PURE__ */ jsxs10(Box8, { gap: "sm", children: [
       /* @__PURE__ */ jsx10(Text10, { children: `From the last comparison: ${numberText(plan.insert)} inserted, ${numberText(plan.replace)} replaced, ${numberText(plan.remove)} deleted. Documents changed since are synced as they are now.` }),
       /* @__PURE__ */ jsxs10(Row10, { gap: "xs", children: [
         /* @__PURE__ */ jsx10(Button8, { variant: "solid", tone: "danger", onPress: aguard(t.id, () => runSync(t.id, true)), children: "Sync" }),
-        /* @__PURE__ */ jsx10(Button8, { variant: "ghost", onPress: () => set15({}), children: "Cancel" })
+        /* @__PURE__ */ jsx10(Button8, { variant: "ghost", onPress: () => set16({}), children: "Cancel" })
       ] })
     ] }) }) : /* @__PURE__ */ jsx10(Row10, { gap: "xs", children: /* @__PURE__ */ jsx10(Button8, { icon: "refresh", variant: "solid", tone: "accent", disabled: running || total === 0, onPress: aguard(t.id, () => runSync(t.id)), children: running ? "Syncing…" : `Sync ${numberText(total)} document${total === 1 ? "" : "s"}` }) }),
     /* @__PURE__ */ jsx10(JobProgress, { box: s.job, what: "sync", onCancel: aguard(t.id, () => cancelCompare(t.id)) })
   ] }) });
 }
 function CompareTabView({ id }) {
-  const t = read13(adminTabs)[id];
+  const t = read14(adminTabs)[id];
   if (!t || t.kind !== "compare") return null;
   const running = jobRunning(t.job);
   const problems = compareProblems(t);
@@ -7224,7 +7390,7 @@ import {
   IconButton as IconButton9,
   Input as Input8,
   RadioGroup as RadioGroup4,
-  read as read14,
+  read as read15,
   Row as Row11,
   Select as Select6,
   Table as Table9,
@@ -7286,7 +7452,7 @@ function CsvOptions({ t }) {
 }
 function TargetOptions({ t }) {
   const x = t.target;
-  const conns = read14(connections)?.connections ?? [];
+  const conns = read15(connections)?.connections ?? [];
   const many = t.from.kind === "database";
   return /* @__PURE__ */ jsxs11(Box9, { gap: "xs", children: [
     /* @__PURE__ */ jsx11(Select6, { label: "Connection", value: x.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setExport2(t.id, { target: { ...x, connectionId: v } }) }),
@@ -7322,7 +7488,7 @@ var FORMATS = [
   { value: "collection", label: "Another collection", description: "On this or another connection" }
 ];
 function ExportTabView({ id }) {
-  const t = read14(adminTabs)[id];
+  const t = read15(adminTabs)[id];
   if (!t || t.kind !== "export") return null;
   const running = jobRunning(t.job);
   const problems = exportProblems(t);
@@ -7406,7 +7572,7 @@ import {
   Input as Input9,
   KeyValue as KeyValue8,
   RadioGroup as RadioGroup5,
-  read as read15,
+  read as read16,
   Row as Row12,
   Skeleton as Skeleton8,
   Table as Table10,
@@ -7624,9 +7790,9 @@ function Selected2({ t }) {
 }
 function Upload({ t }) {
   const u = t.upload;
-  const set15 = (change2) => changeAdmin(t.id, "gridfs", (x) => ({ upload: { ...x.upload, ...change2 } }));
+  const set16 = (change2) => changeAdmin(t.id, "gridfs", (x) => ({ upload: { ...x.upload, ...change2 } }));
   const running = jobRunning(u.job);
-  return /* @__PURE__ */ jsx12(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set15({ open }), children: /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
+  return /* @__PURE__ */ jsx12(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set16({ open }), children: /* @__PURE__ */ jsxs12(Box10, { gap: "xs", children: [
     /* @__PURE__ */ jsx12(
       RadioGroup5,
       {
@@ -7637,15 +7803,15 @@ function Upload({ t }) {
           { value: "path", label: "A file on this computer" },
           { value: "paste", label: "Pasted text" }
         ],
-        onChange: (v) => set15({ sourceKind: v })
+        onChange: (v) => set16({ sourceKind: v })
       }
     ),
-    u.sourceKind === "path" ? /* @__PURE__ */ jsx12(Input9, { label: "Path", value: u.path, placeholder: "~/Documents/report.pdf", onChange: (v) => set15({ path: v }) }) : /* @__PURE__ */ jsx12(Textarea4, { label: "Text", rows: 5, value: u.text, onChange: (v) => set15({ text: v }) }),
+    u.sourceKind === "path" ? /* @__PURE__ */ jsx12(Input9, { label: "Path", value: u.path, placeholder: "~/Documents/report.pdf", onChange: (v) => set16({ path: v }) }) : /* @__PURE__ */ jsx12(Textarea4, { label: "Text", rows: 5, value: u.text, onChange: (v) => set16({ text: v }) }),
     /* @__PURE__ */ jsxs12(Box10, { columns: 2, gap: "xs", children: [
-      /* @__PURE__ */ jsx12(Input9, { label: "File name", value: u.filename, placeholder: u.sourceKind === "path" ? "As on disk" : "notes.txt", onChange: (v) => set15({ filename: v }) }),
-      /* @__PURE__ */ jsx12(Input9, { label: "Content type", value: u.contentType, placeholder: "text/plain", onChange: (v) => set15({ contentType: v }) })
+      /* @__PURE__ */ jsx12(Input9, { label: "File name", value: u.filename, placeholder: u.sourceKind === "path" ? "As on disk" : "notes.txt", onChange: (v) => set16({ filename: v }) }),
+      /* @__PURE__ */ jsx12(Input9, { label: "Content type", value: u.contentType, placeholder: "text/plain", onChange: (v) => set16({ contentType: v }) })
     ] }),
-    /* @__PURE__ */ jsx12(Input9, { label: "Metadata", value: u.metadata, placeholder: "{ owner: 'me' }", invalid: Boolean(u.error), onChange: (v) => set15({ metadata: v, error: void 0 }) }),
+    /* @__PURE__ */ jsx12(Input9, { label: "Metadata", value: u.metadata, placeholder: "{ owner: 'me' }", invalid: Boolean(u.error), onChange: (v) => set16({ metadata: v, error: void 0 }) }),
     u.error ? /* @__PURE__ */ jsx12(Text12, { size: "xs", tone: "danger", children: u.error }) : null,
     /* @__PURE__ */ jsx12(Text12, { size: "xs", muted: true, children: "The content type is kept in metadata.contentType, as current drivers do." }),
     /* @__PURE__ */ jsx12(Row12, { gap: "xs", children: /* @__PURE__ */ jsx12(Button10, { variant: "solid", tone: "accent", icon: "upload", disabled: running, onPress: aguard(t.id, () => uploadFile(t.id)), children: running ? "Uploading…" : "Upload" }) }),
@@ -7653,7 +7819,7 @@ function Upload({ t }) {
   ] }) });
 }
 function GridfsTabView({ id }) {
-  const t = read15(adminTabs)[id];
+  const t = read16(adminTabs)[id];
   if (!t || t.kind !== "gridfs") return null;
   const files4 = t.files ?? [];
   return /* @__PURE__ */ jsxs12(Box10, { gap: "sm", children: [
@@ -7711,7 +7877,7 @@ import {
   IconButton as IconButton11,
   Input as Input10,
   RadioGroup as RadioGroup6,
-  read as read16,
+  read as read17,
   Row as Row13,
   Select as Select7,
   Table as Table11,
@@ -7785,7 +7951,7 @@ function Preview({ t }) {
   ] });
 }
 function ImportTabView({ id }) {
-  const t = read16(adminTabs)[id];
+  const t = read17(adminTabs)[id];
   if (!t || t.kind !== "import") return null;
   const p = t.preview;
   const folder = Boolean(p?.folder);
@@ -7866,7 +8032,7 @@ function ImportTabView({ id }) {
 import { jsx as jsx14 } from "orca/jsx-runtime";
 var ADMIN_ICONS = { manage: "settings", database: "layers", users: "agent", server: "gauge", schema: "bar-chart-3", import: "upload", export: "download", compare: "branch", gridfs: "package" };
 function AdminTabView({ id }) {
-  const t = read17(adminTabs)[id];
+  const t = read18(adminTabs)[id];
   if (!t) return null;
   switch (t.kind) {
     case "manage":
@@ -7901,7 +8067,7 @@ import {
   Collapsible as Collapsible11,
   IconButton as IconButton14,
   Input as Input11,
-  read as read22,
+  read as read23,
   Row as Row17,
   Select as Select11,
   Skeleton as Skeleton11,
@@ -7913,7 +8079,7 @@ import {
 } from "orca";
 
 // src/panel/aggregate-state.ts
-import { plugin as plugin14, read as read18, set as set6, update as update7 } from "orca";
+import { plugin as plugin14, read as read19, set as set7, update as update8 } from "orca";
 var PREVIEW_SIZES = [5, 10, 20, 50, 100];
 function aggTabId(ns) {
   return tabIdFor(ns).replace(/^coll-/, "agg-");
@@ -7939,7 +8105,7 @@ function changeAgg(id, fn) {
 async function openAggregation(ns, kind, stages, from) {
   const id = aggTabId(ns);
   if (tab(id)) {
-    set6(view, id);
+    set7(view, id);
     if (stages) {
       changeAgg(id, () => ({ stages, selected: stages[0]?.id, errors: {}, textMode: false, confirmWrite: void 0 }));
       if (from) say2(id, "neutral", `Loaded the pipeline from ${from}.`);
@@ -7949,15 +8115,15 @@ async function openAggregation(ns, kind, stages, from) {
   }
   const t = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg: newAgg(stages ?? [newStage("$match")]) };
   if (from) t.notice = { tone: "neutral", text: `Started from ${from}.` };
-  update7(collTabs, (prev) => ({ ...prev, [id]: t }));
-  update7(tabOrder, (prev) => [...prev, id]);
-  set6(view, id);
+  update8(collTabs, (prev) => ({ ...prev, [id]: t }));
+  update8(tabOrder, (prev) => [...prev, id]);
+  set7(view, id);
   await Promise.all([refreshPreview(id), loadSavedPipelines(id)]);
 }
 async function openAggregationForNode(nodeKey2) {
   const target = nodeTarget(nodeKey2);
   if (!target.connectionId || !target.db || !target.collection) return;
-  const meta = read18(nodeIndex)[nodeKey2];
+  const meta = read19(nodeIndex)[nodeKey2];
   await openAggregation({ connectionId: target.connectionId, db: target.db, collection: target.collection }, meta?.kind ?? target.kind);
 }
 function indexOf(a, stageId2) {
@@ -8100,11 +8266,11 @@ async function runPipeline(id, confirmed2 = false) {
   if (!t || !a) return;
   const pipeline = parsed2(id);
   if (!pipeline) return;
-  const write = writeTarget(pipeline, t.ns.db);
-  if (write && !confirmed2) {
-    const target = write.ns;
+  const write2 = writeTarget(pipeline, t.ns.db);
+  if (write2 && !confirmed2) {
+    const target = write2.ns;
     const c = target ? await plugin14.request("data.count", { ns: { connectionId: t.ns.connectionId, ...target } }).catch(() => void 0) : void 0;
-    changeAgg(id, () => ({ confirmWrite: { stage: write.stage, target: write.target, ...c ? { count: c.count, exists: c.exists } : {} } }));
+    changeAgg(id, () => ({ confirmWrite: { stage: write2.stage, target: write2.target, ...c ? { count: c.count, exists: c.exists } : {} } }));
     return;
   }
   if (t.queryId) void plugin14.request("query.close", { queryId: t.queryId }).catch(() => void 0);
@@ -8115,7 +8281,7 @@ async function runPipeline(id, confirmed2 = false) {
     error: void 0,
     runToken: token,
     agg: { ...x.agg, ran, confirmWrite: void 0 },
-    count: write ? void 0 : "counting",
+    count: write2 ? void 0 : "counting",
     selectedRows: [],
     treeSelected: void 0,
     treeExpanded: [],
@@ -8130,12 +8296,12 @@ async function runPipeline(id, confirmed2 = false) {
       return;
     }
     change(id, () => ({ page, queryId: page.queryId, loading: false }));
-    if (write) say2(id, "success", `Ran the pipeline: ${write.stage} wrote its results to ${write.target}.`);
+    if (write2) say2(id, "success", `Ran the pipeline: ${write2.stage} wrote its results to ${write2.target}.`);
   } catch (error) {
     if (tab(id)?.runToken === token) change(id, () => ({ loading: false, error: errorText(error), page: void 0, queryId: void 0, count: void 0 }));
     return;
   }
-  if (!write) await recount(id);
+  if (!write2) await recount(id);
 }
 function cancelWrite(id) {
   changeAgg(id, () => ({ confirmWrite: void 0 }));
@@ -8271,16 +8437,16 @@ function findNode(stages, key2) {
 }
 
 // src/panel/explain-state.ts
-import { atom as atom6, plugin as plugin15, read as read19, set as set7 } from "orca";
-var explainVerbosity = atom6("mongo-studio.explainVerbosity", "executionStats", { persist: "plugin" });
+import { atom as atom7, plugin as plugin15, read as read20, set as set8 } from "orca";
+var explainVerbosity = atom7("mongo-studio.explainVerbosity", "executionStats", { persist: "plugin" });
 function explainOf(id) {
-  return tab(id)?.explain ?? { open: false, verbosity: read19(explainVerbosity), loading: false, mode: "visual", expanded: [], token: 0 };
+  return tab(id)?.explain ?? { open: false, verbosity: read20(explainVerbosity), loading: false, mode: "visual", expanded: [], token: 0 };
 }
 function changeExplain(id, values) {
   change(id, (t) => ({ explain: { ...t.explain ?? explainOf(id), ...values } }));
 }
 function setVerbosity(id, verbosity) {
-  set7(explainVerbosity, verbosity);
+  set8(explainVerbosity, verbosity);
   changeExplain(id, { verbosity });
 }
 async function runExplain(id) {
@@ -8470,7 +8636,7 @@ function Pager({ t }) {
       /* @__PURE__ */ jsx16(IconButton12, { icon: "refresh", label: "Count again", size: "sm", variant: "ghost", disabled: !(t.spec || t.agg?.ran) || c === "counting", onPress: guard(t.id, () => recount(t.id)) })
     ] }),
     /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: total === void 0, children: countText2(t) }),
-    /* @__PURE__ */ jsx16(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZE_OPTIONS.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
+    /* @__PURE__ */ jsx16(Select9, { label: "Page size", labelHidden: true, value: String(t.pageSize), options: PAGE_SIZES.map((n2) => ({ value: String(n2), label: `${n2} per page` })), onChange: (v) => void guard(t.id, () => setPageSize(t.id, Number(v)))() })
   ] });
 }
 function topKeys(docs2) {
@@ -8671,7 +8837,7 @@ function TableActions({ t, cols }) {
       /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
       one && hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, one._id)), children: "Clone" }) : null,
       hasId && docs2.length > 1 && canUpdateMany(t) ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "edit", variant: "ghost", onPress: () => openUpdateMany(t.id, "selection"), children: `Update ${docs2.length}` }) : null,
-      hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDelete(t.id), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
+      hasId ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard(t.id, () => askDelete(t.id)), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
       copy
     ] }),
     one && hasId ? /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "end", wrap: true, children: [
@@ -8752,7 +8918,7 @@ function Results2({ t }) {
 }
 
 // src/panel/shell-view.tsx
-import { Badge as Badge5, Box as Box14, Button as Button14, Callout as Callout14, CodeView as CodeView11, Collapsible as Collapsible10, IconButton as IconButton13, read as read21, RelativeTime as RelativeTime3, Row as Row16, Select as Select10, set as set9, Text as Text16, Toolbar as Toolbar12 } from "orca";
+import { Badge as Badge5, Box as Box14, Button as Button14, Callout as Callout14, CodeView as CodeView11, Collapsible as Collapsible10, IconButton as IconButton13, read as read22, RelativeTime as RelativeTime3, Row as Row16, Select as Select10, set as set10, Text as Text16, Toolbar as Toolbar12 } from "orca";
 
 // src/shared/operation.ts
 var IDENT2 = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -9945,10 +10111,10 @@ function generateCode(op, lang) {
 }
 
 // src/panel/shell-state.ts
-import { atom as atom7, plugin as plugin16, read as read20, set as set8, update as update8 } from "orca";
+import { atom as atom8, plugin as plugin16, read as read21, set as set9, update as update9 } from "orca";
 var SHELL_TAB = "shell";
-var shellRun = atom7(null);
-var codeLanguage = atom7("mongo-studio.codeLanguage", "node", { persist: "plugin" });
+var shellRun = atom8(null);
+var codeLanguage = atom8("mongo-studio.codeLanguage", "node", { persist: "plugin" });
 function resultTitle(r) {
   const what = r.op ? `${r.op.kind} on ${r.op.collection}` : r.kind === "cursor" ? "cursor" : r.count === 1 ? "document" : "documents";
   const count = r.count !== void 0 ? ` · ${r.count.toLocaleString("en-US")} ${r.count === 1 ? "document" : "documents"}` : "";
@@ -9958,13 +10124,13 @@ function resultOptions(run2) {
   return run2.results.map((r) => ({ value: String(r.index), label: resultTitle(r) }));
 }
 async function showRun(run2, focus) {
-  set8(shellRun, run2);
+  set9(shellRun, run2);
   if (!run2.results.length) return;
   await selectResult(run2.results.length - 1);
-  if (focus) set8(view, SHELL_TAB);
+  if (focus) set9(view, SHELL_TAB);
 }
 async function selectResult(index) {
-  const run2 = read20(shellRun);
+  const run2 = read21(shellRun);
   const info = run2?.results[index];
   if (!run2 || !info) return;
   const previous = tab(SHELL_TAB);
@@ -9972,29 +10138,29 @@ async function selectResult(index) {
   const t = {
     ...newTab(SHELL_TAB, ns, "coll", "Shell"),
     readOnly: true,
-    pageSize: previous?.pageSize ?? read20(defaultPageSize),
+    pageSize: previous?.pageSize ?? startPageSize(),
     resultView: previous?.resultView ?? startResultView(),
-    relaxed: previous?.relaxed ?? true,
+    relaxed: previous?.relaxed ?? startRelaxed(),
     shell: { runId: run2.runId, index },
     runToken: (previous?.runToken ?? 0) + 1,
     ...info.count !== void 0 ? { count: { count: info.count, approximate: false, ms: 0 } } : {}
   };
-  update8(collTabs, (prev) => ({ ...prev, [SHELL_TAB]: t }));
+  update9(collTabs, (prev) => ({ ...prev, [SHELL_TAB]: t }));
   await goToPage(SHELL_TAB, 0);
 }
 function closeShell() {
-  set8(shellRun, null);
-  update8(collTabs, (prev) => {
+  set9(shellRun, null);
+  update9(collTabs, (prev) => {
     const next = { ...prev };
     delete next[SHELL_TAB];
     return next;
   });
-  if (read20(view) === SHELL_TAB) set8(view, "tree");
+  if (read21(view) === SHELL_TAB) set9(view, "tree");
 }
 async function loadLatestRun() {
   try {
     const { run: run2 } = await plugin16.request("shell.latest");
-    if (run2 && !read20(shellRun)) await showRun(run2, false);
+    if (run2 && !read21(shellRun)) await showRun(run2, false);
   } catch {
   }
 }
@@ -10010,19 +10176,19 @@ function queryTextOf(op) {
   };
 }
 async function openAsQuery(info) {
-  const run2 = read20(shellRun);
+  const run2 = read21(shellRun);
   if (!run2 || info.op?.kind !== "find") return;
   try {
     await openNamespace({ connectionId: run2.connectionId, db: info.op.db, collection: info.op.collection }, "coll", queryTextOf(info.op));
   } catch (error) {
-    update8(collTabs, (prev) => {
+    update9(collTabs, (prev) => {
       const t = prev[SHELL_TAB];
       return t ? { ...prev, [SHELL_TAB]: { ...t, notice: { tone: "danger", text: errorText(error) } } } : prev;
     });
   }
 }
 async function openAsPipeline(info) {
-  const run2 = read20(shellRun);
+  const run2 = read21(shellRun);
   if (!run2 || info.op?.kind !== "aggregate") return;
   const { stages, error } = stagesFromPipeline(info.op.pipeline);
   if (!stages) throw new Error(error);
@@ -10032,9 +10198,9 @@ async function openAsPipeline(info) {
 // src/panel/shell-view.tsx
 import { jsx as jsx17, jsxs as jsxs16 } from "orca/jsx-runtime";
 function CodeSection({ op, description, emptyText: emptyText2 }) {
-  const lang = read21(codeLanguage);
+  const lang = read22(codeLanguage);
   return /* @__PURE__ */ jsx17(Collapsible10, { title: "Code", description, children: /* @__PURE__ */ jsxs16(Box14, { gap: "xs", children: [
-    /* @__PURE__ */ jsx17(Select10, { label: "Language", value: lang, options: CODE_LANGUAGES, onChange: (v) => set9(codeLanguage, v) }),
+    /* @__PURE__ */ jsx17(Select10, { label: "Language", value: lang, options: CODE_LANGUAGES, onChange: (v) => set10(codeLanguage, v) }),
     op ? /* @__PURE__ */ jsx17(CodeView11, { code: generateCode(op, lang), label: `${lang} code`, maxHeight: "md" }) : /* @__PURE__ */ jsx17(Text16, { muted: true, size: "xs", children: emptyText2 ?? "Run a query first: its code appears here." })
   ] }) });
 }
@@ -10044,8 +10210,8 @@ function tabOperation(t) {
   return { kind: "find", db: t.ns.db, collection: t.ns.collection, ...spec };
 }
 function ShellTab() {
-  const run2 = read21(shellRun);
-  const t = read21(collTabs)[SHELL_TAB];
+  const run2 = read22(shellRun);
+  const t = read22(collTabs)[SHELL_TAB];
   if (!run2 || !t?.shell) return null;
   const info = run2.results[t.shell.index];
   return /* @__PURE__ */ jsxs16(Box14, { gap: "sm", children: [
@@ -10223,7 +10389,7 @@ function Saved({ t, a }) {
   ] }) });
 }
 function AggregationTab({ id }) {
-  const t = read22(collTabs)[id];
+  const t = read23(collTabs)[id];
   const a = t?.agg;
   if (!t || !a) return null;
   const on = a.stages.filter((s) => s.enabled).length;
@@ -10284,7 +10450,7 @@ import {
   Field as Field2,
   IconButton as IconButton16,
   Input as Input14,
-  read as read23,
+  read as read24,
   Row as Row21,
   Select as Select13,
   Table as Table15,
@@ -10379,7 +10545,7 @@ function DocumentView({ t }) {
         /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "edit", onPress: guard(t.id, () => editDocument(t.id, f.id)), children: "Edit document" }),
         /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, f.id), children: "Add field" }),
         /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => cloneDocument(t.id, f.id)), children: "Clone" }),
-        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => askDeleteFocused(t.id), children: "Delete" })
+        /* @__PURE__ */ jsx19(Button16, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard(t.id, () => askDeleteFocused(t.id)), children: "Delete" })
       ] }) : null
     ] })
   ] });
@@ -10389,7 +10555,7 @@ function DocumentView({ t }) {
 import { Box as Box17, Button as Button17, Callout as Callout17, Card as Card5, Input as Input12, RadioGroup as RadioGroup7, Row as Row19, Select as Select12, Text as Text19, Textarea as Textarea7 } from "orca";
 import { jsx as jsx20, jsxs as jsxs19 } from "orca/jsx-runtime";
 function ValueInputs({ t, draft }) {
-  const set15 = (values) => setDraft(t.id, { ...draft, ...values });
+  const set16 = (values) => setDraft(t.id, { ...draft, ...values });
   const result = valueFromDraft(draft);
   const invalid = !result.ok && draft.text !== "";
   switch (draft.type) {
@@ -10398,29 +10564,29 @@ function ValueInputs({ t, draft }) {
     case "maxKey":
       return /* @__PURE__ */ jsx20(Text19, { muted: true, size: "sm", children: `This type has no value to enter.` });
     case "bool":
-      return /* @__PURE__ */ jsx20(RadioGroup7, { label: "Value", orientation: "horizontal", value: draft.text === "true" ? "true" : "false", options: [{ value: "true", label: "true" }, { value: "false", label: "false" }], onChange: (text) => set15({ text }) });
+      return /* @__PURE__ */ jsx20(RadioGroup7, { label: "Value", orientation: "horizontal", value: draft.text === "true" ? "true" : "false", options: [{ value: "true", label: "true" }, { value: "false", label: "false" }], onChange: (text) => set16({ text }) });
     case "object":
     case "array":
     case "javascript":
-      return /* @__PURE__ */ jsx20(Textarea7, { label: draft.type === "javascript" ? "Code" : "Value", rows: 8, value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
+      return /* @__PURE__ */ jsx20(Textarea7, { label: draft.type === "javascript" ? "Code" : "Value", rows: 8, value: draft.text, invalid, onChange: (text) => set16({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
     case "binData":
       return /* @__PURE__ */ jsxs19(Box17, { gap: "xs", children: [
-        /* @__PURE__ */ jsx20(Input12, { label: "Subtype (0 to 255)", value: draft.subtype, onChange: (subtype) => set15({ subtype }) }),
-        /* @__PURE__ */ jsx20(Textarea7, { label: "Data (base64)", rows: 3, value: draft.text, invalid, onChange: (text) => set15({ text }) })
+        /* @__PURE__ */ jsx20(Input12, { label: "Subtype (0 to 255)", value: draft.subtype, onChange: (subtype) => set16({ subtype }) }),
+        /* @__PURE__ */ jsx20(Textarea7, { label: "Data (base64)", rows: 3, value: draft.text, invalid, onChange: (text) => set16({ text }) })
       ] });
     case "regex":
       return /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx20(Input12, { label: "Pattern", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() }),
-        /* @__PURE__ */ jsx20(Input12, { label: "Flags", value: draft.flags, placeholder: "i, m, s, x, u", onChange: (flags) => set15({ flags }) })
+        /* @__PURE__ */ jsx20(Input12, { label: "Pattern", value: draft.text, invalid, onChange: (text) => set16({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() }),
+        /* @__PURE__ */ jsx20(Input12, { label: "Flags", value: draft.flags, placeholder: "i, m, s, x, u", onChange: (flags) => set16({ flags }) })
       ] });
     case "timestamp":
       return /* @__PURE__ */ jsxs19(Row19, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx20(Input12, { label: "Seconds (t)", value: draft.t, onChange: (v) => set15({ t: v }) }),
-        /* @__PURE__ */ jsx20(Input12, { label: "Increment (i)", value: draft.i, onChange: (i) => set15({ i }) })
+        /* @__PURE__ */ jsx20(Input12, { label: "Seconds (t)", value: draft.t, onChange: (v) => set16({ t: v }) }),
+        /* @__PURE__ */ jsx20(Input12, { label: "Increment (i)", value: draft.i, onChange: (i) => set16({ i }) })
       ] });
     default: {
       const labels = { date: "Date (UTC)", objectId: "ObjectId (24 hex digits)", uuid: "UUID" };
-      return /* @__PURE__ */ jsx20(Input12, { label: labels[draft.type] ?? "Value", value: draft.text, invalid, onChange: (text) => set15({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
+      return /* @__PURE__ */ jsx20(Input12, { label: labels[draft.type] ?? "Value", value: draft.text, invalid, onChange: (text) => set16({ text }), onSubmit: () => void guard(t.id, () => saveField(t.id))() });
     }
   }
 }
@@ -10564,7 +10730,7 @@ function Confirm({ t, p, plan }) {
   const title = everything ? `Update every document in ${nsLabel(t.ns)}?` : `Update ${what} in ${nsLabel(t.ns)}?`;
   return /* @__PURE__ */ jsx21(Callout18, { tone: everything ? "danger" : "warning", icon: "warning", title, children: /* @__PURE__ */ jsxs20(Box18, { gap: "sm", children: [
     /* @__PURE__ */ jsx21(Text20, { children: `This changes ${everything ? "the whole collection" : what}. It can't be undone.` }),
-    everything ? /* @__PURE__ */ jsx21(Input13, { label: `Type ${t.ns.collection} to confirm`, value: b.confirmName, onChange: (confirmName) => setBulk(t.id, { confirmName }), onSubmit: () => void guard(t.id, () => runUpdateMany(t.id))() }) : null,
+    everything && settings().confirmByName ? /* @__PURE__ */ jsx21(Input13, { label: `Type ${t.ns.collection} to confirm`, value: b.confirmName, onChange: (confirmName) => setBulk(t.id, { confirmName }), onSubmit: () => void guard(t.id, () => runUpdateMany(t.id))() }) : null,
     /* @__PURE__ */ jsx21(Row20, { gap: "xs", children: /* @__PURE__ */ jsx21(Button18, { variant: "solid", tone: "danger", icon: "check", disabled: b.running || !bulkConfirmed(t, plan), onPress: guard(t.id, () => runUpdateMany(t.id)), children: b.running ? "Updating…" : everything ? "Update every document" : n2 === null ? "Update documents" : `Update ${plural(n2, "document")}` }) })
   ] }) });
 }
@@ -10609,9 +10775,10 @@ function QueryInput({ t, field, label, placeholder }) {
   const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() };
   const formats = field !== "skip" && field !== "limit";
   const multi = formats && isMultiline(t, field);
+  const button = formats && (multi || settings().formatButtons);
   const name = label.toLowerCase();
   const input = multi ? /* @__PURE__ */ jsx22(Textarea9, { ...box, rows: Math.min(12, Math.max(3, value.split("\n").length)) }) : /* @__PURE__ */ jsx22(Input14, { ...box });
-  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : multi ? { description: "Ctrl+Enter or Cmd+Enter runs the query." } : {}, children: formats ? /* @__PURE__ */ jsxs21(Box19, { direction: "row", gap: "xs", align: "start", children: [
+  return /* @__PURE__ */ jsx22(Field2, { label, ...error ? { error } : multi ? { description: "Ctrl+Enter or Cmd+Enter runs the query." } : {}, children: button ? /* @__PURE__ */ jsxs21(Box19, { direction: "row", gap: "xs", align: "start", children: [
     /* @__PURE__ */ jsx22(Box19, { grow: true, children: input }),
     multi ? /* @__PURE__ */ jsx22(IconButton16, { icon: "collapse", label: `Put the ${name} on one line`, variant: "ghost", size: "sm", onPress: () => compactField(t.id, field) }) : /* @__PURE__ */ jsx22(IconButton16, { icon: "code", label: `Format the ${name} on several lines`, variant: "ghost", size: "sm", disabled: !value.trim(), onPress: () => formatField(t.id, field) })
   ] }) : input });
@@ -10634,17 +10801,17 @@ function QueryBar({ t }) {
   ] });
 }
 function ConditionRow({ t, c, fields }) {
-  const set15 = (values) => setBuilder(t.id, updateCondition(t.builder, c.id, values));
+  const set16 = (values) => setBuilder(t.id, updateCondition(t.builder, c.id, values));
   const problem = t.builderProblems.find((p) => p.id === c.id);
   const known = fields.includes(c.field);
   return /* @__PURE__ */ jsxs21(Box19, { gap: "xs", padding: "xs", border: problem ? "danger" : true, radius: "sm", children: [
     /* @__PURE__ */ jsxs21(Row21, { gap: "xs", align: "end", children: [
-      known || c.field === "" && fields.length ? /* @__PURE__ */ jsx22(Select13, { label: "Field", value: c.field, placeholder: "Field…", options: [...fields.map((f) => ({ value: f, label: f })), { value: "\0other", label: "Another field…" }], onChange: (v) => set15({ field: v === "\0other" ? " " : v }) }) : /* @__PURE__ */ jsx22(Input14, { label: "Field", value: c.field.trim(), placeholder: "a.b.c", onChange: (v) => set15({ field: v }) }),
+      known || c.field === "" && fields.length ? /* @__PURE__ */ jsx22(Select13, { label: "Field", value: c.field, placeholder: "Field…", options: [...fields.map((f) => ({ value: f, label: f })), { value: "\0other", label: "Another field…" }], onChange: (v) => set16({ field: v === "\0other" ? " " : v }) }) : /* @__PURE__ */ jsx22(Input14, { label: "Field", value: c.field.trim(), placeholder: "a.b.c", onChange: (v) => set16({ field: v }) }),
       /* @__PURE__ */ jsx22(IconButton16, { icon: "close", label: "Remove condition", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, c.id)) })
     ] }),
     /* @__PURE__ */ jsxs21(Row21, { gap: "xs", align: "end", children: [
-      /* @__PURE__ */ jsx22(Select13, { label: "Operator", value: c.op, options: OPERATORS.map((o) => ({ value: o.value, label: o.label })), onChange: (v) => set15({ op: v }) }),
-      needsValue(c.op) ? /* @__PURE__ */ jsx22(Input14, { label: "Value", value: c.value, placeholder: c.op === "in" || c.op === "nin" ? "['a', 'b']" : c.op === "regex" ? "/^abc/i" : "'text', 42, ObjectId('…')", invalid: Boolean(problem), onChange: (v) => set15({ value: v }), onSubmit: () => void guard(t.id, () => applyBuilder(t.id))() }) : null
+      /* @__PURE__ */ jsx22(Select13, { label: "Operator", value: c.op, options: OPERATORS.map((o) => ({ value: o.value, label: o.label })), onChange: (v) => set16({ op: v }) }),
+      needsValue(c.op) ? /* @__PURE__ */ jsx22(Input14, { label: "Value", value: c.value, placeholder: c.op === "in" || c.op === "nin" ? "['a', 'b']" : c.op === "regex" ? "/^abc/i" : "'text', 42, ObjectId('…')", invalid: Boolean(problem), onChange: (v) => set16({ value: v }), onSubmit: () => void guard(t.id, () => applyBuilder(t.id))() }) : null
     ] }),
     problem ? /* @__PURE__ */ jsx22(Text21, { size: "xs", tone: "danger", children: problem.message }) : null
   ] });
@@ -10770,9 +10937,9 @@ function Notice({ t }) {
 }
 var KIND_LABEL = { view: "View · read only", timeseries: "Time-series" };
 function CollectionTab({ id }) {
-  const raw = read23(collTabs)[id];
+  const raw = read24(collTabs)[id];
   if (!raw) return null;
-  const t = !raw.readOnly && read23(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw;
+  const t = !raw.readOnly && read24(connections)?.connections.find((c) => c.id === raw.ns.connectionId)?.readOnly ? { ...raw, readOnly: true } : raw;
   if (t.focus) {
     return /* @__PURE__ */ jsxs21(Box19, { gap: "sm", children: [
       /* @__PURE__ */ jsx22(Notice, { t }),
@@ -10830,10 +10997,10 @@ import {
   List,
   ListItem,
   RadioGroup as RadioGroup9,
-  read as read24,
+  read as read25,
   Row as Row22,
   Select as Select14,
-  set as set10,
+  set as set11,
   Switch as Switch5,
   Text as Text22,
   Textarea as Textarea10
@@ -10842,7 +11009,7 @@ import { jsx as jsx23, jsxs as jsxs22 } from "orca/jsx-runtime";
 var MECHANISM_ORDER = ["none", "DEFAULT", "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-X509", "PLAIN", "MONGODB-AWS", "MONGODB-OIDC", "GSSAPI"];
 var READ_PREFS = ["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"];
 function errorFor(field) {
-  const found = read24(formErrors).filter((e) => e.field === field || e.field.startsWith(`${field}.`));
+  const found = read25(formErrors).filter((e) => e.field === field || e.field.startsWith(`${field}.`));
   return found.length ? found.map((e) => e.message).join(" ") : void 0;
 }
 function textInput(label, value, onChange, extra = {}) {
@@ -10875,8 +11042,8 @@ function numberInput(label, value, onChange, placeholder, field) {
   );
 }
 function secretInput(key2, label, optional = false) {
-  const draft = read24(formSecrets)[key2];
-  const saved = read24(formFlags)[key2] ?? false;
+  const draft = read25(formSecrets)[key2];
+  const saved = read25(formFlags)[key2] ?? false;
   const cleared = draft === null;
   const placeholder = cleared ? "Will be forgotten when you save" : saved ? "Saved. Type to replace it." : optional ? "Optional" : "";
   return /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
@@ -10889,8 +11056,8 @@ function secretInput(key2, label, optional = false) {
 }
 function pemInput(label, source3, secret, onSource, field, allowNone = true) {
   const error = errorFor(field);
-  const draft = read24(formSecrets)[secret];
-  const saved = read24(formFlags)[secret] ?? false;
+  const draft = read25(formSecrets)[secret];
+  const saved = read25(formFlags)[secret] ?? false;
   const options4 = [
     ...allowNone ? [{ value: "none", label: "None" }] : [],
     { value: "path", label: "File on this computer" },
@@ -11094,7 +11261,7 @@ function sshSection(def) {
       ] }),
       s.knownHostKey ? /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
         /* @__PURE__ */ jsx23(KeyValue10, { label: "SSH server", items: [{ label: "Trusted host key", value: `SHA256 ${s.knownHostKey.slice(0, 16)}…`, code: true }] }),
-        /* @__PURE__ */ jsx23(Button20, { size: "xs", variant: "ghost", icon: "remove", onPress: () => def.id && !read24(formIsNew) ? void forgetHostKey(def.id) : edit((d) => d.ssh.knownHostKey = ""), children: "Forget the trusted host key" })
+        /* @__PURE__ */ jsx23(Button20, { size: "xs", variant: "ghost", icon: "remove", onPress: () => def.id && !read25(formIsNew) ? void forgetHostKey(def.id) : edit((d) => d.ssh.knownHostKey = ""), children: "Forget the trusted host key" })
       ] }) : /* @__PURE__ */ jsx23(Text22, { muted: true, size: "sm", children: "The server's host key is trusted the first time you connect, and checked every time after." }),
       def.hosts.length > 1 || def.topology === "srv" ? /* @__PURE__ */ jsx23(Callout20, { tone: "warning", icon: "info", children: "Through SSH, Mongo Studio connects to the first database host only." }) : null
     ] }) : null
@@ -11116,10 +11283,10 @@ function advancedSection(def) {
 }
 var STEP_ICON = { ok: "check", warning: "warning", failed: "error", skipped: "remove" };
 function testResult() {
-  if (read24(testing)) {
+  if (read25(testing)) {
     return /* @__PURE__ */ jsx23(Callout20, { tone: "neutral", icon: "activity", children: "Testing… DNS, network, TLS and sign-in are checked in turn." });
   }
-  const report = read24(testReport);
+  const report = read25(testReport);
   if (!report) return null;
   const failed = report.steps.find((s) => s.status === "failed");
   const warned = report.steps.some((s) => s.status === "warning");
@@ -11137,7 +11304,7 @@ function testResult() {
   ] }) });
 }
 function groupField(def) {
-  const groups = read24(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name);
+  const groups = read25(savedGroups).filter((g) => g.ids.some((id) => id !== def.id)).map((g) => g.name);
   const { names, hidden, filtered } = suggestGroups(groups, def.group);
   const label = filtered ? "Matching groups:" : def.group.trim() ? "Other groups:" : "Existing groups:";
   return /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
@@ -11150,15 +11317,15 @@ function groupField(def) {
   ] });
 }
 function ConnectionForm() {
-  const def = read24(formDef);
+  const def = read25(formDef);
   if (!def) return null;
-  const mode = read24(formMode);
-  const problem = read24(uriProblem);
-  const errors = read24(formErrors);
-  const flags = read24(formFlags);
-  const hasPassword = flags.password === true || typeof read24(formSecrets).password === "string";
+  const mode = read25(formMode);
+  const problem = read25(uriProblem);
+  const errors = read25(formErrors);
+  const flags = read25(formFlags);
+  const hasPassword = flags.password === true || typeof read25(formSecrets).password === "string";
   return /* @__PURE__ */ jsxs22(Box20, { gap: "md", children: [
-    /* @__PURE__ */ jsx23(Heading, { level: 2, children: read24(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
+    /* @__PURE__ */ jsx23(Heading, { level: 2, children: read25(formIsNew) ? "New connection" : `Edit ${def.name || "connection"}` }),
     /* @__PURE__ */ jsxs22(Box20, { gap: "sm", children: [
       textInput("Name", def.name, (v) => editMeta((d) => d.name = v), { placeholder: "Production cluster", field: "name" }),
       groupField(def),
@@ -11173,12 +11340,12 @@ function ConnectionForm() {
           orientation: "horizontal",
           value: mode,
           options: [{ value: "form", label: "Form" }, { value: "uri", label: "Connection string" }],
-          onChange: (v) => set10(formMode, v === "uri" ? "uri" : "form")
+          onChange: (v) => set11(formMode, v === "uri" ? "uri" : "form")
         }
       )
     ] }),
     mode === "uri" ? /* @__PURE__ */ jsxs22(Box20, { gap: "sm", children: [
-      /* @__PURE__ */ jsx23(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx23(Textarea10, { label: "Connection string", labelHidden: true, rows: 4, value: read24(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
+      /* @__PURE__ */ jsx23(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx23(Textarea10, { label: "Connection string", labelHidden: true, rows: 4, value: read25(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
       problem.warnings.map((w) => /* @__PURE__ */ jsx23(Text22, { tone: "warning", size: "sm", children: w }, w)),
       /* @__PURE__ */ jsx23(Text22, { muted: true, size: "sm", children: "Set the SSH tunnel, pasted certificates and AWS keys in Form mode." })
     ] }) : /* @__PURE__ */ jsxs22(Box20, { gap: "xs", children: [
@@ -11192,17 +11359,17 @@ function ConnectionForm() {
     errors.length ? /* @__PURE__ */ jsx23(Callout20, { tone: "danger", icon: "error", title: "Fix these to save", children: /* @__PURE__ */ jsx23(Box20, { gap: "xs", children: errors.map((e) => /* @__PURE__ */ jsx23(Text22, { size: "sm", children: e.message }, `${e.field}:${e.message}`)) }) }) : null,
     testResult(),
     /* @__PURE__ */ jsxs22(Row22, { gap: "xs", wrap: true, children: [
-      /* @__PURE__ */ jsx23(Button20, { icon: "play", disabled: read24(testing), onPress: runTest, children: read24(testing) ? "Testing…" : "Test connection" }),
-      /* @__PURE__ */ jsx23(Button20, { variant: "solid", tone: "accent", icon: "check", disabled: read24(saving), onPress: saveForm, children: "Save" }),
+      /* @__PURE__ */ jsx23(Button20, { icon: "play", disabled: read25(testing), onPress: runTest, children: read25(testing) ? "Testing…" : "Test connection" }),
+      /* @__PURE__ */ jsx23(Button20, { variant: "solid", tone: "accent", icon: "check", disabled: read25(saving), onPress: saveForm, children: "Save" }),
       /* @__PURE__ */ jsx23(Button20, { variant: "ghost", onPress: closeForm, children: "Cancel" })
     ] })
   ] });
 }
 
 // src/panel/layout-state.ts
-import { atom as atom8, plugin as plugin17, read as read25, set as set11, update as update9 } from "orca";
+import { atom as atom9, plugin as plugin17, read as read26, set as set12, update as update10 } from "orca";
 var EMPTY = { view: "tree", order: [], tabs: [], expanded: [], selected: null, open: [] };
-var layout = atom8("mongo-studio.layout", EMPTY, { persist: "workspace", version: 1 });
+var layout = atom9("mongo-studio.layout", EMPTY, { persist: "workspace", version: 1 });
 var restored = false;
 var timer;
 function saveColl(t) {
@@ -11253,17 +11420,17 @@ function saveAdmin(t) {
   }
 }
 function currentLayout() {
-  const colls = read25(collTabs);
-  const admins = read25(adminTabs);
+  const colls = read26(collTabs);
+  const admins = read26(adminTabs);
   const tabs = [];
-  for (const id of read25(tabOrder)) {
+  for (const id of read26(tabOrder)) {
     const c = colls[id];
     const a = admins[id];
     const saved = c ? saveColl(c) : a ? saveAdmin(a) : void 0;
     if (saved) tabs.push(saved);
   }
-  const open = read25(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? [];
-  return { view: read25(view), order: tabs.map((t) => t.id), tabs, expanded: read25(expanded), selected: read25(selected), open };
+  const open = read26(connections)?.connections.filter((c) => c.connected).map((c) => c.id) ?? [];
+  return { view: read26(view), order: tabs.map((t) => t.id), tabs, expanded: read26(expanded), selected: read26(selected), open };
 }
 function scheduleLayoutSave() {
   if (!restored) return;
@@ -11271,7 +11438,7 @@ function scheduleLayoutSave() {
   timer = setTimeout(() => {
     timer = void 0;
     const next = currentLayout();
-    if (JSON.stringify(next) !== JSON.stringify(read25(layout))) set11(layout, next);
+    if (JSON.stringify(next) !== JSON.stringify(read26(layout))) set12(layout, next);
   }, 300);
 }
 function connectionOfKey(key2) {
@@ -11318,8 +11485,8 @@ function restoreColl(t, open) {
     if (tab2.focus) tab2.focus = { ...tab2.focus, loading: false };
     tab2.notice = { tone: "neutral", text: "This connection is not open. Connect to it in Connections, then run again." };
   }
-  update9(collTabs, (prev) => ({ ...prev, [t.id]: tab2 }));
-  update9(tabOrder, (prev) => [...prev, t.id]);
+  update10(collTabs, (prev) => ({ ...prev, [t.id]: tab2 }));
+  update10(tabOrder, (prev) => [...prev, t.id]);
   if (!open) return Promise.resolve();
   if (t.type === "query") return Promise.all([runQuery(t.id, false), loadLibrary(t.id)]);
   if (t.type === "document") return loadFocus(t.id);
@@ -11355,35 +11522,37 @@ async function resume(ids) {
         await plugin17.request("tree.children", { key: `conn:${encodeURIComponent(id)}` }, { timeoutMs: 6e4 });
         opened.add(id);
       } catch (error) {
-        const name = read25(connections)?.connections.find((c) => c.id === id)?.name ?? id;
+        const name = read26(connections)?.connections.find((c) => c.id === id)?.name ?? id;
         failed.push(`${name}: ${errorText(error)}`);
       }
     })
   );
   await refreshState().catch(() => void 0);
-  if (failed.length) set11(notice, { tone: "danger", text: `Could not reconnect. ${failed.join("; ")}` });
+  if (failed.length) set12(notice, { tone: "danger", text: `Could not reconnect. ${failed.join("; ")}` });
   return opened;
 }
 async function restoreLayout() {
-  const saved = read25(layout);
+  const saved = read26(layout);
   const pending = [];
   try {
-    const before = read25(connections)?.connections ?? [];
+    const before = read26(connections)?.connections ?? [];
     const known = new Set(before.map((c) => c.id));
     const open = new Set(before.filter((c) => c.connected).map((c) => c.id));
     const again = (saved.open ?? []).filter((id) => before.some((c) => c.id === id && !c.connected && c.resumable));
+    const shown = read26(view);
     for (const id of await resume(again)) open.add(id);
-    const existing = new Set(read25(tabOrder));
+    const chosen = read26(view) !== shown ? read26(view) : void 0;
+    const existing = new Set(read26(tabOrder));
     for (const t of saved.tabs) {
       const conn = connectionOf(t);
       if (!known.has(conn) || existing.has(t.id)) continue;
       if (t.type === "query" || t.type === "pipeline" || t.type === "document") pending.push(restoreColl(t, open.has(conn)));
       else if (open.has(conn)) pending.push(restoreAdmin(t));
     }
-    const order = read25(tabOrder);
+    const order = read26(tabOrder);
     const rank = new Map(saved.order.map((id, i) => [id, i]));
-    set11(tabOrder, [...order].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)));
-    set11(view, saved.view === "tree" || order.includes(saved.view) ? saved.view : "tree");
+    set12(tabOrder, [...order].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)));
+    set12(view, chosen ?? (saved.view === "tree" || order.includes(saved.view) ? saved.view : "tree"));
     const keys = saved.expanded.filter((k) => {
       const conn = connectionOfKey(k);
       return conn === void 0 || open.has(conn);
@@ -11407,10 +11576,10 @@ function resetLayoutRun() {
 }
 
 // src/panel/transfer-view.tsx
-import { Box as Box21, Button as Button21, Callout as Callout21, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read26, Row as Row23, set as set12, Text as Text23, Textarea as Textarea11 } from "orca";
+import { Box as Box21, Button as Button21, Callout as Callout21, Checkbox as Checkbox10, files as files3, Heading as Heading2, read as read27, Row as Row23, set as set13, Text as Text23, Textarea as Textarea11 } from "orca";
 import { jsx as jsx24, jsxs as jsxs23 } from "orca/jsx-runtime";
 function importSection() {
-  const result = read26(importResult);
+  const result = read27(importResult);
   return /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
     /* @__PURE__ */ jsx24(Heading2, { level: 3, children: "Import" }),
     /* @__PURE__ */ jsx24(
@@ -11418,14 +11587,14 @@ function importSection() {
       {
         label: "Connection strings or an export file's JSON",
         rows: 6,
-        value: read26(importText),
+        value: read27(importText),
         placeholder: "mongodb://alice@db1.example.com:27017/?authSource=admin\nmongodb+srv://cluster0.abcde.mongodb.net",
-        onChange: (v) => set12(importText, v),
+        onChange: (v) => set13(importText, v),
         onSubmit: () => void runImport()
       }
     ),
     /* @__PURE__ */ jsx24(Text23, { muted: true, size: "sm", children: "One connection string per line, or the JSON of a Mongo Studio or MongoDB Compass export. Passwords in connection strings are saved encrypted." }),
-    /* @__PURE__ */ jsx24(Row23, { gap: "xs", children: /* @__PURE__ */ jsx24(Button21, { variant: "solid", tone: "accent", icon: "upload", disabled: !read26(importText).trim(), onPress: runImport, children: "Import" }) }),
+    /* @__PURE__ */ jsx24(Row23, { gap: "xs", children: /* @__PURE__ */ jsx24(Button21, { variant: "solid", tone: "accent", icon: "upload", disabled: !read27(importText).trim(), onPress: runImport, children: "Import" }) }),
     result ? /* @__PURE__ */ jsx24(Callout21, { tone: result.errors.length ? result.imported.length ? "warning" : "danger" : "success", icon: result.errors.length ? "warning" : "check", title: `Imported ${result.imported.length} connection${result.imported.length === 1 ? "" : "s"}`, children: /* @__PURE__ */ jsxs23(Box21, { gap: "xs", children: [
       result.tasks?.length ? /* @__PURE__ */ jsx24(Text23, { size: "sm", children: `With ${result.tasks.length} saved task${result.tasks.length === 1 ? "" : "s"}: ${result.tasks.join(", ")}.` }) : null,
       result.imported.flatMap((i) => i.warnings.map((w) => /* @__PURE__ */ jsxs23(Text23, { size: "sm", children: [
@@ -11438,12 +11607,12 @@ function importSection() {
   ] });
 }
 function exportSection() {
-  const state = read26(connections);
+  const state = read27(connections);
   const all = state?.connections ?? [];
-  const chosen = read26(exportSelection) ?? all.map((c) => c.id);
-  const prepared = read26(exportJson);
+  const chosen = read27(exportSelection) ?? all.map((c) => c.id);
+  const prepared = read27(exportJson);
   const toggle = (id, on) => {
-    set12(exportSelection, on ? [.../* @__PURE__ */ new Set([...chosen, id])] : chosen.filter((x) => x !== id));
+    set13(exportSelection, on ? [.../* @__PURE__ */ new Set([...chosen, id])] : chosen.filter((x) => x !== id));
     void refreshExport();
   };
   return /* @__PURE__ */ jsxs23(Box21, { gap: "sm", children: [
@@ -11453,10 +11622,10 @@ function exportSection() {
       Checkbox10,
       {
         label: "Include saved tasks",
-        description: `Tasks that use only the chosen connections${prepared && read26(exportTasks) ? ` (${prepared.tasks})` : ""}. They name connections by name, so they find them on another machine.`,
-        checked: read26(exportTasks),
+        description: `Tasks that use only the chosen connections${prepared && read27(exportTasks) ? ` (${prepared.tasks})` : ""}. They name connections by name, so they find them on another machine.`,
+        checked: read27(exportTasks),
         onChange: (on) => {
-          set12(exportTasks, on);
+          set13(exportTasks, on);
           void refreshExport();
         }
       }
@@ -11482,7 +11651,7 @@ function TransferView() {
   return /* @__PURE__ */ jsxs23(Box21, { gap: "lg", children: [
     importSection(),
     exportSection(),
-    /* @__PURE__ */ jsx24(Row23, { children: /* @__PURE__ */ jsx24(Button21, { variant: "ghost", onPress: () => set12(view, "tree"), children: "Back to connections" }) })
+    /* @__PURE__ */ jsx24(Row23, { children: /* @__PURE__ */ jsx24(Button21, { variant: "ghost", onPress: () => set13(view, "tree"), children: "Back to connections" }) })
   ] });
 }
 
@@ -11497,14 +11666,14 @@ import {
   Input as Input16,
   KeyValue as KeyValue11,
   Link,
-  read as read27,
+  read as read28,
   Row as Row24,
-  set as set13,
+  set as set14,
   Skeleton as Skeleton14,
   Text as Text24,
   Toolbar as Toolbar16,
   Tree as Tree5,
-  update as update10
+  update as update11
 } from "orca";
 import { jsx as jsx25, jsxs as jsxs24 } from "orca/jsx-runtime";
 var ICONS = {
@@ -11528,7 +11697,7 @@ function nodeItem(node2) {
   if (node2.description) item.description = node2.description;
   if (node2.disabled) item.disabled = true;
   if (node2.hasChildren) {
-    const loaded = read27(children)[node2.key];
+    const loaded = read28(children)[node2.key];
     if (loaded?.status === "ok") item.children = loaded.nodes.map(nodeItem);
     else if (loaded?.status === "error") item.children = [errorItem(node2.key, loaded.message)];
     else item.hasChildren = true;
@@ -11560,7 +11729,7 @@ function filterItems(items2, text) {
   return out;
 }
 function treeItems2() {
-  const state = read27(connections);
+  const state = read28(connections);
   if (!state) return [];
   const items2 = [];
   if (state.favourites.length) {
@@ -11574,13 +11743,13 @@ function treeItems2() {
   }
   const byId = new Map(state.connections.map((c) => [c.id, c]));
   const grouped = /* @__PURE__ */ new Set();
-  for (const g of read27(savedGroups)) {
+  for (const g of read28(savedGroups)) {
     const members = g.ids.map((id) => byId.get(id)).filter((c) => Boolean(c));
     for (const id of g.ids) grouped.add(id);
     items2.push({ key: `${GROUP_PREFIX}${encodeURIComponent(g.name)}`, label: g.name, icon: "folder", description: String(members.length), children: members.map(connectionItem) });
   }
   items2.push(...state.connections.filter((c) => !grouped.has(c.id)).map(connectionItem));
-  return filterItems(items2, read27(filter).trim());
+  return filterItems(items2, read28(filter).trim());
 }
 function connectionIdOf(key2) {
   const m = /^conn:([^/]+)/.exec(key2);
@@ -11591,12 +11760,12 @@ function act(run2) {
     try {
       await run2();
     } catch (error) {
-      set13(notice, { tone: "danger", text: error instanceof Error ? error.message : String(error) });
+      set14(notice, { tone: "danger", text: error instanceof Error ? error.message : String(error) });
     }
   };
 }
 function pasteButton(at) {
-  const clip2 = read27(clipboard);
+  const clip2 = read28(clipboard);
   if (!clip2) return null;
   const fits2 = at.collection !== void 0 ? clip2.kind !== "database" : at.db !== void 0 ? true : clip2.kind === "database";
   if (!fits2) return null;
@@ -11604,28 +11773,28 @@ function pasteButton(at) {
 }
 function copied(clip2) {
   copyToClipboard(clip2);
-  set13(notice, { tone: "neutral", text: `Copied ${clipText(clip2)}. Select a connection, database or collection, on any connection, and press Paste.` });
+  set14(notice, { tone: "neutral", text: `Copied ${clipText(clip2)}. Select a connection, database or collection, on any connection, and press Paste.` });
 }
 function actionBar(key2) {
-  const state = read27(connections);
+  const state = read28(connections);
   if (key2.startsWith(GROUP_PREFIX)) {
     const group = decodeURIComponent(key2.slice(GROUP_PREFIX.length));
-    const renaming = read27(renamingGroup);
+    const renaming = read28(renamingGroup);
     if (renaming) {
       return /* @__PURE__ */ jsxs24(Row24, { gap: "xs", align: "end", children: [
-        /* @__PURE__ */ jsx25(Input16, { label: "Group name", value: renaming.to, onChange: (to) => set13(renamingGroup, { from: group, to }), onSubmit: (to) => act(() => renameGroup(group, to))() }),
+        /* @__PURE__ */ jsx25(Input16, { label: "Group name", value: renaming.to, onChange: (to) => set14(renamingGroup, { from: group, to }), onSubmit: (to) => act(() => renameGroup(group, to))() }),
         /* @__PURE__ */ jsx25(Button22, { variant: "solid", tone: "accent", onPress: act(() => renameGroup(group, renaming.to)), children: "Rename" }),
-        /* @__PURE__ */ jsx25(Button22, { variant: "ghost", onPress: () => set13(renamingGroup, null), children: "Cancel" })
+        /* @__PURE__ */ jsx25(Button22, { variant: "ghost", onPress: () => set14(renamingGroup, null), children: "Cancel" })
       ] });
     }
     return /* @__PURE__ */ jsxs24(Toolbar16, { label: "Group actions", gap: "xs", children: [
       /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "add", onPress: () => openNewConnection(group), children: "New connection here" }),
-      /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "edit", variant: "ghost", onPress: () => set13(renamingGroup, { from: group, to: group }), children: "Rename group" }),
+      /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "edit", variant: "ghost", onPress: () => set14(renamingGroup, { from: group, to: group }), children: "Rename group" }),
       /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "remove", variant: "ghost", onPress: act(() => renameGroup(group, "")), children: "Ungroup" })
     ] });
   }
   const real = realKey(key2);
-  const meta = read27(nodeIndex)[real];
+  const meta = read28(nodeIndex)[real];
   const id = connectionIdOf(real);
   if (!meta || !id) return null;
   const isFavourite = state?.favourites.some((f) => f.key === real) ?? false;
@@ -11635,14 +11804,14 @@ function actionBar(key2) {
     const summary2 = state?.connections.find((c) => c.id === id);
     const connected = summary2?.connected ?? false;
     return /* @__PURE__ */ jsxs24(Toolbar16, { label: "Connection actions", gap: "xs", children: [
-      connected ? /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "stop", onPress: act(() => disconnect(id)), children: "Disconnect" }) : /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: read27(busy) === real, onPress: act(() => connect(id)), children: read27(busy) === real ? "Connecting…" : "Connect" }),
+      connected ? /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "stop", onPress: act(() => disconnect(id)), children: "Disconnect" }) : /* @__PURE__ */ jsx25(Button22, { size: "sm", icon: "play", variant: "solid", tone: "accent", disabled: read28(busy) === real, onPress: act(() => connect(id)), children: read28(busy) === real ? "Connecting…" : "Connect" }),
       /* @__PURE__ */ jsx25(IconButton17, { icon: "edit", label: "Edit connection", variant: "ghost", size: "sm", onPress: act(() => openEditConnection(id)) }),
       /* @__PURE__ */ jsx25(IconButton17, { icon: "copy", label: "Clone connection", variant: "ghost", size: "sm", onPress: act(() => cloneConnection(id)) }),
       connected ? refresh : null,
       connected ? /* @__PURE__ */ jsx25(IconButton17, { icon: "gauge", label: "Server status and operations", variant: "ghost", size: "sm", onPress: act(() => openServer(id)) }) : null,
       connected ? /* @__PURE__ */ jsx25(IconButton17, { icon: "add", label: "New database", variant: "ghost", size: "sm", onPress: act(async () => openNewDatabase(id)) }) : null,
       connected ? pasteButton({ connectionId: id }) : null,
-      /* @__PURE__ */ jsx25(IconButton17, { icon: "delete", label: "Delete connection", variant: "ghost", tone: "danger", size: "sm", onPress: () => set13(confirmDelete, { id, name: summary2?.name ?? "" }) })
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "delete", label: "Delete connection", variant: "ghost", tone: "danger", size: "sm", onPress: () => set14(confirmDelete, { id, name: summary2?.name ?? "" }) })
     ] });
   }
   const openable = meta.kind === "coll" || meta.kind === "view" || meta.kind === "timeseries";
@@ -11703,12 +11872,12 @@ function actionBar(key2) {
   ] });
 }
 function isOpenable(key2) {
-  const kind = read27(nodeIndex)[key2]?.kind;
+  const kind = read28(nodeIndex)[key2]?.kind;
   return kind === "coll" || kind === "view" || kind === "timeseries";
 }
 function detailsBlock() {
-  const d = read27(details);
-  const key2 = read27(selected);
+  const d = read28(details);
+  const key2 = read28(selected);
   if (!d || !key2 || d.key !== realKey(key2)) return null;
   if (d.status === "loading") return /* @__PURE__ */ jsx25(Skeleton14, { lines: 4, label: "Loading details" });
   if (d.status === "error") return /* @__PURE__ */ jsx25(Callout22, { tone: "danger", icon: "error", children: d.error });
@@ -11723,21 +11892,22 @@ function detailsBlock() {
   ] });
 }
 function TreeView() {
-  const state = read27(connections);
-  const sel = read27(selected);
-  const pending = read27(confirmDelete);
-  const sign = read27(oidc);
-  const n2 = read27(notice);
-  const clip2 = read27(clipboard);
+  const state = read28(connections);
+  const sel = read28(selected);
+  const pending = read28(confirmDelete);
+  const sign = read28(oidc);
+  const n2 = read28(notice);
+  const clip2 = read28(clipboard);
   return /* @__PURE__ */ jsxs24(Box22, { gap: "sm", children: [
     /* @__PURE__ */ jsxs24(Toolbar16, { label: "Connections", children: [
       /* @__PURE__ */ jsx25(IconButton17, { icon: "add", label: "New connection", variant: "solid", tone: "accent", onPress: () => openNewConnection() }),
-      /* @__PURE__ */ jsx25(IconButton17, { icon: "upload", label: "Import connections", onPress: () => set13(view, "transfer") }),
-      /* @__PURE__ */ jsx25(IconButton17, { icon: "download", label: "Export connections", onPress: () => set13(view, "transfer") }),
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "upload", label: "Import connections", onPress: () => set14(view, "transfer") }),
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "download", label: "Export connections", onPress: () => set14(view, "transfer") }),
       /* @__PURE__ */ jsx25(IconButton17, { icon: "rocket", label: "Saved tasks", onPress: () => openTasks() }),
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "settings", label: "Settings", onPress: () => openSettings() }),
       /* @__PURE__ */ jsx25(IconButton17, { icon: "refresh", label: "Refresh all", onPress: act(async () => {
         await refreshState();
-        for (const key2 of read27(expanded)) if (/^conn:[^/]+$/.test(key2)) await refreshNode(key2);
+        for (const key2 of read28(expanded)) if (/^conn:[^/]+$/.test(key2)) await refreshNode(key2);
       }) })
     ] }),
     state?.secretsProtection === "unavailable" ? /* @__PURE__ */ jsx25(Callout22, { tone: "warning", icon: "warning", title: "Secrets are not saved", children: "Orca can't encrypt secrets on this computer, so passwords and keys are kept only until the plugin stops. Set up your system keyring to save them." }) : null,
@@ -11747,27 +11917,27 @@ function TreeView() {
     ] }) : null,
     n2 ? /* @__PURE__ */ jsx25(Callout22, { tone: n2.tone === "neutral" ? "neutral" : n2.tone, icon: n2.tone === "danger" ? "error" : n2.tone === "neutral" ? "info" : "check", children: /* @__PURE__ */ jsxs24(Row24, { justify: "between", align: "center", children: [
       /* @__PURE__ */ jsx25(Text24, { children: n2.text }),
-      /* @__PURE__ */ jsx25(IconButton17, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => set13(notice, null) })
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "close", label: "Dismiss", variant: "ghost", size: "xs", onPress: () => set14(notice, null) })
     ] }) }) : null,
     clip2 ? /* @__PURE__ */ jsxs24(Row24, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsx25(Text24, { size: "xs", muted: true, truncate: true, children: `Clipboard: ${clipText(clip2)}` }),
-      /* @__PURE__ */ jsx25(IconButton17, { icon: "close", label: "Clear the clipboard", variant: "ghost", size: "xs", onPress: () => set13(clipboard, null) })
+      /* @__PURE__ */ jsx25(IconButton17, { icon: "close", label: "Clear the clipboard", variant: "ghost", size: "xs", onPress: () => set14(clipboard, null) })
     ] }) : null,
     !state ? /* @__PURE__ */ jsx25(Skeleton14, { lines: 5, label: "Loading connections" }) : state.connections.length === 0 ? /* @__PURE__ */ jsx25(EmptyState4, { icon: "database", title: "No connections yet", description: "Add a MongoDB server or Atlas cluster, or import connection strings or a Compass export.", children: /* @__PURE__ */ jsxs24(Row24, { gap: "xs", justify: "center", children: [
       /* @__PURE__ */ jsx25(Button22, { variant: "solid", tone: "accent", icon: "add", onPress: () => openNewConnection(), children: "New connection" }),
-      /* @__PURE__ */ jsx25(Button22, { icon: "upload", onPress: () => set13(view, "transfer"), children: "Import" })
+      /* @__PURE__ */ jsx25(Button22, { icon: "upload", onPress: () => set14(view, "transfer"), children: "Import" })
     ] }) }) : /* @__PURE__ */ jsxs24(Box22, { gap: "sm", children: [
-      /* @__PURE__ */ jsx25(Input16, { label: "Filter", labelHidden: true, type: "search", placeholder: "Filter loaded connections, databases and collections", value: read27(filter), onChange: (v) => set13(filter, v) }),
+      /* @__PURE__ */ jsx25(Input16, { label: "Filter", labelHidden: true, type: "search", placeholder: "Filter loaded connections, databases and collections", value: read28(filter), onChange: (v) => set14(filter, v) }),
       /* @__PURE__ */ jsx25(
         Tree5,
         {
           label: "Connections",
           items: treeItems2(),
-          expanded: [...read27(expanded), ...rootKeys().filter((k) => !read27(collapsedRoots).includes(k))],
+          expanded: [...read28(expanded), ...rootKeys().filter((k) => !read28(collapsedRoots).includes(k))],
           ...sel ? { selected: sel } : {},
           maxHeight: "lg",
           onToggle: ({ key: key2, expanded: open }) => {
-            if (rootKeys().includes(key2)) update10(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key2) : [...prev, key2]);
+            if (rootKeys().includes(key2)) update11(collapsedRoots, (prev) => open ? prev.filter((k) => k !== key2) : [...prev, key2]);
             else void act(() => toggleNode(key2, open))();
           },
           onSelect: ({ key: key2 }) => void act(() => selectNode(key2))(),
@@ -11776,7 +11946,7 @@ function TreeView() {
             const id = connectionIdOf(real);
             if (/^conn:[^/]+$/.test(real) && id) void act(() => connect(id))();
             else if (isOpenable(real)) void act(() => openCollection(real))();
-            else void act(() => toggleNode(real, !read27(expanded).includes(real)))();
+            else void act(() => toggleNode(real, !read28(expanded).includes(real)))();
           }
         }
       ),
@@ -11789,7 +11959,7 @@ function TreeView() {
             closeAdminTabsFor(pending.id);
             await deleteConnection(pending.id);
           }), children: "Delete connection" }),
-          /* @__PURE__ */ jsx25(Button22, { variant: "ghost", onPress: () => set13(confirmDelete, null), children: "Cancel" })
+          /* @__PURE__ */ jsx25(Button22, { variant: "ghost", onPress: () => set14(confirmDelete, null), children: "Cancel" })
         ] })
       ] }) }) : null,
       detailsBlock()
@@ -11797,12 +11967,74 @@ function TreeView() {
   ] });
 }
 function rootKeys() {
-  if (!read27(connections)) return [];
-  return ["favourites", ...read27(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)];
+  if (!read28(connections)) return [];
+  return ["favourites", ...read28(savedGroups).map((g) => `${GROUP_PREFIX}${encodeURIComponent(g.name)}`)];
+}
+
+// src/panel/settings-view.tsx
+import { Box as Box23, Button as Button23, Callout as Callout23, Card as Card7, Checkbox as Checkbox11, IconButton as IconButton18, read as read29, Row as Row25, Select as Select15, Stack, Text as Text25 } from "orca";
+import { jsx as jsx26, jsxs as jsxs25 } from "orca/jsx-runtime";
+var LAST = { value: "last", label: "Last used" };
+function choices(labels) {
+  return [LAST, ...Object.entries(labels).map(([value, label]) => ({ value, label }))];
+}
+function Toggle({ s, name, label, description }) {
+  return /* @__PURE__ */ jsx26(Checkbox11, { label, description, checked: s[name], onChange: (on) => void changeSettings({ [name]: on }) });
+}
+function SettingsView() {
+  const s = settings();
+  const error = read29(settingsError);
+  return /* @__PURE__ */ jsxs25(Box23, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs25(Row25, { gap: "xs", align: "center", justify: "between", children: [
+      /* @__PURE__ */ jsxs25(Box23, { gap: "none", grow: true, children: [
+        /* @__PURE__ */ jsx26(Text25, { weight: "semibold", children: "Settings" }),
+        /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "Kept across reloads and restarts, apart from your saved connections, which never change here. Orca's Settings shows them under Mongo Studio too." })
+      ] }),
+      /* @__PURE__ */ jsx26(IconButton18, { icon: "close", label: "Close settings", variant: "ghost", size: "sm", onPress: closeSettings })
+    ] }),
+    error ? /* @__PURE__ */ jsx26(Callout23, { tone: "danger", icon: "error", title: "Setting not saved", children: error }) : null,
+    /* @__PURE__ */ jsx26(Card7, { title: "Results", description: "How new tabs, opened documents and new JSON exports start. Tabs already open keep their own.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsx26(Select15, { label: "Results view", value: s.resultView, options: choices(RESULT_VIEWS), onChange: (v) => void changeSettings({ resultView: oneOf(v, ["last", ...RESULT_VIEW_KEYS], s.resultView) }) }),
+      /* @__PURE__ */ jsx26(Select15, { label: "Document view", value: s.docView, options: choices(DOC_VIEWS), onChange: (v) => void changeSettings({ docView: oneOf(v, ["last", ...DOC_VIEW_KEYS], s.docView) }) }),
+      /* @__PURE__ */ jsx26(
+        Select15,
+        {
+          label: "Page size",
+          value: String(s.pageSize),
+          options: [LAST, ...PAGE_SIZES.map((n2) => ({ value: String(n2), label: `${n2} per page` }))],
+          onChange: (v) => void changeSettings({ pageSize: v === "last" ? "last" : oneOf(Number(v), PAGE_SIZES, s.pageSize === "last" ? PAGE_SIZES[1] : s.pageSize) })
+        }
+      ),
+      /* @__PURE__ */ jsx26(
+        Select15,
+        {
+          label: "Extended JSON",
+          value: s.ejson,
+          options: [
+            { value: "relaxed", label: "Relaxed: numbers and dates as plain JSON" },
+            { value: "canonical", label: "Canonical: every BSON type exact" }
+          ],
+          onChange: (v) => void changeSettings({ ejson: oneOf(v, ["relaxed", "canonical"], s.ejson) })
+        }
+      ),
+      /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "Extended JSON applies to result and document JSON views, shell results, and the Relaxed option of new JSON exports." })
+    ] }) }),
+    /* @__PURE__ */ jsx26(Card7, { title: "Query bar", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "liveCheck", label: "Check fields as you type", description: "Say what doesn't parse while it is typed. Off, errors wait for Run." }),
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "formatButtons", label: "Format buttons", description: "Format a filter, projection, sort or collation onto several lines." })
+    ] }) }),
+    /* @__PURE__ */ jsx26(Card7, { title: "Confirmations", description: "Read-only connections refuse every write whatever these say.", children: /* @__PURE__ */ jsxs25(Stack, { gap: "sm", children: [
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmDeleteDocs", label: "Ask before deleting documents", description: "The selected rows, or the open document." }),
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmDrop", label: "Ask before dropping collections and indexes", description: "Dropping a collection, a view or an index, or deleting all of a collection's documents." }),
+      /* @__PURE__ */ jsx26(Toggle, { s, name: "confirmByName", label: "Type the name to confirm", description: "Before dropping a database, or updating every document of a collection." }),
+      /* @__PURE__ */ jsx26(Text25, { size: "xs", muted: true, children: "These always ask: deleting a saved connection, dropping a user or a role, deleting a GridFS file, killing an operation, $out and $merge, and imports, copies, renames and tasks that drop or replace a collection." })
+    ] }) }),
+    /* @__PURE__ */ jsx26(Row25, { children: /* @__PURE__ */ jsx26(Button23, { icon: "refresh", variant: "ghost", disabled: isDefault(s), onPress: () => void resetSettings(), children: "Reset to defaults" }) })
+  ] });
 }
 
 // src/panel.tsx
-import { jsx as jsx26, jsxs as jsxs25 } from "orca/jsx-runtime";
+import { jsx as jsx27, jsxs as jsxs26 } from "orca/jsx-runtime";
 function setup(ctx) {
   resetLayoutRun();
   ctx.subscriptions.push(
@@ -11810,47 +12042,51 @@ function setup(ctx) {
     plugin18.on("ui.navigate", ({ view: target }) => {
       if (target === "new") openNewConnection();
       else if (target === "tasks") openTasks();
+      else if (target === "settings") openSettings();
       else if (target === "shell") {
-        if (read28(shellRun)) set14(view, SHELL_TAB);
+        if (read30(shellRun)) set15(view, SHELL_TAB);
       } else if (target === "import" || target === "export") {
-        set14(view, "transfer");
+        set15(view, "transfer");
         void refreshExport();
-      } else set14(view, "tree");
+      } else set15(view, "tree");
     }),
-    plugin18.on("oidc.signIn", (payload) => set14(oidc, payload)),
-    plugin18.on("oidc.done", () => set14(oidc, null)),
+    plugin18.on("oidc.signIn", (payload) => set15(oidc, payload)),
+    plugin18.on("oidc.done", () => set15(oidc, null)),
     plugin18.on("shell.results", (run2) => void showRun(run2, true)),
     plugin18.on("tasks.changed", (state) => setTasks(state))
   );
   void loadLatestRun();
-  refreshState().catch((error) => set14(notice, { tone: "danger", text: `Mongo Studio could not start: ${errorText(error)}` })).finally(() => void restoreLayout());
+  const listening = loadSettings();
+  ctx.subscriptions.push({ dispose: () => void listening.then((l) => l.dispose()) });
+  Promise.all([refreshState(), listening]).catch((error) => set15(notice, { tone: "danger", text: `Mongo Studio could not start: ${errorText(error)}` })).finally(() => void restoreLayout());
 }
 function changeView(next) {
   const v = next;
-  set14(view, v);
+  set15(view, v);
   if (v === "transfer") void refreshExport();
 }
 var TAB_ICONS = { view: "filter", timeseries: "activity" };
 function Panel() {
-  const current = read28(view);
-  const def = read28(formDef);
-  read28(expanded);
-  read28(selected);
-  read28(connections);
+  const current = read30(view);
+  const def = read30(formDef);
+  read30(expanded);
+  read30(selected);
+  read30(connections);
   scheduleLayoutSave();
-  return /* @__PURE__ */ jsxs25(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
-    /* @__PURE__ */ jsx26(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx26(TreeView, {}) }),
-    def ? /* @__PURE__ */ jsx26(Tab, { value: "form", label: read28(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx26(ConnectionForm, {}) }) : null,
-    current === "transfer" ? /* @__PURE__ */ jsx26(Tab, { value: "transfer", label: "Import / export", icon: "upload", children: /* @__PURE__ */ jsx26(TransferView, {}) }) : null,
-    read28(tasksOpen) ? /* @__PURE__ */ jsx26(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx26(TasksView, {}) }) : null,
-    read28(shellRun) ? /* @__PURE__ */ jsx26(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx26(ShellTab, {}) }) : null,
-    read28(tabOrder).map((id) => {
-      const t = read28(collTabs)[id];
+  return /* @__PURE__ */ jsxs26(Tabs, { label: "Mongo Studio", value: current, onChange: changeView, children: [
+    /* @__PURE__ */ jsx27(Tab, { value: "tree", label: "Connections", icon: "database", children: /* @__PURE__ */ jsx27(TreeView, {}) }),
+    def ? /* @__PURE__ */ jsx27(Tab, { value: "form", label: read30(formIsNew) ? "New connection" : def.name || "Connection", icon: "edit", children: /* @__PURE__ */ jsx27(ConnectionForm, {}) }) : null,
+    current === "transfer" ? /* @__PURE__ */ jsx27(Tab, { value: "transfer", label: "Import / export", icon: "upload", children: /* @__PURE__ */ jsx27(TransferView, {}) }) : null,
+    read30(tasksOpen) ? /* @__PURE__ */ jsx27(Tab, { value: TASKS_TAB, label: "Tasks", icon: "rocket", children: /* @__PURE__ */ jsx27(TasksView, {}) }) : null,
+    read30(settingsOpen) ? /* @__PURE__ */ jsx27(Tab, { value: SETTINGS_TAB, label: "Settings", icon: "settings", children: /* @__PURE__ */ jsx27(SettingsView, {}) }) : null,
+    read30(shellRun) ? /* @__PURE__ */ jsx27(Tab, { value: SHELL_TAB, label: "Shell", icon: "terminal", children: /* @__PURE__ */ jsx27(ShellTab, {}) }) : null,
+    read30(tabOrder).map((id) => {
+      const t = read30(collTabs)[id];
       if (t) {
-        return /* @__PURE__ */ jsx26(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: t.agg ? /* @__PURE__ */ jsx26(AggregationTab, { id }) : /* @__PURE__ */ jsx26(CollectionTab, { id }) }, id);
+        return /* @__PURE__ */ jsx27(Tab, { value: id, label: t.title, icon: t.agg ? "layers" : TAB_ICONS[t.kind] ?? "file-text", children: t.agg ? /* @__PURE__ */ jsx27(AggregationTab, { id }) : /* @__PURE__ */ jsx27(CollectionTab, { id }) }, id);
       }
-      const a = read28(adminTabs)[id];
-      return a ? /* @__PURE__ */ jsx26(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: /* @__PURE__ */ jsx26(AdminTabView, { id }) }, id) : null;
+      const a = read30(adminTabs)[id];
+      return a ? /* @__PURE__ */ jsx27(Tab, { value: id, label: a.title, icon: ADMIN_ICONS[a.kind], children: /* @__PURE__ */ jsx27(AdminTabView, { id }) }, id) : null;
     })
   ] });
 }
