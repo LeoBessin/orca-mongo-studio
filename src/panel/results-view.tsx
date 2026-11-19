@@ -21,7 +21,8 @@ import {
   type TableRow,
   type TreeItem
 } from 'orca'
-import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, valueAt, valueText, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, toShellInline, valueAt, valueText, type JsonObject, type JsonValue } from '../shared/ejson-view'
+import { filterablePath, filterFromColumns } from '../shared/table-filter'
 import {
   addField,
   addToQuery,
@@ -29,12 +30,14 @@ import {
   canUpdateMany,
   dropBulkPreview,
   openUpdateMany,
+  canFilterBySelection,
   canOpenDocuments,
   change,
   cloneDocument,
   currentSort,
   editDocument,
   editField,
+  filterBySelection,
   goToPage,
   nextPage,
   openDocument,
@@ -50,6 +53,7 @@ import {
   setPageSize,
   setResultView,
   sortBy,
+  toggleFilterColumn,
   treeKey,
   type CollTab,
   type Path,
@@ -176,7 +180,7 @@ function ResultTable({ t }: { t: CollTab }): OrcaNode {
         columns={columns}
         rows={rows}
         {...(sort ? { sort } : {})}
-        selectionMode={t.readOnly ? 'single' : 'multiple'}
+        selectionMode={t.readOnly && !canFilterBySelection(t) ? 'single' : 'multiple'}
         selected={t.selectedRows}
         loading={t.loading}
         emptyText="No documents match."
@@ -289,7 +293,13 @@ function OpenButtons({ t, doc }: { t: CollTab; doc: JsonObject | undefined }): O
 
 function TableActions({ t }: { t: CollTab }): OrcaNode {
   const docs = selectedDocs(t)
-  if (docs.length === 0) return <Text muted size="xs">{t.readOnly ? (canOpenDocuments(t) ? 'Select a row to open it. Enter on a row opens it.' : 'Select a row to look at it in the Tree view.') : 'Select rows to open, edit, clone or delete. Enter on a row edits it.'}</Text>
+  if (docs.length === 0) {
+    const filter = canFilterBySelection(t)
+    const hint = t.readOnly
+      ? `${canOpenDocuments(t) ? 'Select a row to open it' : 'Select a row to look at it in the Tree view'}${filter ? ', or rows to filter by' : ''}.${canOpenDocuments(t) ? ' Enter on a row opens it.' : ''}`
+      : `Select rows to open, edit, clone${filter ? ', delete or filter by' : ' or delete'}. Enter on a row edits it.`
+    return <Text muted size="xs">{hint}</Text>
+  }
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
   const copy = hasId && !t.shell ? (
@@ -300,14 +310,17 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
   ) : null
   if (t.readOnly) {
     return (
-      <Toolbar label="Row actions" gap="xs">
-        <OpenButtons t={t} doc={one} />
-        {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
-              const key = treeKey(t.page!.docs.indexOf(one), [])
-              setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
-            }}>Show in Tree</Button> : null}
-        {copy}
-      </Toolbar>
+      <Box gap="xs">
+        <Toolbar label="Row actions" gap="xs">
+          <OpenButtons t={t} doc={one} />
+          {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
+                const key = treeKey(t.page!.docs.indexOf(one), [])
+                setResultView(t.id, 'tree', { treeExpanded: [key], treeSelected: key })
+              }}>Show in Tree</Button> : null}
+          {copy}
+        </Toolbar>
+        <FilterBySelection t={t} docs={docs} />
+      </Box>
     )
   }
   // Orca refuses a Select option with an empty value, and $set can't name an empty field either.
@@ -335,6 +348,44 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
         </Row>
       ) : null}
       {!hasId ? <Text muted size="xs">Documents without an _id (from a projection or a view) can't be edited here.</Text> : null}
+      <FilterBySelection t={t} docs={docs} />
+    </Box>
+  )
+}
+
+/** The longest filter shown before it is cut short; the filter run is the whole of it. */
+const FILTER_PREVIEW_MAX = 300
+
+/** Filter by the selected rows: pick columns, and their values in those rows become the filter,
+ *  an equality per column or an `$in` where the rows differ. Orca's Table selects rows, not
+ *  cells, so the columns are picked here. */
+function FilterBySelection({ t, docs }: { t: CollTab; docs: JsonObject[] }): OrcaNode {
+  if (!canFilterBySelection(t)) return null
+  const options = tableColumns(t).columns.filter((c) => filterablePath(c.sub === undefined ? [c.field] : [c.field, c.sub]))
+  if (!options.length) return null
+  const chosen = options.filter((c) => t.filterColumns.includes(c.name))
+  const { filter, error } = chosen.length ? filterFromColumns(chosen.map((c) => ({ path: c.name, values: docs.map((d) => cellValue(d, c)) }))) : { filter: undefined, error: undefined }
+  const text = filter ? toShellInline(filter) : ''
+  return (
+    <Box gap="xs">
+      <Row gap="xs" align="end" wrap>
+        <Select
+          label="Filter by"
+          value=""
+          placeholder={chosen.length ? chosen.map((c) => c.name).join(', ') : 'Choose columns…'}
+          options={options.map((c) => ({ value: c.name, label: t.filterColumns.includes(c.name) ? `${c.name} (remove)` : c.name }))}
+          onChange={(name) => toggleFilterColumn(t.id, name)}
+        />
+        <Button size="sm" icon="filter" variant="ghost" disabled={!filter} onPress={guard(t.id, () => filterBySelection(t.id, filter!, 'replace'))}>Replace filter</Button>
+        <Button size="sm" icon="add" variant="ghost" disabled={!filter} onPress={guard(t.id, () => filterBySelection(t.id, filter!, 'merge'))}>Add to filter</Button>
+      </Row>
+      {filter ? (
+        <Text size="xs" muted>{text.length > FILTER_PREVIEW_MAX ? `${text.slice(0, FILTER_PREVIEW_MAX - 1)}…` : text}</Text>
+      ) : error && chosen.length ? (
+        <Text size="xs" tone="danger">{error}</Text>
+      ) : (
+        <Text size="xs" muted>Choose columns: their values in the selected rows become the filter.</Text>
+      )}
     </Box>
   )
 }

@@ -414,6 +414,43 @@ describe('collection tabs', () => {
     assert.deepEqual(calls.runs.at(-1)!.spec.filter, { status: 'shipped' })
   })
 
+  test('table view: columns of the selected rows replace the filter, as equalities or $in, keeping types', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(1))])
+    assert.ok(view.find({ text: /their values in the selected rows become the filter/ }))
+    await view.select({ label: 'Filter by' }, 'status')
+    await view.select({ label: 'Filter by' }, 'total')
+    await view.select({ label: 'Filter by' }, 'createdAt')
+    assert.ok(view.find({ text: /^\{ status: \{ \$in: \['shipped', 'pending'\] \}, total: \{ \$in: \[NumberDecimal/ }))
+    await view.select({ label: 'Filter by' }, 'total')
+    await view.press({ text: 'Replace filter' })
+    assert.deepEqual(calls.runs.at(-1)!.spec.filter, { status: { $in: ['shipped', 'pending'] }, createdAt: { $date: { $numberLong: '1794832496789' } } })
+    assert.match(view.valueOf({ label: 'Filter' }) as string, /^\{ status: \{ \$in: \['shipped', 'pending'\] \}, createdAt: ISODate\(/)
+  })
+
+  test('table view: Add to filter ANDs onto the filter typed, sub-document columns included', async () => {
+    const { host, calls } = setup()
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, '{ qty: { $gte: 1 } }')
+    await view.select({ label: 'Show a sub-document as columns' }, 'payment')
+    await view.selectRows(table, [JSON.stringify(oid(2))])
+    await view.select({ label: 'Filter by' }, 'payment.method')
+    await view.select({ label: 'Filter by' }, 'qty')
+    await view.press({ text: 'Add to filter' })
+    assert.deepEqual(calls.runs.at(-1)!.spec.filter, { $and: [{ qty: { $gte: { $numberInt: '1' } }, 'payment.method': 'card' }, { qty: { $numberInt: '3' } }] })
+  })
+
+  test('a read-only view selects several rows to filter by', async () => {
+    const { host, calls } = setup({}, 'view')
+    const view = await openOrders(host, 'view')
+    assert.equal(view.find(table)!.props.selectionMode, 'multiple')
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(2))])
+    await view.select({ label: 'Filter by' }, '_id')
+    await view.press({ text: 'Replace filter' })
+    assert.deepEqual(calls.runs.at(-1)!.spec.filter, { _id: { $in: [oid(0), oid(2)] } })
+  })
+
   test('JSON view switches between relaxed and canonical Extended JSON', async () => {
     const { host } = setup()
     const view = await openOrders(host)

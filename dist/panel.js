@@ -1600,6 +1600,43 @@ function formatBytes(bytes) {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+// src/shared/table-filter.ts
+function same(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function cutShort(v) {
+  return JSON.stringify(v).includes('"$msTruncated"');
+}
+function filterFromColumns(columns) {
+  if (columns.length === 0) return { error: "Choose a column to filter by." };
+  const filter2 = {};
+  for (const c of columns) {
+    const values = [];
+    for (const v of c.values) {
+      const x = v === void 0 ? null : v;
+      if (!values.some((y) => same(x, y))) values.push(x);
+    }
+    if (values.length === 0) return { error: "Select the rows to filter by first." };
+    if (values.some(cutShort)) return { error: `A selected ${c.path} is too long to show here, so it can't be matched. Filter on it in the Query Builder instead.` };
+    const regex = values.some((v) => bsonType(v) === "regex");
+    if (regex && values.length > 1) return { error: `${c.path} holds a regular expression in one of the selected rows; select only that row to match it.` };
+    setOwn(filter2, c.path, values.length > 1 ? { $in: values } : regex ? { $eq: values[0] } : values[0]);
+  }
+  return { filter: filter2 };
+}
+function mergeFilters(base, add) {
+  const merged = { ...base };
+  const clash = {};
+  for (const [k, v] of Object.entries(add)) {
+    if (!Object.hasOwn(base, k)) setOwn(merged, k, v);
+    else if (!same(base[k], v)) setOwn(clash, k, v);
+  }
+  return Object.keys(clash).length ? { $and: [merged, clash] } : merged;
+}
+function filterablePath(parts) {
+  return parts.every((p) => p !== "" && !p.includes(".") && !p.startsWith("$"));
+}
+
 // src/shared/update-spec.ts
 var UPDATE_OPERATORS = ["$set", "$unset", "$inc", "$mul", "$rename", "$min", "$max", "$currentDate", "$push", "$addToSet", "$pop", "$pull", "$pullAll", "$bit"];
 var UPDATE_STAGES = ["$set", "$addFields", "$unset", "$project", "$replaceWith", "$replaceRoot"];
@@ -2566,6 +2603,7 @@ function newTab(id, ns, kind, title) {
     selectedRows: [],
     treeExpanded: [],
     flattened: [],
+    filterColumns: [],
     builder: emptyGroup(),
     builderProblems: [],
     builderOpen: false,
@@ -3118,6 +3156,27 @@ function addToQuery(id, path, value) {
   const cond = newCondition(field, usable ? "eq" : "exists", usable ? toShellInline(value) : "");
   change(id, (t) => ({ builder: { ...t.builder, items: [...t.builder.items, cond] }, builderOpen: true, builderProblems: [] }));
   say2(id, "neutral", `Added ${field} to the Query Builder. Apply it to the filter to run it.`);
+}
+function canFilterBySelection(t) {
+  return !t.shell && !t.agg && !t.docTab;
+}
+function toggleFilterColumn(id, name) {
+  change(id, (t) => ({ filterColumns: t.filterColumns.includes(name) ? t.filterColumns.filter((c) => c !== name) : [...t.filterColumns, name] }));
+}
+async function filterBySelection(id, filter2, mode) {
+  const t = tab(id);
+  if (!t) return;
+  let base = {};
+  if (mode === "merge") {
+    try {
+      base = parseShellDocument(t.text.filter, "filter", { now: Date.now() });
+    } catch (error) {
+      patch(id, { fieldErrors: { ...t.fieldErrors, filter: errorText(error) } });
+      return;
+    }
+  }
+  setText(id, "filter", toShellInline(mode === "merge" ? mergeFilters(base, filter2) : filter2));
+  await runQuery(id);
 }
 async function applyBuilder(id) {
   const t = tab(id);
@@ -7899,7 +7958,7 @@ function ResultTable({ t }) {
         columns,
         rows,
         ...sort ? { sort } : {},
-        selectionMode: t.readOnly ? "single" : "multiple",
+        selectionMode: t.readOnly && !canFilterBySelection(t) ? "single" : "multiple",
         selected: t.selectedRows,
         loading: t.loading,
         emptyText: "No documents match.",
@@ -7997,7 +8056,11 @@ function OpenButtons({ t, doc }) {
 }
 function TableActions({ t }) {
   const docs2 = selectedDocs(t);
-  if (docs2.length === 0) return /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: t.readOnly ? canOpenDocuments(t) ? "Select a row to open it. Enter on a row opens it." : "Select a row to look at it in the Tree view." : "Select rows to open, edit, clone or delete. Enter on a row edits it." });
+  if (docs2.length === 0) {
+    const filter2 = canFilterBySelection(t);
+    const hint = t.readOnly ? `${canOpenDocuments(t) ? "Select a row to open it" : "Select a row to look at it in the Tree view"}${filter2 ? ", or rows to filter by" : ""}.${canOpenDocuments(t) ? " Enter on a row opens it." : ""}` : `Select rows to open, edit, clone${filter2 ? ", delete or filter by" : " or delete"}. Enter on a row edits it.`;
+    return /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: hint });
+  }
   const one = docs2.length === 1 ? docs2[0] : void 0;
   const hasId = docs2.every((d) => "_id" in d);
   const copy = hasId && !t.shell ? /* @__PURE__ */ jsx16(IconButton12, { icon: "copy", label: `Copy ${docs2.length === 1 ? "this document" : `these ${docs2.length} documents`}, to paste into another collection`, size: "sm", variant: "ghost", onPress: () => {
@@ -8005,13 +8068,16 @@ function TableActions({ t }) {
     say2(t.id, "neutral", `Copied ${docs2.length} document${docs2.length === 1 ? "" : "s"}. Select a collection or database in the tree and press Paste.`);
   } }) : null;
   if (t.readOnly) {
-    return /* @__PURE__ */ jsxs15(Toolbar11, { label: "Row actions", gap: "xs", children: [
-      /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
-      one ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
-        const key = treeKey(t.page.docs.indexOf(one), []);
-        setResultView(t.id, "tree", { treeExpanded: [key], treeSelected: key });
-      }, children: "Show in Tree" }) : null,
-      copy
+    return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
+      /* @__PURE__ */ jsxs15(Toolbar11, { label: "Row actions", gap: "xs", children: [
+        /* @__PURE__ */ jsx16(OpenButtons, { t, doc: one }),
+        one ? /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
+          const key = treeKey(t.page.docs.indexOf(one), []);
+          setResultView(t.id, "tree", { treeExpanded: [key], treeSelected: key });
+        }, children: "Show in Tree" }) : null,
+        copy
+      ] }),
+      /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2 })
     ] });
   }
   const fields = one ? Object.keys(one).filter((k) => k !== "_id" && k !== "" && k.length <= 1e3) : [];
@@ -8028,7 +8094,34 @@ function TableActions({ t }) {
       /* @__PURE__ */ jsx16(Select9, { label: "Edit a field", value: "", placeholder: "Choose a field to edit…", options: fields.map((f) => ({ value: f, label: f })), onChange: (f) => void guard(t.id, () => editField(t.id, one._id, [f]))() }),
       /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, one._id), children: "Add field" })
     ] }) : null,
-    !hasId ? /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null
+    !hasId ? /* @__PURE__ */ jsx16(Text15, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null,
+    /* @__PURE__ */ jsx16(FilterBySelection, { t, docs: docs2 })
+  ] });
+}
+var FILTER_PREVIEW_MAX = 300;
+function FilterBySelection({ t, docs: docs2 }) {
+  if (!canFilterBySelection(t)) return null;
+  const options4 = tableColumns(t).columns.filter((c) => filterablePath(c.sub === void 0 ? [c.field] : [c.field, c.sub]));
+  if (!options4.length) return null;
+  const chosen = options4.filter((c) => t.filterColumns.includes(c.name));
+  const { filter: filter2, error } = chosen.length ? filterFromColumns(chosen.map((c) => ({ path: c.name, values: docs2.map((d) => cellValue(d, c)) }))) : { filter: void 0, error: void 0 };
+  const text = filter2 ? toShellInline(filter2) : "";
+  return /* @__PURE__ */ jsxs15(Box13, { gap: "xs", children: [
+    /* @__PURE__ */ jsxs15(Row15, { gap: "xs", align: "end", wrap: true, children: [
+      /* @__PURE__ */ jsx16(
+        Select9,
+        {
+          label: "Filter by",
+          value: "",
+          placeholder: chosen.length ? chosen.map((c) => c.name).join(", ") : "Choose columns…",
+          options: options4.map((c) => ({ value: c.name, label: t.filterColumns.includes(c.name) ? `${c.name} (remove)` : c.name })),
+          onChange: (name) => toggleFilterColumn(t.id, name)
+        }
+      ),
+      /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "filter", variant: "ghost", disabled: !filter2, onPress: guard(t.id, () => filterBySelection(t.id, filter2, "replace")), children: "Replace filter" }),
+      /* @__PURE__ */ jsx16(Button13, { size: "sm", icon: "add", variant: "ghost", disabled: !filter2, onPress: guard(t.id, () => filterBySelection(t.id, filter2, "merge")), children: "Add to filter" })
+    ] }),
+    filter2 ? /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: text.length > FILTER_PREVIEW_MAX ? `${text.slice(0, FILTER_PREVIEW_MAX - 1)}…` : text }) : error && chosen.length ? /* @__PURE__ */ jsx16(Text15, { size: "xs", tone: "danger", children: error }) : /* @__PURE__ */ jsx16(Text15, { size: "xs", muted: true, children: "Choose columns: their values in the selected rows become the filter." })
   ] });
 }
 function TreeActions({ t }) {

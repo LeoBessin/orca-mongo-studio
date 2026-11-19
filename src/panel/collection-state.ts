@@ -11,6 +11,7 @@ import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type Builde
 import { fitsHost } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
+import { mergeFilters } from '../shared/table-filter'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { followJob, type JobBox } from './data-state'
 import { errorText, nodeIndex, view } from './state'
@@ -154,6 +155,8 @@ export type CollTab = {
   treeSelected?: string
   /** Sub-documents shown as dotted columns in the table. */
   flattened: string[]
+  /** Table columns (dotted names) chosen to filter by the selected rows' values. */
+  filterColumns: string[]
   editor?: Editor
   confirmDelete?: { ids: JsonValue[] }
   bulk?: BulkUpdate
@@ -295,6 +298,7 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     selectedRows: [],
     treeExpanded: [],
     flattened: [],
+    filterColumns: [],
     builder: emptyGroup(),
     builderProblems: [],
     builderOpen: false,
@@ -981,6 +985,34 @@ export function addToQuery(id: string, path: Path, value: JsonValue | undefined)
   const cond = newCondition(field, usable ? 'eq' : 'exists', usable ? toShellInline(value) : '')
   change(id, (t) => ({ builder: { ...t.builder, items: [...t.builder.items, cond] }, builderOpen: true, builderProblems: [] }))
   say(id, 'neutral', `Added ${field} to the Query Builder. Apply it to the filter to run it.`)
+}
+
+/** Whether the table can filter by its selected rows: the tab's own query, which has a filter
+ *  to put them in (not shell results, a pipeline or one document). */
+export function canFilterBySelection(t: CollTab): boolean {
+  return !t.shell && !t.agg && !t.docTab
+}
+
+export function toggleFilterColumn(id: string, name: string): void {
+  change(id, (t) => ({ filterColumns: t.filterColumns.includes(name) ? t.filterColumns.filter((c) => c !== name) : [...t.filterColumns, name] }))
+}
+
+/** Filter by the selected rows: `filter` (from `filterFromColumns`) replaces the filter typed,
+ *  or is ANDed onto it, and the query runs. */
+export async function filterBySelection(id: string, filter: JsonObject, mode: 'replace' | 'merge'): Promise<void> {
+  const t = tab(id)
+  if (!t) return
+  let base: JsonObject = {}
+  if (mode === 'merge') {
+    try {
+      base = parseShellDocument(t.text.filter, 'filter', { now: Date.now() })
+    } catch (error) {
+      patch(id, { fieldErrors: { ...t.fieldErrors, filter: errorText(error) } })
+      return
+    }
+  }
+  setText(id, 'filter', toShellInline(mode === 'merge' ? mergeFilters(base, filter) : filter))
+  await runQuery(id)
 }
 
 export async function applyBuilder(id: string): Promise<void> {
