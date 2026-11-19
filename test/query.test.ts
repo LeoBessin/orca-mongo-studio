@@ -256,3 +256,64 @@ describe('editing every BSON type (a scratch copy of types_zoo.everything)', () 
     }
   })
 })
+
+describe('update many (a scratch collection)', () => {
+  test('previews count and one document before and after without writing, then updates each scope', async () => {
+    if (!ON) return
+    const direct = await MongoClient.connect(URI)
+    const scratch = `it_update_${process.pid}`
+    const db = direct.db('types_zoo')
+    const coll = db.collection(scratch)
+    await coll.insertMany([
+      { _id: 1 as never, status: 'pending', n: 1, name: 'Ann' },
+      { _id: 2 as never, status: 'pending', n: 2, name: 'bob' },
+      { _id: 3 as never, status: 'shipped', n: 3, name: 'BOB' },
+      { _id: 4 as never, status: 'shipped', n: 'x', name: 'cy' }
+    ])
+    const { worker, ns } = await setup()
+    const target = ns('types_zoo', scratch)
+    const update = parseShell("{ $set: { status: 'archived' }, $inc: { n: 10 } }") as JsonObject
+    try {
+      // Operators run on the first document in an aborted transaction: the after is the server's own.
+      const byIds = await worker.request('doc.updatePreview', { ns: target, scope: { kind: 'ids', ids: [{ $numberInt: '2' }, { $numberInt: '3' }] }, update })
+      assert.equal(byIds.count, 2)
+      assert.deepEqual(byIds.sample!.before._id, { $numberInt: '2' })
+      assert.deepEqual(byIds.sample!.after!.status, 'archived')
+      assert.deepEqual(byIds.sample!.after!.n, { $numberInt: '12' })
+      assert.deepEqual(byIds.sample!.diffs.map((d) => d.path).sort(), ['n', 'status'])
+      assert.equal(byIds.sample!.error, undefined)
+      assert.equal(await coll.countDocuments({ status: 'archived' }), 0, 'the preview saved nothing')
+
+      // A filter with a collation matches as the query does; the server's refusal shows in the preview.
+      const filter = { kind: 'filter' as const, filter: { name: 'bob' }, collation: { locale: 'en', strength: { $numberInt: '2' } } }
+      const byFilter = await worker.request('doc.updatePreview', { ns: target, scope: filter, update })
+      assert.equal(byFilter.count, 2)
+      const bad = await worker.request('doc.updatePreview', { ns: target, scope: { kind: 'filter', filter: { _id: { $numberInt: '4' } } }, update })
+      assert.match(bad.sample!.error!, /non-numeric/)
+
+      // A pipeline runs as an aggregation on the sample.
+      const pipeline = parseShell("[{ $set: { label: { $concat: ['$status', '-', '$name'] } } }]") as JsonObject[]
+      const piped = await worker.request('doc.updatePreview', { ns: target, scope: { kind: 'all' }, update: pipeline })
+      assert.equal(piped.count, 4)
+      assert.equal(piped.approximate, true)
+      assert.equal(piped.sample!.after!.label, 'pending-Ann')
+
+      const none = await worker.request('doc.updatePreview', { ns: target, scope: { kind: 'filter', filter: { status: 'nope' } }, update })
+      assert.equal(none.count, 0)
+      assert.equal(none.sample, undefined)
+
+      // The updates themselves.
+      assert.deepEqual(await worker.request('doc.updateMany', { ns: target, scope: filter, update }), { matched: 2, modified: 2 })
+      assert.deepEqual(await coll.find({ status: 'archived' }).map((d) => d._id).toArray(), [2, 3])
+      assert.deepEqual(await worker.request('doc.updateMany', { ns: target, scope: { kind: 'ids', ids: [{ $numberInt: '1' }] }, update: { $set: { status: 'archived' } } }), { matched: 1, modified: 1 })
+      assert.deepEqual(await worker.request('doc.updateMany', { ns: target, scope: { kind: 'all' }, update: pipeline }), { matched: 4, modified: 4 })
+      assert.equal((await coll.findOne({ _id: 4 as never }))!.label, 'shipped-cy')
+      await assert.rejects(worker.request('doc.updateMany', { ns: target, scope: { kind: 'all' }, update: { status: 'x' } }), /not an update operator/)
+      await assert.rejects(worker.request('doc.updateMany', { ns: target, scope: { kind: 'ids', ids: [] }, update }), /Select the documents/)
+    } finally {
+      await worker.deactivate()
+      await coll.drop().catch(() => undefined)
+      await direct.close()
+    }
+  })
+})

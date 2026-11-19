@@ -26,6 +26,8 @@ import {
   addField,
   addToQuery,
   askDelete,
+  canUpdateMany,
+  openUpdateMany,
   canOpenDocuments,
   change,
   cloneDocument,
@@ -315,6 +317,9 @@ function TableActions({ t }: { t: CollTab }): OrcaNode {
         {one && hasId ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, one._id!))}>Edit document</Button> : null}
         <OpenButtons t={t} doc={one} />
         {one && hasId ? <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => cloneDocument(t.id, one._id!))}>Clone</Button> : null}
+        {hasId && docs.length > 1 && canUpdateMany(t) ? (
+          <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id, 'selection')}>{`Update ${docs.length}`}</Button>
+        ) : null}
         {hasId ? (
           <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={() => askDelete(t.id)}>
             {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}

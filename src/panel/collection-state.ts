@@ -2,7 +2,7 @@
 // query bar, results, editors, Query Builder and history. All tabs live in one atom, changed
 // immutably through `change(id, ...)`, so a tab's state survives switching between tabs.
 import { atom, plugin, read, set, update } from 'orca'
-import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline } from '../protocol'
+import type { AggOptions, CountResult, ExplainResult, Namespace, PreviewResult, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedPipeline, UpdatePreview } from '../protocol'
 import type { ExplainVerbosity } from '../shared/explain'
 import { hasWriteStage, type StageDraft } from '../shared/pipeline'
 import { bsonType, fieldPaths, idKey, isObject, toJsonText, toShell, toShellInline, valueAt, type JsonObject, type JsonValue } from '../shared/ejson-view'
@@ -11,6 +11,7 @@ import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type Builde
 import { fitsHost } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, ShellParseError } from '../shared/shell-parse'
+import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { errorText, nodeIndex, view } from './state'
 
 export type ResultView = 'table' | 'tree' | 'json'
@@ -107,6 +108,21 @@ export type AggState = {
   savedSelected?: string
 }
 
+/** Which documents Update many changes: the selected rows, every match of the query as last run
+ *  (not only the page shown), or the whole collection. */
+export type BulkScope = 'selection' | 'query' | 'all'
+/** Update many: the scope and the update as typed, then a preview of exactly what would run. */
+export type BulkUpdate = {
+  scope: BulkScope
+  text: string
+  /** Made for `basis` (the scope and update it resolved to); stale once they differ. */
+  preview?: { basis: string; scope: UpdateScope; update: UpdateSpec; loading: boolean; result?: UpdatePreview; error?: string }
+  /** The collection's name, typed to confirm an update of every document. */
+  confirmName: string
+  running: boolean
+  error?: string
+}
+
 export type CollTab = {
   id: string
   ns: Namespace
@@ -134,6 +150,7 @@ export type CollTab = {
   flattened: string[]
   editor?: Editor
   confirmDelete?: { ids: JsonValue[] }
+  bulk?: BulkUpdate
   builder: Group
   builderProblems: BuilderProblem[]
   builderOpen: boolean
@@ -795,6 +812,107 @@ export async function confirmDeletion(id: string): Promise<void> {
   } catch (error) {
     patch(id, { confirmDelete: undefined })
     say(id, 'danger', errorText(error))
+  }
+}
+
+// ---- Update many ----
+
+/** Whether a tab can update documents in bulk: a collection's own query, not a view, shell
+ *  results, an aggregation or one document. */
+export function canUpdateMany(t: CollTab): boolean {
+  return !t.readOnly && t.kind !== 'view' && !t.shell && !t.agg && !t.docTab
+}
+
+/** The documents a scope stands for now, or why it can't be used. `skipped`: selected rows
+ *  without an `_id`, which can't be named. */
+export function bulkScope(t: CollTab, kind: BulkScope): { scope?: UpdateScope; error?: string; skipped?: number } {
+  if (kind === 'all') return { scope: { kind: 'all' } }
+  if (kind === 'query') {
+    if (!t.spec) return { error: 'Run the query first: the update reaches what it matched.' }
+    return { scope: { kind: 'filter', filter: t.spec.filter, ...(t.spec.collation ? { collation: t.spec.collation } : {}) } }
+  }
+  const docs = selectedDocs(t)
+  const ids = docs.filter((d) => '_id' in d).map((d) => d._id!)
+  if (docs.length === 0) return { error: 'Select rows in the results first.' }
+  if (ids.length === 0) return { error: "The selected documents have no _id (from a projection), so they can't be named." }
+  return { scope: { kind: 'ids', ids }, skipped: docs.length - ids.length }
+}
+
+/** The scope and update the card holds now, and the key a preview of them is made for. */
+export function bulkPlan(t: CollTab): { scope?: UpdateScope; update?: UpdateSpec; basis?: string; scopeError?: string; updateError?: string; skipped?: number } {
+  const b = t.bulk
+  if (!b) return {}
+  const s = bulkScope(t, b.scope)
+  const u = parseUpdateText(b.text)
+  const basis = s.scope && u.update ? JSON.stringify([s.scope, u.update]) : undefined
+  return { scope: s.scope, update: u.update, basis, scopeError: s.error, updateError: u.error, skipped: s.skipped }
+}
+
+/** The preview, when it was made for what the card holds now. */
+export function currentPreview(t: CollTab): BulkUpdate['preview'] {
+  const p = t.bulk?.preview
+  return p && p.basis === bulkPlan(t).basis ? p : undefined
+}
+
+export function openUpdateMany(id: string, scope?: BulkScope): void {
+  const t = tab(id)
+  if (!t || !canUpdateMany(t)) return
+  const start: BulkScope = scope ?? (selectedDocs(t).some((d) => '_id' in d) ? 'selection' : 'query')
+  patch(id, { bulk: { scope: start, text: t.bulk?.text ?? '', confirmName: '', running: false }, editor: undefined, confirmDelete: undefined })
+}
+
+export function closeUpdateMany(id: string): void {
+  patch(id, { bulk: undefined })
+}
+
+/** Changes the scope or the text; what was previewed or confirmed no longer applies. */
+export function setBulk(id: string, values: Partial<Pick<BulkUpdate, 'scope' | 'text' | 'confirmName'>>): void {
+  change(id, (t) => {
+    if (!t.bulk) return {}
+    const reset = 'scope' in values || 'text' in values ? { preview: undefined, confirmName: '', error: undefined } : {}
+    return { bulk: { ...t.bulk, ...reset, ...values } }
+  })
+}
+
+/** Counts what the update reaches and tries it on one document, without saving anything. */
+export async function previewUpdateMany(id: string): Promise<void> {
+  const t = tab(id)
+  if (!t?.bulk) return
+  const plan = bulkPlan(t)
+  if (!plan.scope || !plan.update || !plan.basis) return
+  const { scope, update, basis } = plan
+  change(id, (x) => (x.bulk ? { bulk: { ...x.bulk, error: undefined, confirmName: '', preview: { basis, scope, update, loading: true } } } : {}))
+  let next: Partial<NonNullable<BulkUpdate['preview']>>
+  try {
+    next = { loading: false, result: await plugin.request('doc.updatePreview', { ns: t.ns, scope, update }, { timeoutMs: 120000 }) }
+  } catch (error) {
+    next = { loading: false, error: errorText(error) }
+  }
+  change(id, (x) => (x.bulk?.preview?.basis === basis ? { bulk: { ...x.bulk, preview: { ...x.bulk.preview, ...next } } } : {}))
+}
+
+/** Whether the person confirmed enough to run: an update of every document asks for the
+ *  collection's name. */
+export function bulkConfirmed(t: CollTab): boolean {
+  const p = currentPreview(t)
+  if (!t.bulk || !p?.result) return false
+  return !scopeIsEverything(p.scope) || t.bulk.confirmName.trim() === t.ns.collection
+}
+
+/** Runs exactly what was previewed. */
+export async function runUpdateMany(id: string): Promise<void> {
+  const t = tab(id)
+  const p = t && currentPreview(t)
+  if (!t?.bulk || !p?.result || !bulkConfirmed(t)) return
+  change(id, (x) => (x.bulk ? { bulk: { ...x.bulk, running: true, error: undefined } } : {}))
+  try {
+    // Two minutes is the longest Orca lets a panel wait; the server finishes the update regardless.
+    const r = await plugin.request('doc.updateMany', { ns: t.ns, scope: p.scope, update: p.update }, { timeoutMs: 120000 })
+    patch(id, { bulk: undefined, selectedRows: [] })
+    say(id, 'success', `Updated ${nsLabel(t.ns)}: ${r.matched.toLocaleString('en-US')} matched, ${r.modified.toLocaleString('en-US')} modified.`)
+    await reloadPage(id)
+  } catch (error) {
+    change(id, (x) => (x.bulk ? { bulk: { ...x.bulk, running: false, error: errorText(error) } } : {}))
   }
 }
 

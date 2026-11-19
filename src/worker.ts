@@ -30,6 +30,7 @@ import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
 import { deleteDocuments, getDocument, insertDocuments, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
 import { analyzeSchema } from './worker/schema'
+import { previewUpdate, updateMany } from './worker/update'
 import { currentOps, killOp, serverStatus, sleep } from './worker/server'
 import { ShellService } from './worker/shell'
 import { ConnectionStore } from './worker/store'
@@ -299,6 +300,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('doc.deleteMany', async ({ ns, ids }) => {
     await writable(ns.connectionId, 'deleting documents')
     return deleteDocuments(await clientFor(ns.connectionId), ns, ids)
+  })
+  // The preview tries the change on one document in a transaction it aborts: still a write.
+  orca.panels.handle('doc.updatePreview', async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, 'updating documents')
+    return previewUpdate(await clientFor(ns.connectionId), ns, scope, update)
+  })
+  orca.panels.handle('doc.updateMany', async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, 'updating documents')
+    return updateMany(await clientFor(ns.connectionId), ns, scope, update)
   })
 
   orca.panels.handle('query.explain', async ({ ns, spec, verbosity }) => explainFind(await clientFor(ns.connectionId), ns, spec, verbosity))

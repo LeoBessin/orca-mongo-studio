@@ -7164,10 +7164,10 @@ var require_utils = __commonJS({
     };
     exports.MongoDBCollectionNamespace = MongoDBCollectionNamespace;
     function* makeCounter(seed = 0) {
-      let count3 = seed;
+      let count4 = seed;
       while (true) {
-        const newCount = count3;
-        count3 += 1;
+        const newCount = count4;
+        count4 += 1;
         yield newCount;
       }
     }
@@ -12117,8 +12117,8 @@ var init_checkRegion = __esm({
   "node_modules/@smithy/core/dist-es/submodules/config/config-resolver/regionConfig/checkRegion.js"() {
     init_transport();
     validRegions = /* @__PURE__ */ new Set();
-    checkRegion = (region, check = isValidHostLabel) => {
-      if (!validRegions.has(region) && !check(region)) {
+    checkRegion = (region, check2 = isValidHostLabel) => {
+      if (!validRegions.has(region) && !check2(region)) {
         if (region === "*") {
           console.warn(`@smithy/config-resolver WARN - Please use the caller region instead of "*". See "sigv4a" in https://github.com/aws/aws-sdk-js-v3/blob/main/supplemental-docs/CLIENTS.md.`);
         } else {
@@ -19121,8 +19121,8 @@ var init_JsonBytesStringAdapter = __esm({
       padEnd(maxLength, fillString) {
         return this.s().padEnd(maxLength, fillString);
       }
-      repeat(count3) {
-        return this.s().repeat(count3);
+      repeat(count4) {
+        return this.s().repeat(count4);
       }
       toUpperCase() {
         return this.s().toUpperCase();
@@ -21941,9 +21941,9 @@ var init_DefaultRetryToken = __esm({
       $retryLog = {
         acquisitionDelay: 0
       };
-      constructor(delay, count3, cost, longPoll) {
+      constructor(delay, count4, cost, longPoll) {
         this.delay = delay;
-        this.count = count3;
+        this.count = count4;
         this.cost = cost;
         this.longPoll = longPoll;
       }
@@ -39063,7 +39063,7 @@ var require_abstract_cursor = __commonJS({
       readBufferedDocuments(number) {
         const bufferedDocs = [];
         const documentsToRead = Math.min(number ?? this.documents?.length ?? 0, this.documents?.length ?? 0);
-        for (let count3 = 0; count3 < documentsToRead; count3++) {
+        for (let count4 = 0; count4 < documentsToRead; count4++) {
           const document2 = this.documents?.shift(this.deserializationOptions);
           if (document2 != null) {
             bufferedDocs.push(document2);
@@ -49075,13 +49075,13 @@ var require_connection_string = __commonJS({
     function checkTLSOptions(allOptions) {
       if (!allOptions)
         return;
-      const check = (a6, b6) => {
+      const check2 = (a6, b6) => {
         if (allOptions.has(a6) && allOptions.has(b6)) {
           throw new error_1.MongoAPIError(`The '${a6}' option cannot be used with the '${b6}' option`);
         }
       };
-      check("tlsInsecure", "tlsAllowInvalidCertificates");
-      check("tlsInsecure", "tlsAllowInvalidHostnames");
+      check2("tlsInsecure", "tlsAllowInvalidCertificates");
+      check2("tlsInsecure", "tlsAllowInvalidHostnames");
     }
     function getBoolean(name, value) {
       if (typeof value === "boolean")
@@ -59093,7 +59093,7 @@ var require_bcrypt_pbkdf = __commonJS({
       }
     }
     function bcrypt_pbkdf(pass2, passlen, salt, saltlen, key, keylen, rounds) {
-      var sha2pass = new Uint8Array(64), sha2salt = new Uint8Array(64), out = new Uint8Array(BCRYPT_HASHSIZE), tmpout = new Uint8Array(BCRYPT_HASHSIZE), countsalt = new Uint8Array(saltlen + 4), i6, j6, amt, stride, dest, count3, origkeylen = keylen;
+      var sha2pass = new Uint8Array(64), sha2salt = new Uint8Array(64), out = new Uint8Array(BCRYPT_HASHSIZE), tmpout = new Uint8Array(BCRYPT_HASHSIZE), countsalt = new Uint8Array(saltlen + 4), i6, j6, amt, stride, dest, count4, origkeylen = keylen;
       if (rounds < 1)
         return -1;
       if (passlen === 0 || saltlen === 0 || keylen === 0 || keylen > out.byteLength * out.byteLength || saltlen > 1 << 20)
@@ -59103,11 +59103,11 @@ var require_bcrypt_pbkdf = __commonJS({
       for (i6 = 0; i6 < saltlen; i6++)
         countsalt[i6] = salt[i6];
       crypto_hash_sha512(sha2pass, pass2, passlen);
-      for (count3 = 1; keylen > 0; count3++) {
-        countsalt[saltlen + 0] = count3 >>> 24;
-        countsalt[saltlen + 1] = count3 >>> 16;
-        countsalt[saltlen + 2] = count3 >>> 8;
-        countsalt[saltlen + 3] = count3;
+      for (count4 = 1; keylen > 0; count4++) {
+        countsalt[saltlen + 0] = count4 >>> 24;
+        countsalt[saltlen + 1] = count4 >>> 16;
+        countsalt[saltlen + 2] = count4 >>> 8;
+        countsalt[saltlen + 3] = count4;
         crypto_hash_sha512(sha2salt, countsalt, saltlen + 4);
         bcrypt_hash(sha2pass, sha2salt, tmpout);
         for (i6 = out.byteLength; i6--; )
@@ -59120,7 +59120,7 @@ var require_bcrypt_pbkdf = __commonJS({
         }
         amt = Math.min(amt, keylen);
         for (i6 = 0; i6 < amt; i6++) {
-          dest = i6 * stride + (count3 - 1);
+          dest = i6 * stride + (count4 - 1);
           if (dest >= origkeylen)
             break;
           key[dest] = out[i6];
@@ -69607,11 +69607,11 @@ var require_SFTP = __commonJS({
             throw new Error("names is not an object or array");
           names = [names];
         }
-        const count3 = names.length;
+        const count4 = names.length;
         let namesLen = 0;
         let nameAttrs;
         const attrs = [];
-        for (let i6 = 0; i6 < count3; ++i6) {
+        for (let i6 = 0; i6 < count4; ++i6) {
           const name = names[i6];
           const filename = !name || !name.filename || typeof name.filename !== "string" ? "" : name.filename;
           namesLen += 4 + Buffer.byteLength(filename);
@@ -69641,9 +69641,9 @@ var require_SFTP = __commonJS({
         writeUInt32BE(buf, buf.length - 4, 0);
         buf[4] = RESPONSE.NAME;
         writeUInt32BE(buf, reqid, 5);
-        writeUInt32BE(buf, count3, p3);
+        writeUInt32BE(buf, count4, p3);
         p3 += 4;
-        for (let i6 = 0; i6 < count3; ++i6) {
+        for (let i6 = 0; i6 < count4; ++i6) {
           const name = names[i6];
           {
             const filename = !name || !name.filename || typeof name.filename !== "string" ? "" : name.filename;
@@ -70136,11 +70136,11 @@ var require_SFTP = __commonJS({
         attrs.mtime = mtime;
       }
       if (flags & ATTR.EXTENDED) {
-        const count3 = bufferParser.readUInt32BE();
-        if (count3 === void 0)
+        const count4 = bufferParser.readUInt32BE();
+        if (count4 === void 0)
           return;
         const extended = {};
-        for (let i6 = 0; i6 < count3; ++i6) {
+        for (let i6 = 0; i6 < count4; ++i6) {
           const type = bufferParser.readString(true);
           const data = bufferParser.readString();
           if (data === void 0)
@@ -70391,10 +70391,10 @@ var require_SFTP = __commonJS({
           req = sftp._requests[reqID];
           delete sftp._requests[reqID];
         }
-        const count3 = bufferParser.readUInt32BE();
-        if (count3 !== void 0) {
+        const count4 = bufferParser.readUInt32BE();
+        if (count4 !== void 0) {
           let names = [];
-          for (let i6 = 0; i6 < count3; ++i6) {
+          for (let i6 = 0; i6 < count4; ++i6) {
             const filename = bufferParser.readString(true);
             const longname = bufferParser.readString(true);
             const attrs = readAttrs(sftp._biOpt);
@@ -77646,16 +77646,16 @@ async function collectionInfo(client, ns) {
   const kind = entry.type === "view" ? "view" : entry.type === "timeseries" ? "timeseries" : "collection";
   const options = entry.options ?? {};
   const stats = [];
-  let count3 = null;
+  let count4 = null;
   let capped = options.capped === true;
   if (kind === "view") {
     stats.push(item2("View on", String(options.viewOn ?? "?")), item2("Stages", Array.isArray(options.pipeline) ? options.pipeline.length : 0));
   } else {
     const [s2, estimated] = await Promise.all([collStats(db, ns.collection), db.collection(ns.collection).estimatedDocumentCount({ maxTimeMS: STATS_TIMEOUT_MS2 }).catch(() => null)]);
-    count3 = estimated;
+    count4 = estimated;
     if (s2) {
       if (typeof s2.count === "number") {
-        count3 = s2.count;
+        count4 = s2.count;
         stats.push(item2("Documents", s2.count.toLocaleString("en-US")));
       }
       if (typeof s2.size === "number") stats.push(item2("Data size", formatBytes(s2.size)));
@@ -77665,7 +77665,7 @@ async function collectionInfo(client, ns) {
       if (typeof s2.totalIndexSize === "number") stats.push(item2("Index size", formatBytes(s2.totalIndexSize)));
       capped ||= s2.capped === true;
     } else {
-      if (count3 !== null) stats.push(item2("Documents (estimated)", count3.toLocaleString("en-US")));
+      if (count4 !== null) stats.push(item2("Documents (estimated)", count4.toLocaleString("en-US")));
       stats.push(item2("Statistics", "not available to this user", { tone: "warning" }));
     }
     if (capped) stats.push(item2("Capped", `${formatBytes(Number(options.size ?? 0))}${options.max ? `, ${Number(options.max).toLocaleString("en-US")} documents at most` : ""}`));
@@ -77682,7 +77682,7 @@ async function collectionInfo(client, ns) {
   return {
     kind,
     stats,
-    count: count3,
+    count: count4,
     options: toCanonical(options),
     validator,
     validationLevel: options.validationLevel ?? "strict",
@@ -79209,12 +79209,12 @@ function analyzeDocuments(docs2, options = {}, requested = docs2.length, ms = 0)
       depth: a6.depth,
       count: a6.count,
       parentCount: parentCount(a6),
-      types: [...a6.types.entries()].map(([type, count3]) => ({ type, count: count3 })).sort((x, y) => y.count - x.count || (x.type < y.type ? -1 : 1))
+      types: [...a6.types.entries()].map(([type, count4]) => ({ type, count: count4 })).sort((x, y) => y.count - x.count || (x.type < y.type ? -1 : 1))
     };
     if (a6.numberSeen) f6.numbers = { min: a6.numberMin, max: a6.numberMax, mean: a6.numberSum / a6.numberSeen, buckets: numberBuckets(a6.numbers, a6.numberMin, a6.numberMax, a6.numberSeen, options.maxBuckets) };
     if (a6.dateSeen) f6.dates = { min: a6.dateMin, max: a6.dateMax, buckets: dateBuckets(a6.dates, a6.dateMin, a6.dateMax, a6.dateSeen, options.maxBuckets) };
     if (a6.strings.size) {
-      const top = [...a6.strings.entries()].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).slice(0, options.topValues ?? 10).map(([value, count3]) => ({ value: value.length > 80 ? `${value.slice(0, 79)}…` : value, count: count3 }));
+      const top = [...a6.strings.entries()].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).slice(0, options.topValues ?? 10).map(([value, count4]) => ({ value: value.length > 80 ? `${value.slice(0, 79)}…` : value, count: count4 }));
       f6.strings = { minLength: a6.stringMin, maxLength: a6.stringMax, distinct: a6.strings.size, distinctCapped: a6.stringsCapped, top };
     }
     if (a6.boolTrue || a6.boolFalse) f6.bools = { true: a6.boolTrue, false: a6.boolFalse };
@@ -79361,6 +79361,219 @@ async function analyzeSchema(client, ns, size, filter) {
   }
 }
 
+// src/shared/compare.ts
+function isPlain(v) {
+  return isObject(v) && bsonType(v) === "object";
+}
+function comparable(doc, rules) {
+  const ignore = rules.ignoreFields.map((f6) => f6.split("."));
+  const walk = (v, path) => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, path));
+    if (!isPlain(v)) return v;
+    const keys = Object.keys(v).filter((k6) => !ignore.some((p3) => p3.length === path.length + 1 && p3[path.length] === k6 && path.every((s2, i6) => p3[i6] === s2)));
+    if (rules.ignoreOrder) keys.sort();
+    const out2 = {};
+    for (const k6 of keys) setOwn(out2, k6, walk(v[k6], [...path, k6]));
+    return out2;
+  };
+  const out = walk(doc, []);
+  delete out._id;
+  return out;
+}
+function compareKey(doc, rules) {
+  return JSON.stringify(comparable(doc, rules));
+}
+function diffDocuments(a6, b6, rules, max = 500) {
+  const ca = comparable(a6, rules);
+  const cb = comparable(b6, rules);
+  const diffs = [];
+  let capped = false;
+  const push = (d6) => {
+    if (diffs.length >= max) capped = true;
+    else diffs.push(d6);
+  };
+  const walk = (x, y, path) => {
+    if (x === void 0 && y === void 0) return;
+    if (x === void 0) return push({ path, kind: "added", b: valueText(y, 80) });
+    if (y === void 0) return push({ path, kind: "removed", a: valueText(x, 80) });
+    if (isPlain(x) && isPlain(y)) {
+      const keys = [.../* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])];
+      for (const k6 of keys) walk(x[k6], y[k6], path ? `${path}.${k6}` : k6);
+      if (!rules.ignoreOrder && keys.every((k6) => k6 in x && k6 in y) && JSON.stringify(Object.keys(x)) !== JSON.stringify(Object.keys(y)) && keys.every((k6) => JSON.stringify(x[k6]) === JSON.stringify(y[k6]))) {
+        push({ path: path || "(document)", kind: "changed", a: `fields ${Object.keys(x).join(", ")}`, b: `fields ${Object.keys(y).join(", ")}` });
+      }
+      return;
+    }
+    if (Array.isArray(x) && Array.isArray(y)) {
+      for (let i6 = 0; i6 < Math.max(x.length, y.length); i6++) walk(x[i6], y[i6], `${path}.${i6}`);
+      return;
+    }
+    if (JSON.stringify(x) === JSON.stringify(y)) return;
+    const tx = bsonType(x);
+    const ty = bsonType(y);
+    push({ path, kind: "changed", a: valueText(x, 80), b: valueText(y, 80), ...tx !== ty ? { types: [tx, ty] } : {} });
+  };
+  walk(ca, cb, "");
+  return { diffs, capped };
+}
+
+// src/shared/update-spec.ts
+var UPDATE_IDS_MAX = 1e4;
+var UPDATE_OPERATORS = ["$set", "$unset", "$inc", "$mul", "$rename", "$min", "$max", "$currentDate", "$push", "$addToSet", "$pop", "$pull", "$pullAll", "$bit"];
+var UPDATE_STAGES = ["$set", "$addFields", "$unset", "$project", "$replaceWith", "$replaceRoot"];
+function updateProblem(value) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "An update pipeline needs at least one stage.";
+    for (const [i6, stage] of value.entries()) {
+      const keys2 = isObject(stage) && bsonType(stage) === "object" ? Object.keys(stage) : [];
+      if (keys2.length !== 1 || !keys2[0].startsWith("$")) return `Stage ${i6 + 1} must be a document with one stage name, like { $set: { … } }.`;
+      if (!UPDATE_STAGES.includes(keys2[0])) return `${keys2[0]} can't be used in an update pipeline. Use ${UPDATE_STAGES.join(", ")}.`;
+    }
+    return void 0;
+  }
+  if (!isObject(value) || bsonType(value) !== "object") return 'An update is a document of operators, like { $set: { status: "archived" } }, or a pipeline in [ ].';
+  const keys = Object.keys(value);
+  if (keys.length === 0) return 'Write the change, like { $set: { status: "archived" } }.';
+  const plain = keys.find((k6) => !k6.startsWith("$"));
+  if (plain !== void 0) {
+    return `"${plain}" is not an update operator. To change fields, name them under one, like { $set: { ${plain}: … } }; replacing whole documents isn't done in bulk.`;
+  }
+  for (const k6 of keys) {
+    if (!UPDATE_OPERATORS.includes(k6)) return `${k6} is not an update operator. Use ${UPDATE_OPERATORS.join(", ")}.`;
+    const body = value[k6];
+    if (!isObject(body) || bsonType(body) !== "object") return `${k6} takes a document of fields, like { ${k6}: { field: … } }.`;
+    if (Object.keys(body).length === 0) return `${k6} names no fields.`;
+  }
+  return void 0;
+}
+function scopeProblem(scope) {
+  if (!isObject(scope)) return "Choose which documents to update.";
+  switch (scope.kind) {
+    case "ids":
+      if (!Array.isArray(scope.ids) || scope.ids.length === 0) return "Select the documents to update.";
+      if (scope.ids.length > UPDATE_IDS_MAX) return `Update at most ${UPDATE_IDS_MAX.toLocaleString("en-US")} selected documents at a time.`;
+      return void 0;
+    case "filter":
+      if (!isObject(scope.filter)) return "The filter must be a document.";
+      if (scope.collation !== void 0 && !isObject(scope.collation)) return "The collation must be a document.";
+      return void 0;
+    case "all":
+      return void 0;
+    default:
+      return "Choose which documents to update.";
+  }
+}
+function scopeFilter(scope) {
+  if (scope.kind === "ids") return { _id: { $in: scope.ids } };
+  if (scope.kind === "filter") return scope.filter;
+  return {};
+}
+
+// src/worker/update.ts
+var DIFFS_MAX = 100;
+function check(scope, update) {
+  const s2 = scopeProblem(scope);
+  if (s2) throw invalid(s2);
+  const u = updateProblem(update);
+  if (u) throw invalid(u);
+}
+function filterOf(scope) {
+  return toBson(scopeFilter(scope));
+}
+function collationOf(scope) {
+  return scope.kind === "filter" && scope.collation && Object.keys(scope.collation).length ? toBson(scope.collation) : void 0;
+}
+function updateOf(update) {
+  return Array.isArray(update) ? update.map((s2) => toBson(s2)) : toBson(update);
+}
+function noTransaction(error) {
+  const e6 = error;
+  const message = e6.message ?? "";
+  return e6.code === 20 || e6.code === 263 || e6.codeName === "OperationNotSupportedInTransaction" || /Transaction numbers are only allowed|transactions are not supported|not supported in (a )?(multi-document )?transaction/i.test(message);
+}
+async function count(client, ns, scope) {
+  const coll = client.db(ns.db).collection(ns.collection);
+  try {
+    if (scope.kind === "all") {
+      try {
+        return { count: await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS }), approximate: true };
+      } catch {
+      }
+    }
+    const collation = collationOf(scope);
+    const n5 = await coll.countDocuments(filterOf(scope), { maxTimeMS: COUNT_MAX_TIME_MS, ...collation ? { collation } : {} });
+    return { count: n5, approximate: false };
+  } catch (error) {
+    const e6 = error;
+    if (e6.code === 50 || e6.codeName === "MaxTimeMSExpired") return { count: null, approximate: false, countError: `Counting took longer than ${COUNT_MAX_TIME_MS / 1e3} s, so it stopped.` };
+    return { count: null, approximate: false, countError: e6.message ?? String(error) };
+  }
+}
+async function sampleAfter(client, ns, id, update) {
+  const coll = client.db(ns.db).collection(ns.collection);
+  if (Array.isArray(update)) {
+    try {
+      const [after] = await coll.aggregate([{ $match: { _id: id } }, ...updateOf(update)], { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS }).toArray();
+      return after ? { after } : { error: "The document was deleted while previewing." };
+    } catch (error) {
+      return { error: error.message ?? String(error) };
+    }
+  }
+  let session;
+  try {
+    session = client.startSession();
+    session.startTransaction();
+    const r6 = await coll.updateOne({ _id: id }, updateOf(update), { session });
+    if (r6.matchedCount === 0) return { error: "The document was deleted while previewing." };
+    const after = await coll.findOne({ _id: id }, { ...EXACT, session });
+    return after ? { after } : { error: "The document was deleted while previewing." };
+  } catch (error) {
+    if (noTransaction(error)) {
+      return { note: "This server can't try the change in a transaction (a standalone server, or a collection that refuses them), so only the document before is shown. Check the update, then run it." };
+    }
+    return { error: error.message ?? String(error) };
+  } finally {
+    if (session) {
+      if (session.inTransaction()) await session.abortTransaction().catch(() => void 0);
+      await session.endSession().catch(() => void 0);
+    }
+  }
+}
+async function previewUpdate(client, ns, scope, update) {
+  check(scope, update);
+  const started = Date.now();
+  const coll = client.db(ns.db).collection(ns.collection);
+  const collation = collationOf(scope);
+  const [counted2, first] = await Promise.all([
+    count(client, ns, scope),
+    coll.findOne(filterOf(scope), { ...EXACT, maxTimeMS: FIND_MAX_TIME_MS, ...collation ? { collation } : {} })
+  ]);
+  const preview = { ...counted2, ms: 0 };
+  if (first) {
+    const before = toCanonical(first);
+    const r6 = "_id" in first ? await sampleAfter(client, ns, first._id, update) : { note: "This document has no _id, so the change is not tried on it." };
+    const sample2 = { before: pageCanonical(before).doc, diffs: [], capped: false };
+    if (r6.after) {
+      const after = toCanonical(r6.after);
+      const { diffs, capped } = diffDocuments(before, after, { ignoreFields: [], ignoreOrder: false }, DIFFS_MAX);
+      sample2.after = pageCanonical(after).doc;
+      sample2.diffs = diffs;
+      sample2.capped = capped;
+    }
+    if (r6.note) sample2.note = r6.note;
+    if (r6.error) sample2.error = r6.error;
+    preview.sample = sample2;
+  }
+  preview.ms = Date.now() - started;
+  return preview;
+}
+async function updateMany(client, ns, scope, update) {
+  check(scope, update);
+  const collation = collationOf(scope);
+  const r6 = await client.db(ns.db).collection(ns.collection).updateMany(filterOf(scope), updateOf(update), collation ? { collation } : {});
+  return { matched: r6.matchedCount, modified: r6.modifiedCount };
+}
+
 // src/worker/server.ts
 var OPS_MAX = 200;
 function sleep2(ms, signal) {
@@ -79388,7 +79601,7 @@ function durationText(secs) {
 function item3(label, value, extra = {}) {
   return { label, value, ...extra };
 }
-var count = (v) => n4(v).toLocaleString("en-US");
+var count2 = (v) => n4(v).toLocaleString("en-US");
 async function serverStatus(client) {
   const started = Date.now();
   const admin = client.db("admin");
@@ -79406,14 +79619,14 @@ async function serverStatus(client) {
     const c6 = s2.connections;
     sections.push({
       title: "Connections",
-      items: [item3("Open", count(c6.current)), item3("Available", count(c6.available)), item3("Active", count(c6.active)), item3("Created since start", count(c6.totalCreated))]
+      items: [item3("Open", count2(c6.current)), item3("Available", count2(c6.available)), item3("Active", count2(c6.active)), item3("Created since start", count2(c6.totalCreated))]
     });
   }
   const ops = s2.opcounters ?? {};
-  sections.push({ title: "Operations since start", items: ["insert", "query", "update", "delete", "getmore", "command"].map((k6) => item3(k6, count(ops[k6]))) });
-  if (s2.network) sections.push({ title: "Network", items: [item3("Received", formatBytes(n4(s2.network.bytesIn))), item3("Sent", formatBytes(n4(s2.network.bytesOut))), item3("Requests", count(s2.network.numRequests))] });
+  sections.push({ title: "Operations since start", items: ["insert", "query", "update", "delete", "getmore", "command"].map((k6) => item3(k6, count2(ops[k6]))) });
+  if (s2.network) sections.push({ title: "Network", items: [item3("Received", formatBytes(n4(s2.network.bytesIn))), item3("Sent", formatBytes(n4(s2.network.bytesOut))), item3("Requests", count2(s2.network.numRequests))] });
   const memory = [];
-  if (s2.mem) memory.push(item3("Resident", `${count(s2.mem.resident)} MB`), item3("Virtual", `${count(s2.mem.virtual)} MB`));
+  if (s2.mem) memory.push(item3("Resident", `${count2(s2.mem.resident)} MB`), item3("Virtual", `${count2(s2.mem.virtual)} MB`));
   const cache6 = s2.wiredTiger?.cache;
   if (cache6) {
     const used = n4(cache6["bytes currently in the cache"]);
@@ -79431,7 +79644,7 @@ async function serverStatus(client) {
   }
   if (s2.asserts) {
     const a6 = s2.asserts;
-    sections.push({ title: "Asserts", items: [item3("Regular", count(a6.regular), n4(a6.regular) ? { tone: "warning" } : {}), item3("Warning", count(a6.warning)), item3("User", count(a6.user))] });
+    sections.push({ title: "Asserts", items: [item3("Regular", count2(a6.regular), n4(a6.regular) ? { tone: "warning" } : {}), item3("Warning", count2(a6.warning)), item3("User", count2(a6.user))] });
   }
   const counters = {};
   for (const k6 of ["insert", "query", "update", "delete", "getmore", "command"]) counters[`op.${k6}`] = n4(ops[k6]);
@@ -80302,9 +80515,9 @@ var ShellService = class {
       ...more ? { note: "More in the Mongo Studio panel, which pages through the whole result." } : {}
     });
   }
-  async readUntil(slot, count3) {
+  async readUntil(slot, count4) {
     const cursor = slot.cursor;
-    while (slot.docs.length < count3 && !slot.exhausted && cursor) {
+    while (slot.docs.length < count4 && !slot.exhausted && cursor) {
       if (slot.docs.length >= RESULT_DOCS_MAX || slot.bytes > RESULT_BYTES_MAX) {
         slot.capped = true;
         slot.exhausted = true;
@@ -80846,62 +81059,6 @@ async function dropRole(client, ref, role) {
 // src/worker/compare.ts
 var import_mongodb7 = __toESM(require_lib2(), 1);
 
-// src/shared/compare.ts
-function isPlain(v) {
-  return isObject(v) && bsonType(v) === "object";
-}
-function comparable(doc, rules) {
-  const ignore = rules.ignoreFields.map((f6) => f6.split("."));
-  const walk = (v, path) => {
-    if (Array.isArray(v)) return v.map((x) => walk(x, path));
-    if (!isPlain(v)) return v;
-    const keys = Object.keys(v).filter((k6) => !ignore.some((p3) => p3.length === path.length + 1 && p3[path.length] === k6 && path.every((s2, i6) => p3[i6] === s2)));
-    if (rules.ignoreOrder) keys.sort();
-    const out2 = {};
-    for (const k6 of keys) setOwn(out2, k6, walk(v[k6], [...path, k6]));
-    return out2;
-  };
-  const out = walk(doc, []);
-  delete out._id;
-  return out;
-}
-function compareKey(doc, rules) {
-  return JSON.stringify(comparable(doc, rules));
-}
-function diffDocuments(a6, b6, rules, max = 500) {
-  const ca = comparable(a6, rules);
-  const cb = comparable(b6, rules);
-  const diffs = [];
-  let capped = false;
-  const push = (d6) => {
-    if (diffs.length >= max) capped = true;
-    else diffs.push(d6);
-  };
-  const walk = (x, y, path) => {
-    if (x === void 0 && y === void 0) return;
-    if (x === void 0) return push({ path, kind: "added", b: valueText(y, 80) });
-    if (y === void 0) return push({ path, kind: "removed", a: valueText(x, 80) });
-    if (isPlain(x) && isPlain(y)) {
-      const keys = [.../* @__PURE__ */ new Set([...Object.keys(x), ...Object.keys(y)])];
-      for (const k6 of keys) walk(x[k6], y[k6], path ? `${path}.${k6}` : k6);
-      if (!rules.ignoreOrder && keys.every((k6) => k6 in x && k6 in y) && JSON.stringify(Object.keys(x)) !== JSON.stringify(Object.keys(y)) && keys.every((k6) => JSON.stringify(x[k6]) === JSON.stringify(y[k6]))) {
-        push({ path: path || "(document)", kind: "changed", a: `fields ${Object.keys(x).join(", ")}`, b: `fields ${Object.keys(y).join(", ")}` });
-      }
-      return;
-    }
-    if (Array.isArray(x) && Array.isArray(y)) {
-      for (let i6 = 0; i6 < Math.max(x.length, y.length); i6++) walk(x[i6], y[i6], `${path}.${i6}`);
-      return;
-    }
-    if (JSON.stringify(x) === JSON.stringify(y)) return;
-    const tx = bsonType(x);
-    const ty = bsonType(y);
-    push({ path, kind: "changed", a: valueText(x, 80), b: valueText(y, 80), ...tx !== ty ? { types: [tx, ty] } : {} });
-  };
-  walk(ca, cb, "");
-  return { diffs, capped };
-}
-
 // src/worker/jobs.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -81199,7 +81356,7 @@ function checkRules(rules) {
 function scoped(filter, ids) {
   return Object.keys(filter).length ? { $and: [filter, { _id: { $in: ids } }] } : { _id: { $in: ids } };
 }
-async function count2(coll, filter) {
+async function count3(coll, filter) {
   try {
     return Object.keys(filter).length ? await coll.countDocuments(filter, { maxTimeMS: COUNT_MAX_TIME_MS }) : await coll.estimatedDocumentCount({ maxTimeMS: COUNT_MAX_TIME_MS });
   } catch {
@@ -81224,7 +81381,7 @@ async function* batches(coll, filter, size, projection) {
 }
 async function passes(a6, b6, filter, rules, job, labels, on) {
   job.progress({ phase: "Counting documents" });
-  const [na, nb] = await Promise.all([count2(a6, filter), count2(b6, filter)]);
+  const [na, nb] = await Promise.all([count3(a6, filter), count3(b6, filter)]);
   job.progress({ total: na !== null && nb !== null ? na + nb : null, done: 0, phase: `Reading ${labels[0]}` });
   for await (const batch of batches(a6, filter, BATCH)) {
     checkSignal(job.signal);
@@ -83067,6 +83224,14 @@ function activate(orca) {
     await writable(ns.connectionId, "deleting documents");
     return deleteDocuments(await clientFor(ns.connectionId), ns, ids);
   });
+  orca.panels.handle("doc.updatePreview", async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, "updating documents");
+    return previewUpdate(await clientFor(ns.connectionId), ns, scope, update);
+  });
+  orca.panels.handle("doc.updateMany", async ({ ns, scope, update }) => {
+    await writable(ns.connectionId, "updating documents");
+    return updateMany(await clientFor(ns.connectionId), ns, scope, update);
+  });
   orca.panels.handle("query.explain", async ({ ns, spec, verbosity }) => explainFind(await clientFor(ns.connectionId), ns, spec, verbosity));
   const pipelineWritable = async (ns, pipeline) => {
     const stage = writeStageOf(pipeline);
@@ -83224,8 +83389,8 @@ function activate(orca) {
     const info = (await db.listCollections({ name: ns.collection }, { authorizedCollections: true }).toArray())[0];
     if (!info) return { exists: false, count: null };
     const kind = info.type === "view" ? "view" : info.type === "timeseries" ? "timeseries" : "collection";
-    const count3 = kind === "view" ? null : await db.collection(ns.collection).estimatedDocumentCount({ maxTimeMS: 1e4 }).catch(() => null);
-    return { exists: true, count: count3, kind };
+    const count4 = kind === "view" ? null : await db.collection(ns.collection).estimatedDocumentCount({ maxTimeMS: 1e4 }).catch(() => null);
+    return { exists: true, count: count4, kind };
   });
   orca.panels.handle("data.collections", async ({ connectionId, db }) => {
     const client = await clientFor(connectionId);

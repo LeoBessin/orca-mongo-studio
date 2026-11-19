@@ -237,6 +237,80 @@ describe('collection tabs', () => {
     assert.ok(view.find({ text: 'Deleted 2 documents from shop.orders.' }))
   })
 
+  test('update many: selected rows by _id, previewed before and after, then confirmed', async () => {
+    const previews: unknown[] = []
+    const { host, calls } = setup({
+      'doc.updatePreview': (input) => {
+        previews.push(input)
+        return {
+          count: 2,
+          approximate: false,
+          sample: { before: orders[0]!, after: { ...orders[0]!, status: 'archived' }, diffs: [{ path: 'status', kind: 'changed', a: "'shipped'", b: "'archived'" }], capped: false },
+          ms: 2
+        }
+      },
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { matched: 2, modified: 1 }
+      }
+    })
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(2))])
+    await view.press({ text: 'Update 2' })
+    assert.equal(view.valueOf({ type: 'RadioGroup', label: 'Documents' }), 'selection')
+    await view.type({ label: 'Update' }, '{ status: 1 }')
+    assert.ok(view.find({ text: /"status" is not an update operator/ }))
+    await view.type({ label: 'Update' }, "{ $set: { status: 'archived' } }", { replace: true })
+    await view.press({ text: 'Preview' })
+    assert.deepEqual(previews, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' }, scope: { kind: 'ids', ids: [oid(0), oid(2)] }, update: { $set: { status: 'archived' } } }])
+    assert.ok(view.find({ text: '2 documents would be updated.' }))
+    assert.deepEqual(view.rowsOf({ type: 'Table', label: 'Changes to the first document' }), ['d0'])
+    assert.deepEqual(calls.updates, [], 'nothing is written by the preview')
+    await view.press({ text: 'Update 2 documents' })
+    assert.deepEqual(calls.updates, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' }, scope: { kind: 'ids', ids: [oid(0), oid(2)] }, update: { $set: { status: 'archived' } } }])
+    assert.ok(view.find({ text: 'Updated shop.orders: 2 matched, 1 modified.' }))
+    assert.equal(view.find({ type: 'Card', label: 'Update documents' }), null)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('update many: the query reaches every match, and the whole collection asks for its name', async () => {
+    const { host, calls } = setup({
+      'doc.updatePreview': ({ scope }) => ({ count: scope.kind === 'all' ? 20000 : 7, approximate: scope.kind === 'all', ms: 2 }),
+      'doc.updateMany': (input) => {
+        calls.updates!.push(input)
+        return { matched: 20000, modified: 20000 }
+      }
+    })
+    const view = await openOrders(host)
+    await view.type({ label: 'Filter' }, "{ status: 'pending' }", { submit: true })
+    await view.press({ text: 'Update many' })
+    assert.equal(view.valueOf({ type: 'RadioGroup', label: 'Documents' }), 'query', 'with no selection it starts on the query')
+    await view.type({ label: 'Update' }, '[{ $set: { n: 1 } }]')
+    await view.press({ text: 'Preview' })
+    assert.ok(view.find({ text: '7 documents would be updated.' }))
+    // Changing the scope drops the preview: what runs is always what was previewed.
+    await view.select({ type: 'RadioGroup', label: 'Documents' }, 'all')
+    assert.equal(view.find({ text: '7 documents would be updated.' }), null)
+    await view.press({ text: 'Preview' })
+    assert.ok(view.find({ text: 'About 20,000 documents would be updated.' }))
+    assert.ok(view.find({ type: 'Callout', label: 'Update every document in shop.orders?' }))
+    const run = { type: 'Button', text: 'Update every document' }
+    assert.equal(view.find(run)!.props.disabled, true)
+    await view.type({ label: 'Type orders to confirm' }, 'order')
+    assert.equal(view.find(run)!.props.disabled, true)
+    await view.type({ label: 'Type orders to confirm' }, 'orders', { replace: true })
+    await view.press(run)
+    assert.deepEqual(calls.updates, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' }, scope: { kind: 'all' }, update: [{ $set: { n: { $numberInt: '1' } } }] }])
+  })
+
+  test('update many is not offered on a read-only connection', async () => {
+    const { host } = setup({ 'connections.state': { ...state, connections: [{ ...state.connections[0]!, readOnly: true }] } })
+    const view = await openOrders(host)
+    assert.equal(view.find({ text: 'Update many' }), null)
+    await view.selectRows(table, [JSON.stringify(oid(0))])
+    assert.equal(view.find({ text: /^Update/ }), null)
+  })
+
   test('tree view: fields with types, and Add to query fills the builder', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
