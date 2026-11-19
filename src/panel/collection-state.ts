@@ -723,16 +723,17 @@ function canReread(t: CollTab, doc: JsonObject): boolean {
 }
 
 /** Copies documents to the system clipboard as Extended JSON, relaxed or canonical as the tab
- *  shows it: one document as an object, several as an array. What is copied is what the page
+ *  shows it (or as `relaxed` says, for an open document): one document as an object, several as
+ *  an array. What is copied is what the page
  *  shows; a document whose values the page shortened is read again whole when it can be. The
  *  worker writes the text, so the page goes to it compact rather than indented. */
-export async function copyAsJson(id: string, docs: readonly JsonObject[]): Promise<void> {
+export async function copyAsJson(id: string, docs: readonly JsonObject[], relaxed?: boolean): Promise<void> {
   const t = tab(id)
   if (!t || docs.length === 0) return
   const page = t.page
   const cut = (d: JsonObject): boolean => (page ? page.truncated.includes(page.docs.indexOf(d)) : false)
   const items: CopyItem[] = docs.map((doc) => (cut(doc) && canReread(t, doc) ? { doc, reread: true } : { doc }))
-  const r = await plugin.request('clipboard.copyDocuments', { ns: t.ns, items, relaxed: t.relaxed }, { timeoutMs: 60000 })
+  const r = await plugin.request('clipboard.copyDocuments', { ns: t.ns, items, relaxed: relaxed ?? t.relaxed }, { timeoutMs: 60000 })
   const shortened = items.filter((item) => !item.reread && cut(item.doc)).length + r.gone
   const n = r.copied
   const what = `${n.toLocaleString('en-US')} document${n === 1 ? '' : 's'}`

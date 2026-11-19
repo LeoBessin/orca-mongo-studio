@@ -3570,13 +3570,13 @@ function canReread(t, doc) {
   if (t.spec?.projection && Object.keys(t.spec.projection).length) return false;
   return "_id" in doc && !hasTruncated(doc._id);
 }
-async function copyAsJson(id, docs2) {
+async function copyAsJson(id, docs2, relaxed) {
   const t = tab(id);
   if (!t || docs2.length === 0) return;
   const page = t.page;
   const cut = (d) => page ? page.truncated.includes(page.docs.indexOf(d)) : false;
   const items2 = docs2.map((doc) => cut(doc) && canReread(t, doc) ? { doc, reread: true } : { doc });
-  const r = await plugin3.request("clipboard.copyDocuments", { ns: t.ns, items: items2, relaxed: t.relaxed }, { timeoutMs: 6e4 });
+  const r = await plugin3.request("clipboard.copyDocuments", { ns: t.ns, items: items2, relaxed: relaxed ?? t.relaxed }, { timeoutMs: 6e4 });
   const shortened = items2.filter((item) => !item.reread && cut(item.doc)).length + r.gone;
   const n2 = r.copied;
   const what = `${n2.toLocaleString("en-US")} document${n2 === 1 ? "" : "s"}`;
@@ -10644,7 +10644,10 @@ function DocumentView({ t }) {
     f.deleted ? /* @__PURE__ */ jsx20(EmptyState3, { icon: "delete", title: "Document deleted", description: `${toShellInline(f.id)} is no longer in ${nsLabel(t.ns)}.` }) : f.error ? /* @__PURE__ */ jsx20(Callout16, { tone: "danger", icon: "error", title: "Could not read the document", children: f.error }) : !doc ? /* @__PURE__ */ jsx20(Skeleton12, { lines: 8, label: "Reading the document" }) : /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
       /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
         /* @__PURE__ */ jsx20(Toolbar14, { label: "Show the document as", gap: "xs", children: VIEWS2.map((v) => /* @__PURE__ */ jsx20(Button16, { size: "sm", variant: f.view === v.value ? "solid" : "ghost", tone: f.view === v.value ? "accent" : "neutral", onPress: () => setDocView(t.id, v.value), children: v.label }, v.value)) }),
-        t.readOnly ? /* @__PURE__ */ jsx20(Badge7, { tone: "warning", children: "Read only" }) : null
+        /* @__PURE__ */ jsxs18(Row18, { gap: "xs", align: "center", children: [
+          t.readOnly ? /* @__PURE__ */ jsx20(Badge7, { tone: "warning", children: "Read only" }) : null,
+          /* @__PURE__ */ jsx20(Button16, { size: "sm", icon: "copy", variant: "ghost", onPress: guard(t.id, () => copyAsJson(t.id, [doc], f.relaxed)), children: "Copy as JSON" })
+        ] })
       ] }),
       /* @__PURE__ */ jsx20(DocBody, { t, f, doc }),
       !t.readOnly ? /* @__PURE__ */ jsxs18(Toolbar14, { label: "Document actions", gap: "xs", children: [

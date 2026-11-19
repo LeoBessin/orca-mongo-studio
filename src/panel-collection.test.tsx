@@ -149,6 +149,22 @@ describe('Copy as JSON', () => {
     assert.equal(copies[0]!.items[0]!.reread, undefined)
   })
 
+  test('an open document copies itself, as read whole, with its own JSON setting', async () => {
+    const extra = shortened()
+    const copies = (extra as unknown as { copies: { items: { doc: JsonObject; reread?: boolean }[]; relaxed: boolean }[] }).copies
+    const { host } = setup(extra)
+    const view = await openOrders(host)
+    await view.selectRows(table, [JSON.stringify(oid(1))])
+    await view.press({ type: 'Button', text: 'Open' })
+    await view.press({ text: 'JSON' })
+    await view.toggle({ label: 'Relaxed Extended JSON' })
+    const relaxed = view.valueOf({ label: 'Relaxed Extended JSON' })
+    await view.press({ text: 'Copy as JSON' })
+    assert.deepEqual(copies[0]!.items, [{ doc: orders[1] }], 'not read again: it already is whole')
+    assert.equal(copies[0]!.relaxed, relaxed)
+    assert.ok(view.find({ text: 'Copied 1 document as JSON.' }))
+  })
+
   test('the JSON view copies the whole page', async () => {
     const extra = shortened()
     const copies = (extra as unknown as { copies: { items: unknown[] }[] }).copies

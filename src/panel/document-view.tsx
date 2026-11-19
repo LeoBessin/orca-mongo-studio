@@ -7,6 +7,7 @@ import {
   addField,
   askDeleteFocused,
   cloneDocument,
+  copyAsJson,
   closeDocument,
   closeTab,
   DOC_VIEWS,
@@ -131,7 +132,11 @@ export function DocumentView({ t }: { t: CollTab }): OrcaNode {
                 </Button>
               ))}
             </Toolbar>
-            {t.readOnly ? <Badge tone="warning">Read only</Badge> : null}
+            <Row gap="xs" align="center">
+              {t.readOnly ? <Badge tone="warning">Read only</Badge> : null}
+              {/* The open document was read whole, so it is copied as shown. */}
+              <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => copyAsJson(t.id, [doc], f.relaxed))}>Copy as JSON</Button>
+            </Row>
           </Row>
           <DocBody t={t} f={f} doc={doc} />
           {!t.readOnly ? (
