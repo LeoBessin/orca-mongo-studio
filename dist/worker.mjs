@@ -83021,19 +83021,44 @@ var TaskStore = class {
 
 // src/worker/clipboard.ts
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 var TOOL_TIMEOUT_MS = 1e4;
 var STDERR_GRACE_MS = 200;
-function clipboardTools(platform2, env2) {
+var listDir = (dir) => {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+function sessionEnv(env2, list = listDir) {
+  const out = {};
+  const byNumber = (a6, b6) => Number(a6.replace(/\D/g, "")) - Number(b6.replace(/\D/g, ""));
+  if (env2.WAYLAND_DISPLAY) out.WAYLAND_DISPLAY = env2.WAYLAND_DISPLAY;
+  else if (env2.XDG_RUNTIME_DIR) {
+    const socket = list(env2.XDG_RUNTIME_DIR).filter((name) => /^wayland-\d+$/.test(name)).sort(byNumber)[0];
+    if (socket) out.WAYLAND_DISPLAY = socket;
+  }
+  if (env2.DISPLAY) out.DISPLAY = env2.DISPLAY;
+  else {
+    const x = list("/tmp/.X11-unix").filter((name) => /^X\d+$/.test(name)).sort(byNumber)[0];
+    if (x) out.DISPLAY = `:${x.slice(1)}`;
+  }
+  return out;
+}
+function clipboardTools(platform2, env2, list = listDir) {
   if (platform2 === "darwin") return [{ command: "pbcopy", args: [], env: { LC_CTYPE: "UTF-8" } }];
   if (platform2 === "win32") {
     return [{ command: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", "[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())"] }];
   }
-  const wayland = { command: "wl-copy", args: [] };
+  const session = sessionEnv(env2, list);
+  const wayland = { command: "wl-copy", args: [], ...session.WAYLAND_DISPLAY ? { env: { WAYLAND_DISPLAY: session.WAYLAND_DISPLAY } } : {} };
+  const xEnv = session.DISPLAY ? { env: { DISPLAY: session.DISPLAY } } : {};
   const x11 = [
-    { command: "xclip", args: ["-selection", "clipboard"] },
-    { command: "xsel", args: ["--clipboard", "--input"] }
+    { command: "xclip", args: ["-selection", "clipboard"], ...xEnv },
+    { command: "xsel", args: ["--clipboard", "--input"], ...xEnv }
   ];
-  return env2.WAYLAND_DISPLAY ? [wayland, ...x11] : env2.DISPLAY ? [...x11, wayland] : [wayland, ...x11];
+  return session.WAYLAND_DISPLAY || !session.DISPLAY ? [wayland, ...x11] : [...x11, wayland];
 }
 var runTool = (tool, text) => new Promise((resolve, reject) => {
   const child = spawn(tool.command, tool.args, {
@@ -83048,6 +83073,9 @@ var runTool = (tool, text) => new Promise((resolve, reject) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+    child.stdin.destroy();
+    child.stderr.destroy();
+    child.unref();
     fn();
   };
   const timer = setTimeout(() => {
@@ -83069,9 +83097,17 @@ var runTool = (tool, text) => new Promise((resolve, reject) => {
   child.stdin.on("error", () => void 0);
   child.stdin.end(text, "utf8");
 });
-async function writeClipboard(text, platform2 = process.platform, env2 = process.env, run = runTool) {
-  const tools = clipboardTools(platform2, env2);
-  for (const tool of tools) if (await run(tool, text) === "ok") return;
+async function writeClipboard(text, platform2 = process.platform, env2 = process.env, run = runTool, list = listDir) {
+  const tools = clipboardTools(platform2, env2, list);
+  let failure;
+  for (const tool of tools) {
+    try {
+      if (await run(tool, text) === "ok") return;
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure) throw failure;
   throw new Error(
     platform2 === "linux" ? "No clipboard tool was found. Install wl-clipboard (Wayland) or xclip (X11), then copy again." : `The clipboard tool (${tools.map((t) => t.command).join(", ")}) was not found.`
   );
