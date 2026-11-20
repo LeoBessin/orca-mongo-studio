@@ -11,7 +11,10 @@ import { ExportTabView } from './export-view'
 import { GridfsTabView } from './gridfs-view'
 import { ImportTabView } from './import-view'
 
-export const ADMIN_ICONS: Record<AdminKind, IconName> = { manage: 'settings', database: 'layers', users: 'agent', server: 'gauge', schema: 'bar-chart-3', import: 'upload', export: 'download', compare: 'branch', gridfs: 'package' }
+// Import and export are drawn from the database's side: an import is data coming in (Orca's
+// `download`, an arrow into a tray) and an export is data going out (`upload`). Every import and
+// export button uses the same pair; GridFS downloads and uploads keep their literal icons.
+export const ADMIN_ICONS: Record<AdminKind, IconName> = { manage: 'settings', database: 'layers', users: 'agent', server: 'gauge', schema: 'bar-chart-3', import: 'download', export: 'upload', compare: 'branch', gridfs: 'package' }
 
 export function AdminTabView({ id }: { id: string }): OrcaNode {
   const t = read(adminTabs)[id]

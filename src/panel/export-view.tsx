@@ -207,7 +207,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
       ) : null}
       {problems.length ? <Text size="xs" tone="danger">{problems.join(' ')}</Text> : null}
       <Row gap="xs" align="center">
-        <Button variant="solid" tone="accent" icon={t.format === 'collection' ? 'copy' : 'download'} disabled={running || problems.length > 0 || Boolean(t.confirm)} onPress={aguard(t.id, () => startExport(t.id))}>
+        <Button variant="solid" tone="accent" icon={t.format === 'collection' ? 'copy' : 'upload'} disabled={running || problems.length > 0 || Boolean(t.confirm)} onPress={aguard(t.id, () => startExport(t.id))}>
           {running ? (t.format === 'collection' ? 'Copying…' : 'Exporting…') : t.format === 'collection' ? 'Copy' : 'Export'}
         </Button>
         {copied ? (

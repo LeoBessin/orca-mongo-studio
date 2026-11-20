@@ -19,7 +19,7 @@ function importSection(): OrcaNode {
       />
       <Text muted size="sm">One connection string per line, or the JSON of a Mongo Studio or MongoDB Compass export. Passwords in connection strings are saved encrypted.</Text>
       <Row gap="xs">
-        <Button variant="solid" tone="accent" icon="upload" disabled={!read(importText).trim()} onPress={runImport}>Import</Button>
+        <Button variant="solid" tone="accent" icon="download" disabled={!read(importText).trim()} onPress={runImport}>Import</Button>
       </Row>
       {result ? (
         <Callout tone={result.errors.length ? (result.imported.length ? 'warning' : 'danger') : 'success'} icon={result.errors.length ? 'warning' : 'check'} title={`Imported ${result.imported.length} connection${result.imported.length === 1 ? '' : 's'}`}>
@@ -71,7 +71,7 @@ function exportSection(): OrcaNode {
         <Button
           variant="solid"
           tone="accent"
-          icon="download"
+          icon="upload"
           disabled={!prepared || prepared.count === 0}
           onPress={async () => {
             if (!prepared) return

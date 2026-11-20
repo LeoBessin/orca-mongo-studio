@@ -7893,7 +7893,7 @@ function ExportTabView({ id }) {
     ] }) }) : null,
     problems.length ? /* @__PURE__ */ jsx12(Text11, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
     /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx12(Button9, { variant: "solid", tone: "accent", icon: t.format === "collection" ? "copy" : "download", disabled: running || problems.length > 0 || Boolean(t.confirm), onPress: aguard(t.id, () => startExport(t.id)), children: running ? t.format === "collection" ? "Copying…" : "Exporting…" : t.format === "collection" ? "Copy" : "Export" }),
+      /* @__PURE__ */ jsx12(Button9, { variant: "solid", tone: "accent", icon: t.format === "collection" ? "copy" : "upload", disabled: running || problems.length > 0 || Boolean(t.confirm), onPress: aguard(t.id, () => startExport(t.id)), children: running ? t.format === "collection" ? "Copying…" : "Exporting…" : t.format === "collection" ? "Copy" : "Export" }),
       copied2 ? /* @__PURE__ */ jsx12(Button9, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.target.connectionId, db: t.target.db.trim(), collection: t.target.collection.trim() }, "coll")), children: "Open the copy" }) : null
     ] }),
     /* @__PURE__ */ jsx12(JobProgress, { box: t.job, what: t.format === "collection" ? "copy" : "export", onCancel: aguard(t.id, () => cancelExport(t.id)), onSave: aguard(t.id, () => saveExport(t.id)) }),
@@ -8361,7 +8361,7 @@ function ImportTabView({ id }) {
     ] }) }) : null,
     problems.length && p ? /* @__PURE__ */ jsx14(Text13, { size: "xs", tone: "danger", children: problems.join(" ") }) : null,
     ro ? /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: `${connectionName(t.connectionId)} is read only: the source can be previewed, but nothing is imported into it.` }) : /* @__PURE__ */ jsxs13(Row13, { gap: "xs", align: "center", children: [
-      /* @__PURE__ */ jsx14(Button11, { variant: "solid", tone: "accent", icon: "upload", disabled: running || Boolean(t.confirmDrop), onPress: aguard(t.id, () => startImport(t.id)), children: running ? "Importing…" : "Import" }),
+      /* @__PURE__ */ jsx14(Button11, { variant: "solid", tone: "accent", icon: "download", disabled: running || Boolean(t.confirmDrop), onPress: aguard(t.id, () => startImport(t.id)), children: running ? "Importing…" : "Import" }),
       t.job?.state?.status === "done" && !folder && t.collection ? /* @__PURE__ */ jsx14(Button11, { variant: "ghost", icon: "open-external", onPress: aguard(t.id, () => openNamespace({ connectionId: t.connectionId, db: t.db, collection: t.collection }, "coll")), children: "Open the collection" }) : null
     ] }),
     /* @__PURE__ */ jsx14(JobProgress, { box: t.job, what: "import", onCancel: aguard(t.id, () => cancelImport(t.id)) }),
@@ -8371,7 +8371,7 @@ function ImportTabView({ id }) {
 
 // src/panel/admin-view.tsx
 import { jsx as jsx15 } from "orca/jsx-runtime";
-var ADMIN_ICONS = { manage: "settings", database: "layers", users: "agent", server: "gauge", schema: "bar-chart-3", import: "upload", export: "download", compare: "branch", gridfs: "package" };
+var ADMIN_ICONS = { manage: "settings", database: "layers", users: "agent", server: "gauge", schema: "bar-chart-3", import: "download", export: "upload", compare: "branch", gridfs: "package" };
 function AdminTabView({ id }) {
   const t = read19(adminTabs)[id];
   if (!t) return null;
@@ -10879,7 +10879,7 @@ function AggregationTab({ id }) {
           await runExplain(t.id);
         }), children: "Explain" }),
         a.textMode ? null : /* @__PURE__ */ jsx20(Button15, { icon: "code", variant: "ghost", onPress: () => editAsText(t.id), children: "Edit as text" }),
-        a.textMode ? null : /* @__PURE__ */ jsx20(IconButton14, { icon: "download", label: "Export the results: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportPipeline(t.id)) })
+        a.textMode ? null : /* @__PURE__ */ jsx20(IconButton14, { icon: "upload", label: "Export the results: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportPipeline(t.id)) })
       ] }),
       /* @__PURE__ */ jsx20(Switch4, { label: "Allow disk use (for big $group and $sort stages)", checked: a.allowDiskUse, onChange: (v) => void guard(t.id, () => setAllowDiskUse(t.id, v))() }),
       a.confirmWrite ? /* @__PURE__ */ jsx20(Callout15, { tone: "danger", icon: "warning", title: `Run ${a.confirmWrite.stage} into ${a.confirmWrite.target}?`, children: /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
@@ -11451,14 +11451,14 @@ function CollectionTab({ id }) {
         /* @__PURE__ */ jsx24(IconButton16, { icon: "refresh", label: "Reset the query", variant: "ghost", onPress: guard(t.id, () => resetQuery(t.id)) }),
         /* @__PURE__ */ jsx24(IconButton16, { icon: "gauge", label: "Explain the query", variant: "ghost", onPress: guard(t.id, () => runExplain(t.id)) }),
         /* @__PURE__ */ jsx24(IconButton16, { icon: "layers", label: "Open in the aggregation editor", variant: "ghost", onPress: guard(t.id, () => openAsAggregation(t)) }),
-        t.shell ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "download", label: "Export this query: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportQuery(t)) }),
+        t.shell ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "upload", label: "Export this query: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportQuery(t)) }),
         t.shell ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "bar-chart-3", label: "Schema of this collection", variant: "ghost", onPress: guard(t.id, () => openSchema(t.ns, t.kind)) }),
         t.shell ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "branch", label: "Compare with another collection", variant: "ghost", onPress: () => openCompare(t.ns, t.kind) })
       ] }),
       /* @__PURE__ */ jsxs22(Toolbar15, { label: "Collection actions", gap: "xs", children: [
         !t.readOnly ? /* @__PURE__ */ jsx24(Button19, { size: "sm", icon: "add", variant: "ghost", onPress: () => insertDocument(t.id), children: "Insert document" }) : null,
         canUpdateMany(t) ? /* @__PURE__ */ jsx24(Button19, { size: "sm", icon: "edit", variant: "ghost", onPress: () => openUpdateMany(t.id), children: "Update many" }) : null,
-        t.shell || t.readOnly ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "upload", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(t.ns) }),
+        t.shell || t.readOnly ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "download", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(t.ns) }),
         t.shell ? null : /* @__PURE__ */ jsx24(IconButton16, { icon: "settings", label: "Manage: indexes, validation, rename, drop", variant: "ghost", size: "sm", onPress: guard(t.id, () => openManage(t.ns, t.kind)) })
       ] }),
       /* @__PURE__ */ jsx24(TabNoticeView, { id: t.id, at: "top", places: COLLECTION_PLACES }),
@@ -12095,7 +12095,7 @@ function importSection() {
       }
     ),
     /* @__PURE__ */ jsx26(Text24, { muted: true, size: "sm", children: "One connection string per line, or the JSON of a Mongo Studio or MongoDB Compass export. Passwords in connection strings are saved encrypted." }),
-    /* @__PURE__ */ jsx26(Row23, { gap: "xs", children: /* @__PURE__ */ jsx26(Button21, { variant: "solid", tone: "accent", icon: "upload", disabled: !read28(importText).trim(), onPress: runImport, children: "Import" }) }),
+    /* @__PURE__ */ jsx26(Row23, { gap: "xs", children: /* @__PURE__ */ jsx26(Button21, { variant: "solid", tone: "accent", icon: "download", disabled: !read28(importText).trim(), onPress: runImport, children: "Import" }) }),
     result ? /* @__PURE__ */ jsx26(Callout21, { tone: result.errors.length ? result.imported.length ? "warning" : "danger" : "success", icon: result.errors.length ? "warning" : "check", title: `Imported ${result.imported.length} connection${result.imported.length === 1 ? "" : "s"}`, children: /* @__PURE__ */ jsxs24(Box23, { gap: "xs", children: [
       result.tasks?.length ? /* @__PURE__ */ jsx26(Text24, { size: "sm", children: `With ${result.tasks.length} saved task${result.tasks.length === 1 ? "" : "s"}: ${result.tasks.join(", ")}.` }) : null,
       result.imported.flatMap((i) => i.warnings.map((w) => /* @__PURE__ */ jsxs24(Text24, { size: "sm", children: [
@@ -12137,7 +12137,7 @@ function exportSection() {
       {
         variant: "solid",
         tone: "accent",
-        icon: "download",
+        icon: "upload",
         disabled: !prepared || prepared.count === 0,
         onPress: async () => {
           if (!prepared) return;
@@ -12325,8 +12325,8 @@ function actionBar(key2) {
     return /* @__PURE__ */ jsxs25(Toolbar16, { label: `${meta.label} actions`, gap: "xs", children: [
       /* @__PURE__ */ jsx27(Button22, { size: "sm", icon: "settings", variant: "solid", tone: "accent", onPress: act(() => openDatabase(id, db)), children: "Manage" }),
       /* @__PURE__ */ jsx27(Button22, { size: "sm", icon: "agent", variant: "ghost", onPress: act(() => openUsers(id, db)), children: "Users" }),
-      /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Import into this database: a file, pasted documents or a mongodump folder", variant: "ghost", size: "sm", onPress: () => openImport({ connectionId: id, db }) }),
-      /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Export or copy the whole database", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "database", connectionId: id, db }) }),
+      /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Import into this database: a file, pasted documents or a mongodump folder", variant: "ghost", size: "sm", onPress: () => openImport({ connectionId: id, db }) }),
+      /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Export or copy the whole database", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "database", connectionId: id, db }) }),
       /* @__PURE__ */ jsx27(IconButton17, { icon: "copy", label: "Copy the database, to paste on a connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "database", connectionId: id, db }) }),
       pasteButton({ connectionId: id, db }),
       refresh,
@@ -12364,8 +12364,8 @@ function actionBar(key2) {
     openable ? /* @__PURE__ */ jsx27(Button22, { size: "sm", icon: "layers", variant: "ghost", onPress: act(() => openAggregationForNode(real)), children: "Aggregate" }) : null,
     openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "settings", label: meta.kind === "view" ? "Manage the view" : "Manage the collection: indexes, validation, rename, drop", variant: "ghost", size: "sm", onPress: act(() => openManage(ns, meta.kind)) }) : null,
     openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "bar-chart-3", label: "Schema: sample the fields and their types", variant: "ghost", size: "sm", onPress: act(() => openSchema(ns, meta.kind)) }) : null,
-    openable && ns && meta.kind !== "view" ? /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(ns) }) : null,
-    openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Export: JSON, CSV, BSON or another collection", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "query", ns, collKind: meta.kind }) }) : null,
+    openable && ns && meta.kind !== "view" ? /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Import into this collection", variant: "ghost", size: "sm", onPress: () => openImport(ns) }) : null,
+    openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Export: JSON, CSV, BSON or another collection", variant: "ghost", size: "sm", onPress: () => openExport({ kind: "query", ns, collKind: meta.kind }) }) : null,
     openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "branch", label: "Compare with another collection", variant: "ghost", size: "sm", onPress: () => openCompare(ns, meta.kind) }) : null,
     openable && ns ? /* @__PURE__ */ jsx27(IconButton17, { icon: "copy", label: "Copy, to paste into another database or connection", variant: "ghost", size: "sm", onPress: () => copied({ kind: "collection", ns, collKind: meta.kind }) }) : null,
     openable && ns && meta.kind !== "view" ? pasteButton({ connectionId: ns.connectionId, db: ns.db, collection: ns.collection }) : null,
@@ -12405,8 +12405,8 @@ function TreeView() {
   return /* @__PURE__ */ jsxs25(Box24, { gap: "md", children: [
     /* @__PURE__ */ jsxs25(Toolbar16, { label: "Connections", children: [
       /* @__PURE__ */ jsx27(IconButton17, { icon: "add", label: "New connection", variant: "solid", tone: "accent", onPress: () => openNewConnection() }),
-      /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Import connections", onPress: () => set14(view, "transfer") }),
-      /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Export connections", onPress: () => set14(view, "transfer") }),
+      /* @__PURE__ */ jsx27(IconButton17, { icon: "download", label: "Import connections", onPress: () => set14(view, "transfer") }),
+      /* @__PURE__ */ jsx27(IconButton17, { icon: "upload", label: "Export connections", onPress: () => set14(view, "transfer") }),
       /* @__PURE__ */ jsx27(IconButton17, { icon: "rocket", label: "Saved tasks", onPress: () => openTasks() }),
       /* @__PURE__ */ jsx27(IconButton17, { icon: "settings", label: "Settings", onPress: () => openSettings() }),
       /* @__PURE__ */ jsx27(IconButton17, { icon: "refresh", label: "Refresh all", onPress: act(async () => {
@@ -12426,7 +12426,7 @@ function TreeView() {
     !state || state.connections.length === 0 ? noticeView : null,
     !state ? /* @__PURE__ */ jsx27(Skeleton14, { lines: 5, label: "Loading connections" }) : state.connections.length === 0 ? /* @__PURE__ */ jsx27(EmptyState4, { icon: "database", title: "No connections yet", description: "Add a MongoDB server or Atlas cluster, or import connection strings or a Compass export.", children: /* @__PURE__ */ jsxs25(Row24, { gap: "xs", justify: "center", children: [
       /* @__PURE__ */ jsx27(Button22, { variant: "solid", tone: "accent", icon: "add", onPress: () => openNewConnection(), children: "New connection" }),
-      /* @__PURE__ */ jsx27(Button22, { icon: "upload", onPress: () => set14(view, "transfer"), children: "Import" })
+      /* @__PURE__ */ jsx27(Button22, { icon: "download", onPress: () => set14(view, "transfer"), children: "Import" })
     ] }) }) : /* @__PURE__ */ jsxs25(Box24, { gap: "md", children: [
       /* @__PURE__ */ jsxs25(Box24, { gap: "sm", children: [
         /* @__PURE__ */ jsx27(Input16, { label: "Filter", labelHidden: true, type: "search", placeholder: "Filter loaded connections, databases and collections", value: read29(filter), onChange: (v) => set14(filter, v) }),

@@ -316,14 +316,14 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
           <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
           <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
           <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
-          {t.shell ? null : <IconButton icon="download" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
+          {t.shell ? null : <IconButton icon="upload" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
           {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}
           {t.shell ? null : <IconButton icon="branch" label="Compare with another collection" variant="ghost" onPress={() => openCompare(t.ns, t.kind)} />}
         </Toolbar>
         <Toolbar label="Collection actions" gap="xs">
           {!t.readOnly ? <Button size="sm" icon="add" variant="ghost" onPress={() => insertDocument(t.id)}>Insert document</Button> : null}
           {canUpdateMany(t) ? <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id)}>Update many</Button> : null}
-          {t.shell || t.readOnly ? null : <IconButton icon="upload" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(t.ns)} />}
+          {t.shell || t.readOnly ? null : <IconButton icon="download" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(t.ns)} />}
           {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" size="sm" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
         </Toolbar>
         <TabNoticeView id={t.id} at="top" places={COLLECTION_PLACES} />
