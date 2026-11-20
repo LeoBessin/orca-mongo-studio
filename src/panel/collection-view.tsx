@@ -100,16 +100,16 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
 function QueryBar({ t }: { t: CollTab }): OrcaNode {
   const extras = [t.text.collation && 'collation', t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(', ')
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <QueryInput t={t} field="filter" label="Filter" placeholder="{ status: 'shipped', total: { $gt: 100 } }" />
-      <Box columns={2} gap="xs">
+      <Box columns={2} gap="sm">
         <QueryInput t={t} field="projection" label="Projection" placeholder="{ name: 1, _id: 0 }" />
         <QueryInput t={t} field="sort" label="Sort" placeholder="{ createdAt: -1 }" />
       </Box>
       <Collapsible title="Collation, skip and limit" {...(extras ? { description: extras } : {})} open={t.optionsOpen} onChange={(open) => change(t.id, () => ({ optionsOpen: open }))}>
-        <Box gap="xs">
+        <Box gap="sm">
           <QueryInput t={t} field="collation" label="Collation" placeholder="{ locale: 'fr', strength: 2 }" />
-          <Box columns={2} gap="xs">
+          <Box columns={2} gap="sm">
             <QueryInput t={t} field="skip" label="Skip" placeholder="0" />
             <QueryInput t={t} field="limit" label="Limit" placeholder="0 (none)" />
           </Box>
@@ -126,7 +126,7 @@ function ConditionRow({ t, c, fields }: { t: CollTab; c: Condition; fields: stri
   const problem = t.builderProblems.find((p) => p.id === c.id)
   const known = fields.includes(c.field)
   return (
-    <Box gap="xs" padding="xs" border={problem ? 'danger' : true} radius="sm">
+    <Box gap="sm" padding="xs" border={problem ? 'danger' : true} radius="sm">
       <Row gap="xs" align="end">
         {known || (c.field === '' && fields.length) ? (
           <Select label="Field" value={c.field} placeholder="Field…" options={[...fields.map((f) => ({ value: f, label: f })), { value: '\u0000other', label: 'Another field…' }]} onChange={(v) => set({ field: v === '\u0000other' ? ' ' : v })} />
@@ -146,7 +146,7 @@ function ConditionRow({ t, c, fields }: { t: CollTab; c: Condition; fields: stri
 
 function GroupBlock({ t, g, fields, depth }: { t: CollTab; g: Group; fields: string[]; depth: number }): OrcaNode {
   return (
-    <Box gap="xs" {...(depth > 0 ? { padding: 'xs' as const, border: true, radius: 'md' as const, background: 'muted' as const } : {})}>
+    <Box gap="sm" {...(depth > 0 ? { padding: 'xs' as const, border: true, radius: 'md' as const, background: 'muted' as const } : {})}>
       <Row gap="xs" align="end" justify="between">
         <Select
           label={depth === 0 ? 'Match' : 'Group'}

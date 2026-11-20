@@ -13,7 +13,7 @@ export function CodeSection({ op, description, emptyText }: { op: Operation | un
   const lang = read(codeLanguage)
   return (
     <Collapsible title="Code" description={description}>
-      <Box gap="xs">
+      <Box gap="sm">
         <Select label="Language" value={lang} options={CODE_LANGUAGES} onChange={(v) => set(codeLanguage, v as CodeLanguage)} />
         {op ? <CodeView code={generateCode(op, lang)} label={`${lang} code`} maxHeight="md" /> : <Text muted size="xs">{emptyText ?? 'Run a query first: its code appears here.'}</Text>}
       </Box>

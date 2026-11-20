@@ -48,7 +48,7 @@ function exportSection(): OrcaNode {
       {all.length === 0 ? (
         <Text muted>There are no connections to export yet.</Text>
       ) : (
-        <Box gap="xs">
+        <Box gap="sm">
           {all.map((c) => (
             <Checkbox key={c.id} label={c.name} description={c.group ? `${c.group} · ${c.subtitle}` : c.subtitle} checked={chosen.includes(c.id)} onChange={(on) => toggle(c.id, on)} />
           ))}

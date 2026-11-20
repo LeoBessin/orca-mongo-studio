@@ -58,7 +58,7 @@ function Preview({ t, p, plan }: { t: CollTab; p: NonNullable<BulkUpdate['previe
   const r = p.result!
   const s = r.sample
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Text weight="semibold">{reachText(p)}</Text>
       {s?.error ? <Callout tone="danger" icon="error" title="The server refuses this update on the first document">{s.error}</Callout> : null}
       {s?.note ? <Text size="xs" muted>{s.note}</Text> : null}

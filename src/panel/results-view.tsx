@@ -338,7 +338,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   ) : null
   if (t.readOnly) {
     return (
-      <Box gap="xs">
+      <Box gap="md">
         <Toolbar label="Row actions" gap="xs">
           <OpenButtons t={t} doc={one} />
           {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
@@ -355,7 +355,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   // Orca refuses a Select option with an empty value, and $set can't name an empty field either.
   const fields = one ? Object.keys(one).filter((k) => k !== '_id' && k !== '' && k.length <= 1000) : []
   return (
-    <Box gap="xs">
+    <Box gap="md">
       <Toolbar label="Row actions" gap="xs">
         {one && hasId ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, one._id!))}>Edit document</Button> : null}
         <OpenButtons t={t} doc={one} />
@@ -460,7 +460,7 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
   // Worked out once: the table and its Filter by both use the columns.
   const cols = t.resultView === 'table' ? tableColumns(t) : undefined
   return (
-    <Box gap="sm">
+    <Box gap="md">
       <Row gap="xs" align="center" justify="between" wrap>
         <Toolbar label="Show results as" gap="xs">
           {VIEWS.map((v) => (

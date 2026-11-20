@@ -81,7 +81,7 @@ function Ops({ t }: { t: ServerTab }): OrcaNode {
         ) : null}
         {t.opsCapped ? <Text size="xs" muted>Only the 200 longest-running are shown. Narrow the filter to see others.</Text> : null}
         {sel ? (
-          <Box gap="xs">
+          <Box gap="sm">
             <KeyValue
               label={`Operation ${sel.opid}`}
               items={[

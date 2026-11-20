@@ -103,7 +103,7 @@ function CreateCollection({ t }: { t: DatabaseTab }): OrcaNode {
           </Box>
         ) : null}
         {d.kind === 'timeseries' ? (
-          <Box gap="xs">
+          <Box gap="sm">
             <Row gap="xs">
               <Input label="Time field" placeholder="ts" value={d.timeField} invalid={Boolean(e.timeField)} onChange={(timeField) => editCreate(t.id, { timeField })} />
               <Input label="Meta field" placeholder="sensor" value={d.metaField} invalid={Boolean(e.metaField)} onChange={(metaField) => editCreate(t.id, { metaField })} />
@@ -129,7 +129,7 @@ function CreateCollection({ t }: { t: DatabaseTab }): OrcaNode {
           </Box>
         ) : null}
         {d.kind === 'timeseries' ? null : (
-          <Box gap="xs">
+          <Box gap="sm">
             <Textarea label="Validator" rows={4} placeholder="{ $jsonSchema: { bsonType: 'object', required: ['name'] } }" value={d.validator} invalid={Boolean(e.validator)} onChange={(validator) => editCreate(t.id, { validator })} />
             {e.validator ? <Text size="xs" tone="danger">{e.validator}</Text> : null}
             {d.validator.trim() ? (
@@ -218,7 +218,7 @@ function Profiler({ t }: { t: DatabaseTab }): OrcaNode {
           />
         ) : null}
         {sel ? (
-          <Box gap="xs">
+          <Box gap="sm">
             <KeyValue
               label="Entry"
               items={[

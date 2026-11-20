@@ -90,7 +90,7 @@ function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
   const isId = i.name === '_id_'
   const ro = isReadOnly(t.connectionId)
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       {ro || isId ? null : (
         <Toolbar label={`${i.name} actions`} gap="xs">
           <Button size="sm" icon={i.hidden ? 'play' : 'pause'} variant="ghost" onPress={aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden))}>
@@ -297,7 +297,7 @@ function Operations({ t }: { t: ManageTab }): OrcaNode {
     <Collapsible title={view ? 'Drop' : 'Rename, clear and drop'} description={view ? 'Remove the view' : 'Change the name or remove the data'} open={t.open.operations} onChange={(open) => toggleSection(t.id, 'operations', open)}>
       <Box gap="sm">
         {view ? null : (
-          <Box gap="xs">
+          <Box gap="sm">
             <Row gap="xs" align="end">
               <Input label="New name" placeholder={t.ns.collection} value={t.rename.to} onChange={(to) => setRename(t.id, { to })} />
               <Input label="In database" placeholder={t.ns.db} value={t.rename.toDb} onChange={(toDb) => setRename(t.id, { toDb })} />

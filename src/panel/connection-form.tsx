@@ -410,7 +410,7 @@ function testResult(): OrcaNode {
   const title = failed ? `Failed at "${failed.title}"` : warned ? 'Connected, with warnings' : 'Connected'
   return (
     <Callout tone={tone} icon={failed ? 'error' : warned ? 'warning' : 'check'} title={title}>
-      <Box gap="xs">
+      <Box gap="sm">
         {report.server ? <Text size="sm">MongoDB {report.server.version}, {report.server.topology}.</Text> : null}
         <List label="Test steps">
           {report.steps.map((s) => (
@@ -482,7 +482,7 @@ export function ConnectionForm(): OrcaNode {
           <Text muted size="sm">Set the SSH tunnel, pasted certificates and AWS keys in Form mode.</Text>
         </Box>
       ) : (
-        <Box gap="xs">
+        <Box gap="sm">
           {serverSection(def)}
           {authSection(def)}
           {tlsSection(def)}

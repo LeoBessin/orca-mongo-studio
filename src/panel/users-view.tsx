@@ -35,7 +35,7 @@ function GrantedRoles({ t, e }: { t: UsersTab; e: UserEditor | RoleEditor }): Or
     ...builtin.map((r) => ({ value: r, label: r }))
   ]
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Text weight="medium">{e.kind === 'user' ? 'Roles' : 'Inherits from'}</Text>
       <Table
         label={e.kind === 'user' ? 'Granted roles' : 'Inherited roles'}
@@ -172,7 +172,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             onRowAction={({ key }) => (ro ? undefined : editUser(t.id, key.slice(2)))}
           />
           {user ? (
-            <Box gap="xs">
+            <Box gap="sm">
               {ro ? null : (
                 <Toolbar label={`${user.user} actions`} gap="xs">
                   <Button size="sm" icon="edit" onPress={() => editUser(t.id, user.user)}>Edit</Button>
@@ -199,7 +199,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             onRowAction={({ key }) => (ro ? undefined : editRole(t.id, key.slice(2)))}
           />
           {role ? (
-            <Box gap="xs">
+            <Box gap="sm">
               {ro ? null : (
                 <Toolbar label={`${role.role} actions`} gap="xs">
                   <Button size="sm" icon="edit" onPress={() => editRole(t.id, role.role)}>Edit</Button>

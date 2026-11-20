@@ -71,7 +71,7 @@ function StageList({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   const at = a.stages.findIndex((s) => s.id === a.selected)
   const sel = a.stages[at]
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Table
         label="Stages"
         columns={[
@@ -136,7 +136,7 @@ function Preview({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   const side = a.previewSide === 'output' && r?.output ? 'output' : 'input'
   const docs = r ? (side === 'output' ? r.output! : r.input) : undefined
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Row gap="xs" align="center" justify="between" wrap>
         <Toolbar label="Preview" gap="xs">
           {(['input', 'output'] as const).map((s) => (
@@ -192,7 +192,7 @@ function StageEditor({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
 function TextEditor({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
   const off = a.stages.filter((s) => !s.enabled).length
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Textarea label="Pipeline" rows={16} value={a.text} invalid={Boolean(a.textError)} onChange={(v) => setPipelineText(t.id, v)} onSubmit={() => void guard(t.id, () => applyText(t.id))()} />
       {a.textError ? <Text size="xs" tone="danger">{a.textError}</Text> : <Text size="xs" muted>An array of stages in shell syntax. Ctrl+Enter applies it.</Text>}
       {off ? <Text size="xs" tone="warning">{`${off} stage${off === 1 ? ' is' : 's are'} off and left out of the text; applying it removes ${off === 1 ? 'it' : 'them'}.`}</Text> : null}

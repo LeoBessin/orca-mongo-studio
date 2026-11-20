@@ -33,9 +33,9 @@ import { PlaceLine } from './place-view'
 function Other({ t }: { t: CompareTab }): OrcaNode {
   const conns = read(connections)?.connections ?? []
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Select label="Compare with, on" value={t.b.connectionId} options={conns.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => setCompare(t.id, { b: { ...t.b, connectionId: v } })} />
-      <Box columns={2} gap="xs">
+      <Box columns={2} gap="sm">
         <Input label="Database" value={t.b.db} onChange={(v) => setCompare(t.id, { b: { ...t.b, db: v } })} />
         <Input label="Collection" value={t.b.collection} placeholder={`${t.a.collection}_copy`} onChange={(v) => setCompare(t.id, { b: { ...t.b, collection: v } })} />
       </Box>
@@ -68,7 +68,7 @@ function Results({ t }: { t: CompareTab }): OrcaNode {
       />
       {equal ? <Callout tone="success" icon="check">{`Every document matches${t.ran.filter ? ' the filter' : ''} on both sides.`}</Callout> : null}
       {!equal ? (
-        <Box gap="xs">
+        <Box gap="sm">
           <Toolbar label="Show" gap="xs">
             {SHOW.map((s) => (
               <Button key={s.value} size="sm" variant={t.show === s.value ? 'solid' : 'ghost'} tone={t.show === s.value ? 'accent' : 'neutral'} disabled={counts[s.value] === 0} onPress={() => changeAdmin(t.id, 'compare', () => ({ show: s.value, selected: undefined, diff: undefined }))}>
@@ -101,7 +101,7 @@ function Pair({ t }: { t: CompareTab }): OrcaNode {
   if (d.loading) return <Skeleton lines={4} label="Reading both documents" />
   if (d.error) return <Callout tone="danger" icon="error">{d.error}</Callout>
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       {d.diffs && d.diffs.length ? (
         <Table
           label="Differences"

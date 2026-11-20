@@ -8,7 +8,7 @@ export function JobProgress({ box, what, onCancel, onSave }: { box: JobBox | und
   const d = box.download
   const pct = s ? progressPercent(s) : undefined
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       {s && s.status === 'running' ? (
         <Box gap="xs">
           <Progress label={`${s.phase} · ${progressText(s)}`} {...(pct !== undefined ? { value: pct } : {})} />
@@ -30,7 +30,7 @@ export function JobProgress({ box, what, onCancel, onSave }: { box: JobBox | und
         </Row>
       ) : null}
       {s && s.errorCount > 0 ? (
-        <Box gap="xs">
+        <Box gap="sm">
           <Text size="sm" tone="warning">{`${s.errorCount.toLocaleString('en-US')} error${s.errorCount === 1 ? '' : 's'}${s.errorCount > s.errors.length ? `; the first ${s.errors.length}:` : ':'}`}</Text>
           <Table
             label="Errors"

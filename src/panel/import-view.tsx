@@ -49,7 +49,7 @@ function Columns({ t }: { t: ImportTab }): OrcaNode {
   if (!cols) return null
   const sel = cols.find((c) => c.name === t.columnSelected)
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Table
         label="Columns"
         columns={[
@@ -65,7 +65,7 @@ function Columns({ t }: { t: ImportTab }): OrcaNode {
         onSelectionChange={({ keys }) => changeAdmin(t.id, 'import', () => ({ columnSelected: keys[0] }))}
       />
       {sel ? (
-        <Box columns={2} gap="xs">
+        <Box columns={2} gap="sm">
           <Input label={`Field for "${sel.name}"`} value={sel.field} placeholder="name or address.city" onChange={(v) => setColumn(t.id, sel.name, { field: v })} />
           <Select label="Type" value={sel.type} options={CSV_TYPES} onChange={(v) => setColumn(t.id, sel.name, { type: v as CsvType })} />
         </Box>
@@ -131,7 +131,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
         </Box>
         <IconButton icon="close" label="Close the import" variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>
-      <Box columns={2} gap="xs">
+      <Box columns={2} gap="sm">
         <Input label="Database" value={t.db} onChange={(v) => setImport(t.id, { db: v })} />
         <Input label="Collection" value={t.collection} placeholder={folder ? 'One per file' : 'Name'} disabled={folder} onChange={(v) => setImport(t.id, { collection: v })} />
       </Box>
@@ -158,7 +158,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
         {csvLike ? <Select label="Delimiter" value={t.csv.delimiter} options={DELIMITERS} onChange={(v) => setImport(t.id, { csv: { ...t.csv, delimiter: v } }, true)} /> : null}
       </Row>
       {csvLike ? (
-        <Box gap="xs">
+        <Box gap="sm">
           <Checkbox label="The first row names the columns" description="Names like age.int32() also give the type, as mongoimport reads them" checked={t.csv.header} onChange={(header) => setImport(t.id, { csv: { ...t.csv, header } }, true)} />
           <Checkbox label="Leave out empty cells" checked={t.csv.ignoreEmpty} onChange={(ignoreEmpty) => setImport(t.id, { csv: { ...t.csv, ignoreEmpty } })} />
         </Box>
@@ -171,7 +171,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
       {t.previewError ? <Callout tone="danger" icon="error" title="Could not read the source">{t.previewError}</Callout> : null}
       <Preview t={t} />
       <Collapsible title="How to write" description={MODES.find((m) => m.value === t.mode)?.label ?? ''}>
-        <Box gap="xs">
+        <Box gap="sm">
           <RadioGroup label="Documents" value={t.mode} options={MODES} onChange={(v) => setImport(t.id, { mode: v as ImportTab['mode'] })} />
           <Checkbox label={folder ? 'Drop each collection first' : 'Drop the collection first'} description="Its documents and indexes are deleted before the import" checked={t.drop} onChange={(drop) => setImport(t.id, { drop })} />
           <Checkbox label="Stop at the first error" checked={t.stopOnError} onChange={(stopOnError) => setImport(t.id, { stopOnError })} />

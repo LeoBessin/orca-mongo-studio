@@ -38,9 +38,9 @@ function QueryFields({ t }: { t: ExportTab }): OrcaNode {
     )
   }
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       {field('filter', 'Filter', '{} for every document')}
-      <Box columns={3} gap="xs">
+      <Box columns={3} gap="sm">
         {field('projection', 'Projection', '{ name: 1 }')}
         {field('sort', 'Sort', '{ _id: 1 }')}
         {field('limit', 'Limit', '0 (none)')}
@@ -55,7 +55,7 @@ function CsvOptions({ t }: { t: ExportTab }): OrcaNode {
   const one = sel.length === 1 ? sel[0]! : undefined
   const missing = (c.available ?? []).filter((f) => !c.fields.includes(f))
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Row gap="xs" align="end">
         <Select label="Delimiter" value={c.delimiter} options={DELIMITERS} onChange={(v) => setExport(t.id, { csv: { ...c, delimiter: v } })} />
         <Box grow>
@@ -101,9 +101,9 @@ function TargetOptions({ t }: { t: ExportTab }): OrcaNode {
   const conns = read(connections)?.connections ?? []
   const many = t.from.kind === 'database'
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Select label="Connection" value={x.connectionId} options={conns.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => setExport(t.id, { target: { ...x, connectionId: v } })} />
-      <Box columns={many ? 1 : 2} gap="xs">
+      <Box columns={many ? 1 : 2} gap="sm">
         <Input label="Database" value={x.db} onChange={(v) => setExport(t.id, { target: { ...x, db: v } })} />
         {many ? null : <Input label="Collection" value={x.collection} onChange={(v) => setExport(t.id, { target: { ...x, collection: v } })} />}
       </Box>
@@ -120,7 +120,7 @@ function TargetOptions({ t }: { t: ExportTab }): OrcaNode {
         onChange={(v) => setExport(t.id, { target: { ...x, mode: v as ExportTab['target']['mode'] } })}
       />
       {t.from.kind !== 'pipeline' ? (
-        <Box gap="xs">
+        <Box gap="sm">
           <Checkbox label="Copy the indexes" checked={x.indexes} onChange={(indexes) => setExport(t.id, { target: { ...x, indexes } })} />
           <Checkbox label="Create a new collection with the same options" description="Capped size, validation, collation, time series" checked={x.options} onChange={(options) => setExport(t.id, { target: { ...x, options } })} />
         </Box>
@@ -156,7 +156,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
       {t.from.kind === 'pipeline' ? <Text size="xs" muted>The pipeline as it was when Export was pressed. Export again from the aggregation tab after changing it.</Text> : null}
       <RadioGroup label="Format" value={t.format} options={FORMATS} onChange={(v) => setExport(t.id, { format: v as ExportTab['format'] })} />
       {t.format === 'json' ? (
-        <Box gap="xs">
+        <Box gap="sm">
           <RadioGroup
             label="Layout"
             orientation="horizontal"
@@ -174,7 +174,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
       {t.format === 'csv' ? <CsvOptions t={t} /> : null}
       {t.format === 'bson' ? <Checkbox label="Write .metadata.json with the indexes and options" description="Only when writing to a path" checked={t.bsonMetadata} onChange={(bsonMetadata) => setExport(t.id, { bsonMetadata })} /> : null}
       {t.format === 'collection' ? <TargetOptions t={t} /> : (
-        <Box gap="xs">
+        <Box gap="sm">
           <RadioGroup
             label="Save to"
             value={t.destination}
@@ -185,7 +185,7 @@ export function ExportTabView({ id }: { id: string }): OrcaNode {
             onChange={(v) => setExport(t.id, { destination: v as ExportTab['destination'] })}
           />
           {t.destination === 'path' ? (
-            <Box gap="xs">
+            <Box gap="sm">
               <Input label={many ? 'Folder' : 'Path'} value={t.path} placeholder={many ? '~/dumps/shop' : `~/exports/${t.from.kind === 'database' ? '' : t.from.ns.collection}.${t.format === 'csv' ? 'csv' : t.format}`} onChange={(v) => setExport(t.id, { path: v })} />
               <Checkbox label="Replace an existing file" checked={t.overwrite} onChange={(overwrite) => setExport(t.id, { overwrite })} />
             </Box>

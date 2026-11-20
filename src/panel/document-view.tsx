@@ -59,7 +59,7 @@ function DocTree({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): O
   const value = selected?.length ? valueAt(doc, selected) : undefined
   const canEdit = !t.readOnly && selected?.length && selected[0] !== '_id'
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Tree
         label="Fields"
         items={items}
@@ -93,14 +93,14 @@ function DocBody({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): O
   const longValues = <LongValues count={short.count} full={Boolean(f.fullValues)} onChange={(fullValues) => setFocus(t.id, { fullValues })} />
   if (f.view === 'shell') {
     return (
-      <Box gap="xs">
+      <Box gap="sm">
         <CodeView label="Document in shell syntax" code={toShell(shown)} language="javascript" lineNumbers maxHeight="lg" />
         {longValues}
       </Box>
     )
   }
   return (
-    <Box gap="xs">
+    <Box gap="sm">
       <Switch label="Relaxed Extended JSON" checked={f.relaxed} onChange={(relaxed) => setFocus(t.id, { relaxed })} />
       <CodeView label="Document as Extended JSON" code={toJsonText(shown, f.relaxed)} language="json" lineNumbers maxHeight="lg" />
       {longValues}
