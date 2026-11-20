@@ -297,7 +297,7 @@ export function AggregationTab({ id }: { id: string }): OrcaNode {
             await runExplain(t.id)
           })}>Explain</Button>
           {a.textMode ? null : <Button icon="code" variant="ghost" onPress={() => editAsText(t.id)}>Edit as text</Button>}
-          {a.textMode ? null : <IconButton icon="download" label="Export the results: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportPipeline(t.id))} />}
+          {a.textMode ? null : <IconButton icon="upload" label="Export the results: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportPipeline(t.id))} />}
         </Toolbar>
         <Switch label="Allow disk use (for big $group and $sort stages)" checked={a.allowDiskUse} onChange={(v) => void guard(t.id, () => setAllowDiskUse(t.id, v))()} />
         {a.confirmWrite ? (

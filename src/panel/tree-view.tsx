@@ -256,8 +256,8 @@ function actionBar(key: string): OrcaNode {
       <Toolbar label={`${meta.label} actions`} gap="xs">
         <Button size="sm" icon="settings" variant="solid" tone="accent" onPress={act(() => openDatabase(id, db))}>Manage</Button>
         <Button size="sm" icon="agent" variant="ghost" onPress={act(() => openUsers(id, db))}>Users</Button>
-        <IconButton icon="upload" label="Import into this database: a file, pasted documents or a mongodump folder" variant="ghost" size="sm" onPress={() => openImport({ connectionId: id, db })} />
-        <IconButton icon="download" label="Export or copy the whole database" variant="ghost" size="sm" onPress={() => openExport({ kind: 'database', connectionId: id, db })} />
+        <IconButton icon="download" label="Import into this database: a file, pasted documents or a mongodump folder" variant="ghost" size="sm" onPress={() => openImport({ connectionId: id, db })} />
+        <IconButton icon="upload" label="Export or copy the whole database" variant="ghost" size="sm" onPress={() => openExport({ kind: 'database', connectionId: id, db })} />
         <IconButton icon="copy" label="Copy the database, to paste on a connection" variant="ghost" size="sm" onPress={() => copied({ kind: 'database', connectionId: id, db })} />
         {pasteButton({ connectionId: id, db })}
         {refresh}
@@ -311,8 +311,8 @@ function actionBar(key: string): OrcaNode {
       ) : null}
       {openable && ns ? <IconButton icon="settings" label={meta.kind === 'view' ? 'Manage the view' : 'Manage the collection: indexes, validation, rename, drop'} variant="ghost" size="sm" onPress={act(() => openManage(ns, meta.kind))} /> : null}
       {openable && ns ? <IconButton icon="bar-chart-3" label="Schema: sample the fields and their types" variant="ghost" size="sm" onPress={act(() => openSchema(ns, meta.kind))} /> : null}
-      {openable && ns && meta.kind !== 'view' ? <IconButton icon="upload" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(ns)} /> : null}
-      {openable && ns ? <IconButton icon="download" label="Export: JSON, CSV, BSON or another collection" variant="ghost" size="sm" onPress={() => openExport({ kind: 'query', ns, collKind: meta.kind })} /> : null}
+      {openable && ns && meta.kind !== 'view' ? <IconButton icon="download" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(ns)} /> : null}
+      {openable && ns ? <IconButton icon="upload" label="Export: JSON, CSV, BSON or another collection" variant="ghost" size="sm" onPress={() => openExport({ kind: 'query', ns, collKind: meta.kind })} /> : null}
       {openable && ns ? <IconButton icon="branch" label="Compare with another collection" variant="ghost" size="sm" onPress={() => openCompare(ns, meta.kind)} /> : null}
       {openable && ns ? <IconButton icon="copy" label="Copy, to paste into another database or connection" variant="ghost" size="sm" onPress={() => copied({ kind: 'collection', ns, collKind: meta.kind })} /> : null}
       {openable && ns && meta.kind !== 'view' ? pasteButton({ connectionId: ns.connectionId, db: ns.db, collection: ns.collection }) : null}
@@ -361,8 +361,8 @@ export function TreeView(): OrcaNode {
     <Box gap="md">
       <Toolbar label="Connections">
         <IconButton icon="add" label="New connection" variant="solid" tone="accent" onPress={() => openNewConnection()} />
-        <IconButton icon="upload" label="Import connections" onPress={() => set(view, 'transfer')} />
-        <IconButton icon="download" label="Export connections" onPress={() => set(view, 'transfer')} />
+        <IconButton icon="download" label="Import connections" onPress={() => set(view, 'transfer')} />
+        <IconButton icon="upload" label="Export connections" onPress={() => set(view, 'transfer')} />
         <IconButton icon="rocket" label="Saved tasks" onPress={() => openTasks()} />
         <IconButton icon="settings" label="Settings" onPress={() => openSettings()} />
         <IconButton icon="refresh" label="Refresh all" onPress={act(async () => {
@@ -393,7 +393,7 @@ export function TreeView(): OrcaNode {
         <EmptyState icon="database" title="No connections yet" description="Add a MongoDB server or Atlas cluster, or import connection strings or a Compass export.">
           <Row gap="xs" justify="center">
             <Button variant="solid" tone="accent" icon="add" onPress={() => openNewConnection()}>New connection</Button>
-            <Button icon="upload" onPress={() => set(view, 'transfer')}>Import</Button>
+            <Button icon="download" onPress={() => set(view, 'transfer')}>Import</Button>
           </Row>
         </EmptyState>
       ) : (

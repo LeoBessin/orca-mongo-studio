@@ -196,7 +196,7 @@ export function ImportTabView({ id }: { id: string }): OrcaNode {
         <Text size="xs" muted>{`${connectionName(t.connectionId)} is read only: the source can be previewed, but nothing is imported into it.`}</Text>
       ) : (
         <Row gap="xs" align="center">
-          <Button variant="solid" tone="accent" icon="upload" disabled={running || Boolean(t.confirmDrop)} onPress={aguard(t.id, () => startImport(t.id))}>
+          <Button variant="solid" tone="accent" icon="download" disabled={running || Boolean(t.confirmDrop)} onPress={aguard(t.id, () => startImport(t.id))}>
             {running ? 'Importing…' : 'Import'}
           </Button>
           {t.job?.state?.status === 'done' && !folder && t.collection ? (
