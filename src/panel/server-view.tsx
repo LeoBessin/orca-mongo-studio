@@ -26,6 +26,7 @@ import { adminTabs, aguard, changeAdmin, closeAdmin, isReadOnly, numberText, typ
 import { NoticeBar } from './admin-notice'
 import { killConfirmed, LIVE_MS, loadOps, loadStatus, rates, setLive } from './server-state'
 import { PlaceLine } from './place-view'
+import { GAP } from './layout'
 
 function rateText(n: number): string {
   return n >= 100 ? numberText(Math.round(n)) : String(Math.round(n * 10) / 10)
@@ -81,7 +82,7 @@ function Ops({ t }: { t: ServerTab }): OrcaNode {
         ) : null}
         {t.opsCapped ? <Text size="xs" muted>Only the 200 longest-running are shown. Narrow the filter to see others.</Text> : null}
         {sel ? (
-          <Box gap="xs">
+          <Box gap={GAP.group}>
             <KeyValue
               label={`Operation ${sel.opid}`}
               items={[

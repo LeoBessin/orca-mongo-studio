@@ -65,6 +65,7 @@ import { copyToClipboard } from './data-state'
 import { guardAt } from './guard'
 import { arrayText, chunkForHighlight, chunkLabel, shortenLongStrings } from '../shared/code-chunks'
 import { LongValues } from './long-values-view'
+import { GAP } from './layout'
 
 // Errors from acting on results show under the results, where the action was pressed.
 const guard = guardAt('results')
@@ -182,33 +183,37 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1
   const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: sorted.direction } : undefined
   const objectColumns = topKeys(docs).filter((k) => k !== '' && k.length <= 1000 && docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
+  const hint = selectedDocs(t).length ? undefined : selectionHint(t)
   return (
-    <Box gap="md">
-      <Table
-        label="Documents"
-        columns={columns}
-        rows={rows}
-        {...(sort ? { sort } : {})}
-        selectionMode={canFilterBySelection(t) ? 'multiple' : 'single'}
-        selected={t.selectedRows}
-        loading={t.loading}
-        emptyText="No documents match."
-        maxHeight="lg"
-        onSortChange={({ column, direction }) => {
-          const c = shown[colKeys.indexOf(column)]
-          if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
-        }}
-        onSelectionChange={({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: undefined }))}
-        onRowAction={({ key }) => {
-          const i = keys.indexOf(key)
-          const d = docs[i]
-          if (!d || !('_id' in d)) return
-          if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id!))()
-          else if (canOpenDocuments(t)) void guard(t.id, () => openDocument(t.id, d._id!))()
-          else setResultView(t.id, 'tree', { treeExpanded: [`r${i}`], treeSelected: `r${i}` })
-        }}
-      />
-      {total > shown.length ? <Text size="xs" muted>{`Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.`}</Text> : null}
+    <Box gap={GAP.group}>
+      <Box gap={GAP.tight}>
+        <Table
+          label="Documents"
+          columns={columns}
+          rows={rows}
+          {...(sort ? { sort } : {})}
+          selectionMode={canFilterBySelection(t) ? 'multiple' : 'single'}
+          selected={t.selectedRows}
+          loading={t.loading}
+          emptyText="No documents match."
+          maxHeight="lg"
+          onSortChange={({ column, direction }) => {
+            const c = shown[colKeys.indexOf(column)]
+            if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
+          }}
+          onSelectionChange={({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: undefined }))}
+          onRowAction={({ key }) => {
+            const i = keys.indexOf(key)
+            const d = docs[i]
+            if (!d || !('_id' in d)) return
+            if (!t.readOnly) void guard(t.id, () => editDocument(t.id, d._id!))()
+            else if (canOpenDocuments(t)) void guard(t.id, () => openDocument(t.id, d._id!))()
+            else setResultView(t.id, 'tree', { treeExpanded: [`r${i}`], treeSelected: `r${i}` })
+          }}
+        />
+        {total > shown.length ? <Text size="xs" muted>{`Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.`}</Text> : null}
+        {hint ? <Text muted size="xs">{hint}</Text> : null}
+      </Box>
       {objectColumns.length ? (
         <Select
           label="Show a sub-document as columns"
@@ -313,18 +318,20 @@ function OpenButtons({ t, doc }: { t: CollTab; doc: JsonObject | undefined }): O
   )
 }
 
+/** What selecting rows does here, shown under the table while nothing is selected. Filtering goes
+ *  with opening: both need the tab's own query (not shell results or a pipeline), and every tab
+ *  that can edit has one. */
+function selectionHint(t: CollTab): string {
+  if (!t.readOnly) return 'Select rows to open, edit, clone, delete or filter by. Enter on a row edits it.'
+  return canFilterBySelection(t)
+    ? 'Select a row to open it, or rows to filter by. Enter on a row opens it.'
+    : 'Select a row to look at it in the Tree view.'
+}
+
 function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const docs = selectedDocs(t)
-  if (docs.length === 0) {
-    // Filtering goes with opening: both need the tab's own query (not shell results or a
-    // pipeline), and every tab that can edit has one.
-    const hint = !t.readOnly
-      ? 'Select rows to open, edit, clone, delete or filter by. Enter on a row edits it.'
-      : canFilterBySelection(t)
-        ? 'Select a row to open it, or rows to filter by. Enter on a row opens it.'
-        : 'Select a row to look at it in the Tree view.'
-    return <Text muted size="xs">{hint}</Text>
-  }
+  // With nothing selected, the table shows selectionHint under itself.
+  if (docs.length === 0) return null
   const one = docs.length === 1 ? docs[0]! : undefined
   const hasId = docs.every((d) => '_id' in d)
   const copyJson = (
@@ -338,7 +345,7 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   ) : null
   if (t.readOnly) {
     return (
-      <Box gap="xs">
+      <Box gap={GAP.section}>
         <Toolbar label="Row actions" gap="xs">
           <OpenButtons t={t} doc={one} />
           {one ? <Button size="sm" icon="search" variant="ghost" onPress={() => {
@@ -355,29 +362,31 @@ function TableActions({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   // Orca refuses a Select option with an empty value, and $set can't name an empty field either.
   const fields = one ? Object.keys(one).filter((k) => k !== '_id' && k !== '' && k.length <= 1000) : []
   return (
-    <Box gap="xs">
-      <Toolbar label="Row actions" gap="xs">
-        {one && hasId ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, one._id!))}>Edit document</Button> : null}
-        <OpenButtons t={t} doc={one} />
-        {one && hasId ? <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => cloneDocument(t.id, one._id!))}>Clone</Button> : null}
-        {hasId && docs.length > 1 && canUpdateMany(t) ? (
-          <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id, 'selection')}>{`Update ${docs.length}`}</Button>
-        ) : null}
-        {hasId ? (
-          <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={guard(t.id, () => askDelete(t.id))}>
-            {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}
-          </Button>
-        ) : null}
-        {copyJson}
-        {copy}
-      </Toolbar>
+    <Box gap={GAP.section}>
+      <Box gap={GAP.tight}>
+        <Toolbar label="Row actions" gap="xs">
+          {one && hasId ? <Button size="sm" icon="edit" onPress={guard(t.id, () => editDocument(t.id, one._id!))}>Edit document</Button> : null}
+          <OpenButtons t={t} doc={one} />
+          {one && hasId ? <Button size="sm" icon="copy" variant="ghost" onPress={guard(t.id, () => cloneDocument(t.id, one._id!))}>Clone</Button> : null}
+          {hasId && docs.length > 1 && canUpdateMany(t) ? (
+            <Button size="sm" icon="edit" variant="ghost" onPress={() => openUpdateMany(t.id, 'selection')}>{`Update ${docs.length}`}</Button>
+          ) : null}
+          {hasId ? (
+            <Button size="sm" icon="delete" variant="ghost" tone="danger" onPress={guard(t.id, () => askDelete(t.id))}>
+              {docs.length === 1 ? 'Delete' : `Delete ${docs.length}`}
+            </Button>
+          ) : null}
+          {copyJson}
+          {copy}
+        </Toolbar>
+        {!hasId ? <Text muted size="xs">Documents without an _id (from a projection or a view) can't be edited here.</Text> : null}
+      </Box>
       {one && hasId ? (
         <Row gap="xs" align="end" wrap>
           <Select label="Edit a field" value="" placeholder="Choose a field to edit…" options={fields.map((f) => ({ value: f, label: f }))} onChange={(f) => void guard(t.id, () => editField(t.id, one._id!, [f]))()} />
           <Button size="sm" icon="add" variant="ghost" onPress={() => addField(t.id, one._id!)}>Add field</Button>
         </Row>
       ) : null}
-      {!hasId ? <Text muted size="xs">Documents without an _id (from a projection or a view) can't be edited here.</Text> : null}
       <FilterBySelection t={t} docs={docs} cols={cols} />
     </Box>
   )
@@ -402,7 +411,7 @@ function FilterBySelection({ t, docs, cols }: { t: CollTab; docs: JsonObject[]; 
   const error = built?.error ?? (text.length > QUERY_TEXT_MAX ? `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.` : undefined)
   const filter = error ? undefined : built?.filter
   return (
-    <Box gap="xs">
+    <Box gap={GAP.tight}>
       <Row gap="xs" align="end" wrap>
         <Select
           label="Filter by"
@@ -460,7 +469,7 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
   // Worked out once: the table and its Filter by both use the columns.
   const cols = t.resultView === 'table' ? tableColumns(t) : undefined
   return (
-    <Box gap="sm">
+    <Box gap={GAP.section}>
       <Row gap="xs" align="center" justify="between" wrap>
         <Toolbar label="Show results as" gap="xs">
           {VIEWS.map((v) => (

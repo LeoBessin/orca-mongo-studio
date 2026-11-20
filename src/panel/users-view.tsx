@@ -24,6 +24,7 @@ import { adminTabs, aguard, changeAdmin, closeAdmin, isReadOnly, type RoleEditor
 import { NoticeBar } from './admin-notice'
 import { addGrantedRole, changeEditor, closeEditor, dropConfirmed, editRole, editUser, loadUsers, newRole, newUser, removeGrantedRoles, roleKey, saveEditor } from './users-state'
 import { PlaceLine } from './place-view'
+import { GAP } from './layout'
 
 const refs = (roles: { role: string; db: string }[], db: string): string => roles.map((r) => (r.db === db ? r.role : `${r.role}@${r.db}`)).join(', ') || 'none'
 
@@ -35,21 +36,23 @@ function GrantedRoles({ t, e }: { t: UsersTab; e: UserEditor | RoleEditor }): Or
     ...builtin.map((r) => ({ value: r, label: r }))
   ]
   return (
-    <Box gap="xs">
-      <Text weight="medium">{e.kind === 'user' ? 'Roles' : 'Inherits from'}</Text>
-      <Table
-        label={e.kind === 'user' ? 'Granted roles' : 'Inherited roles'}
-        columns={[
-          { key: 'role', label: 'Role' },
-          { key: 'db', label: 'Database', width: 'sm' }
-        ]}
-        rows={e.roles.map((r) => ({ key: roleKey(r), cells: { role: r.role, db: r.db } }))}
-        selectionMode="multiple"
-        selected={e.rolesSelected}
-        emptyText={e.kind === 'user' ? 'No roles: the user can sign in but do nothing.' : 'Inherits nothing.'}
-        maxHeight="sm"
-        onSelectionChange={({ keys }) => changeEditor(t.id, { rolesSelected: keys })}
-      />
+    <Box gap={GAP.group}>
+      <Box gap={GAP.tight}>
+        <Text weight="medium">{e.kind === 'user' ? 'Roles' : 'Inherits from'}</Text>
+        <Table
+          label={e.kind === 'user' ? 'Granted roles' : 'Inherited roles'}
+          columns={[
+            { key: 'role', label: 'Role' },
+            { key: 'db', label: 'Database', width: 'sm' }
+          ]}
+          rows={e.roles.map((r) => ({ key: roleKey(r), cells: { role: r.role, db: r.db } }))}
+          selectionMode="multiple"
+          selected={e.rolesSelected}
+          emptyText={e.kind === 'user' ? 'No roles: the user can sign in but do nothing.' : 'Inherits nothing.'}
+          maxHeight="sm"
+          onSelectionChange={({ keys }) => changeEditor(t.id, { rolesSelected: keys })}
+        />
+      </Box>
       <Row gap="xs" align="end" wrap>
         <Select label="Role" labelHidden value={options.some((o) => o.value === e.addRole) ? e.addRole : ''} placeholder="Choose a role…" options={options} onChange={(addRole) => changeEditor(t.id, { addRole })} />
         <Input label="Role name" labelHidden placeholder="or type a role" value={e.addRole} onChange={(addRole) => changeEditor(t.id, { addRole })} />
@@ -172,7 +175,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             onRowAction={({ key }) => (ro ? undefined : editUser(t.id, key.slice(2)))}
           />
           {user ? (
-            <Box gap="xs">
+            <Box gap={GAP.tight}>
               {ro ? null : (
                 <Toolbar label={`${user.user} actions`} gap="xs">
                   <Button size="sm" icon="edit" onPress={() => editUser(t.id, user.user)}>Edit</Button>
@@ -199,7 +202,7 @@ export function UsersTabView({ id }: { id: string }): OrcaNode {
             onRowAction={({ key }) => (ro ? undefined : editRole(t.id, key.slice(2)))}
           />
           {role ? (
-            <Box gap="xs">
+            <Box gap={GAP.tight}>
               {ro ? null : (
                 <Toolbar label={`${role.role} actions`} gap="xs">
                   <Button size="sm" icon="edit" onPress={() => editRole(t.id, role.role)}>Edit</Button>

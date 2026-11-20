@@ -37,6 +37,7 @@ import {
 import { openUsers } from './users-state'
 import { PlaceLine } from './place-view'
 import { settings } from './settings-state'
+import { GAP } from './layout'
 
 const KINDS = [
   { value: 'plain', label: 'Collection', description: 'Documents of any shape' },
@@ -103,12 +104,14 @@ function CreateCollection({ t }: { t: DatabaseTab }): OrcaNode {
           </Box>
         ) : null}
         {d.kind === 'timeseries' ? (
-          <Box gap="xs">
-            <Row gap="xs">
-              <Input label="Time field" placeholder="ts" value={d.timeField} invalid={Boolean(e.timeField)} onChange={(timeField) => editCreate(t.id, { timeField })} />
-              <Input label="Meta field" placeholder="sensor" value={d.metaField} invalid={Boolean(e.metaField)} onChange={(metaField) => editCreate(t.id, { metaField })} />
-            </Row>
-            {e.timeField || e.metaField ? <Text size="xs" tone="danger">{e.timeField ?? e.metaField}</Text> : null}
+          <Box gap={GAP.group}>
+            <Box gap={GAP.tight}>
+              <Row gap="xs">
+                <Input label="Time field" placeholder="ts" value={d.timeField} invalid={Boolean(e.timeField)} onChange={(timeField) => editCreate(t.id, { timeField })} />
+                <Input label="Meta field" placeholder="sensor" value={d.metaField} invalid={Boolean(e.metaField)} onChange={(metaField) => editCreate(t.id, { metaField })} />
+              </Row>
+              {e.timeField || e.metaField ? <Text size="xs" tone="danger">{e.timeField ?? e.metaField}</Text> : null}
+            </Box>
             <Select
               label="Granularity"
               value={d.granularity || 'default'}
@@ -129,9 +132,11 @@ function CreateCollection({ t }: { t: DatabaseTab }): OrcaNode {
           </Box>
         ) : null}
         {d.kind === 'timeseries' ? null : (
-          <Box gap="xs">
-            <Textarea label="Validator" rows={4} placeholder="{ $jsonSchema: { bsonType: 'object', required: ['name'] } }" value={d.validator} invalid={Boolean(e.validator)} onChange={(validator) => editCreate(t.id, { validator })} />
-            {e.validator ? <Text size="xs" tone="danger">{e.validator}</Text> : null}
+          <Box gap={GAP.group}>
+            <Box gap={GAP.tight}>
+              <Textarea label="Validator" rows={4} placeholder="{ $jsonSchema: { bsonType: 'object', required: ['name'] } }" value={d.validator} invalid={Boolean(e.validator)} onChange={(validator) => editCreate(t.id, { validator })} />
+              {e.validator ? <Text size="xs" tone="danger">{e.validator}</Text> : null}
+            </Box>
             {d.validator.trim() ? (
               <Row gap="xs">
                 <Select label="Level" value={d.level} options={[{ value: 'strict', label: 'Strict' }, { value: 'moderate', label: 'Moderate' }, { value: 'off', label: 'Off' }]} onChange={(v) => editCreate(t.id, { level: v as typeof d.level })} />
@@ -218,7 +223,7 @@ function Profiler({ t }: { t: DatabaseTab }): OrcaNode {
           />
         ) : null}
         {sel ? (
-          <Box gap="xs">
+          <Box gap={GAP.group}>
             <KeyValue
               label="Entry"
               items={[

@@ -2,6 +2,7 @@
 // certificates; the file is offered through Orca's save dialog, so the plugin never sees a path.
 import { Box, Button, Callout, Checkbox, files, Heading, read, Row, set, Text, Textarea, type OrcaNode } from 'orca'
 import { connections, exportJson, exportSelection, exportTasks, importResult, importText, refreshExport, runImport, view } from './state'
+import { GAP } from './layout'
 
 function importSection(): OrcaNode {
   const result = read(importResult)
@@ -48,7 +49,7 @@ function exportSection(): OrcaNode {
       {all.length === 0 ? (
         <Text muted>There are no connections to export yet.</Text>
       ) : (
-        <Box gap="xs">
+        <Box gap={GAP.tight}>
           {all.map((c) => (
             <Checkbox key={c.id} label={c.name} description={c.group ? `${c.group} · ${c.subtitle}` : c.subtitle} checked={chosen.includes(c.id)} onChange={(on) => toggle(c.id, on)} />
           ))}

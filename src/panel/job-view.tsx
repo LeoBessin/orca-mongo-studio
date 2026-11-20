@@ -1,6 +1,7 @@
 // A job's progress, errors and download, as each data tab shows it.
 import { Box, Button, Callout, Progress, Row, Table, Text, type OrcaNode } from 'orca'
 import { bytesText, progressPercent, progressText, type JobBox } from './data-state'
+import { GAP } from './layout'
 
 export function JobProgress({ box, what, onCancel, onSave }: { box: JobBox | undefined; what: string; onCancel: () => unknown; onSave?: () => unknown }): OrcaNode {
   if (!box) return null
@@ -8,7 +9,7 @@ export function JobProgress({ box, what, onCancel, onSave }: { box: JobBox | und
   const d = box.download
   const pct = s ? progressPercent(s) : undefined
   return (
-    <Box gap="xs">
+    <Box gap={GAP.group}>
       {s && s.status === 'running' ? (
         <Box gap="xs">
           <Progress label={`${s.phase} · ${progressText(s)}`} {...(pct !== undefined ? { value: pct } : {})} />
@@ -30,7 +31,7 @@ export function JobProgress({ box, what, onCancel, onSave }: { box: JobBox | und
         </Row>
       ) : null}
       {s && s.errorCount > 0 ? (
-        <Box gap="xs">
+        <Box gap={GAP.tight}>
           <Text size="sm" tone="warning">{`${s.errorCount.toLocaleString('en-US')} error${s.errorCount === 1 ? '' : 's'}${s.errorCount > s.errors.length ? `; the first ${s.errors.length}:` : ':'}`}</Text>
           <Table
             label="Errors"

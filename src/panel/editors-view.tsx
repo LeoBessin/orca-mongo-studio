@@ -22,6 +22,7 @@ import {
   type FieldEditor
 } from './collection-state'
 import { guardAt } from './guard'
+import { GAP } from './layout'
 
 // The editors open under the results: their errors show there too.
 const guard = guardAt('results')
@@ -43,7 +44,7 @@ function ValueInputs({ t, draft }: { t: CollTab; draft: FieldDraft }): OrcaNode 
       return <Textarea label={draft.type === 'javascript' ? 'Code' : 'Value'} rows={8} value={draft.text} invalid={invalid} onChange={(text) => set({ text })} onSubmit={() => void guard(t.id, () => saveField(t.id))()} />
     case 'binData':
       return (
-        <Box gap="xs">
+        <Box gap={GAP.group}>
           <Input label="Subtype (0 to 255)" value={draft.subtype} onChange={(subtype) => set({ subtype })} />
           <Textarea label="Data (base64)" rows={3} value={draft.text} invalid={invalid} onChange={(text) => set({ text })} />
         </Box>
