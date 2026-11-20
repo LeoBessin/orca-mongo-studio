@@ -37,7 +37,6 @@ import {
   change,
   cloneDocument,
   copyAsJson,
-  currentSort,
   editDocument,
   editField,
   filterBySelection,
@@ -55,6 +54,10 @@ import {
   setPageSize,
   setResultView,
   sortBy,
+  activeHeaderSort,
+  clearHeaderSort,
+  columnValue,
+  pageOrder,
   toggleFilterColumn,
   treeKey,
   type CollTab,
@@ -157,12 +160,6 @@ export function columnKeys(columns: readonly ResultColumn[]): string[] {
   })
 }
 
-function cellValue(doc: JsonObject, column: ResultColumn): JsonValue | undefined {
-  const v = doc[column.field]
-  if (column.sub === undefined) return v
-  return v !== undefined && isObject(v) && bsonType(v) === 'object' ? v[column.sub] : undefined
-}
-
 type Columns = ReturnType<typeof tableColumns>
 
 function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
@@ -170,18 +167,20 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const { columns: shown, total } = cols
   const colKeys = columnKeys(shown)
   const columns: TableColumn[] = shown.map((c, i) => ({ key: colKeys[i]!, label: c.name || '(empty name)', sortable: true, minWidth: c.field === '_id' ? 'md' : 'sm' }))
+  // Keys come from the page's own order, so selection and row actions find the same document
+  // however the header has the rows sorted.
   const keys = rowKeys(docs)
-  const rows: TableRow[] = docs.map((d, i) => {
+  const headerSort = activeHeaderSort(t)
+  const sortAt = headerSort ? shown.findIndex((c) => c.field === headerSort.field && c.sub === headerSort.sub) : -1
+  const sort = headerSort && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: headerSort.direction } : undefined
+  const rows: TableRow[] = pageOrder(t).map((i) => {
     const cells: TableRow['cells'] = {}
     shown.forEach((c, j) => {
-      const v = cellValue(d, c)
+      const v = columnValue(docs[i]!, c)
       cells[colKeys[j]!] = v === undefined ? '' : valueText(v, 80)
     })
     return { key: keys[i]!, cells }
   })
-  const sorted = currentSort(t)
-  const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1
-  const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: sorted.direction } : undefined
   const objectColumns = topKeys(docs).filter((k) => k !== '' && k.length <= 1000 && docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
   const hint = selectedDocs(t).length ? undefined : selectionHint(t)
   return (
@@ -199,7 +198,7 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
           maxHeight="lg"
           onSortChange={({ column, direction }) => {
             const c = shown[colKeys.indexOf(column)]
-            if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
+            if (c) sortBy(t.id, c, direction)
           }}
           onSelectionChange={({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: undefined }))}
           onRowAction={({ key }) => {
@@ -254,7 +253,9 @@ function fieldItem(row: number, path: Path, v: JsonValue, expanded: Set<string>)
 function ResultTree({ t }: { t: CollTab }): OrcaNode {
   const docs = t.page?.docs ?? []
   const expanded = new Set(t.treeExpanded)
-  const items: TreeItem[] = docs.map((d, i) => {
+  // Keys keep the page's own places, so selection and actions find the document in any order.
+  const items: TreeItem[] = pageOrder(t).map((i) => {
+    const d = docs[i]!
     const key = treeKey(i, [])
     const item: TreeItem = { key, label: '_id' in d ? valueText(d._id!, 80) : `Document ${t.page!.offset + i + 1}`, description: `${Object.keys(d).length} fields${t.page!.truncated.includes(i) ? ' · truncated' : ''}`, icon: 'file-text' }
     if (expanded.has(key)) item.children = Object.entries(d).map(([k, v]) => fieldItem(i, [k], v, expanded))
@@ -283,7 +284,8 @@ function ResultTree({ t }: { t: CollTab }): OrcaNode {
 // ---- JSON ----
 
 function ResultJson({ t }: { t: CollTab }): OrcaNode {
-  const docs = t.page?.docs ?? []
+  const page = t.page?.docs ?? []
+  const docs = pageOrder(t).map((i) => page[i]!)
   // Long strings are shortened for display, and what is left is split where Orca's highlighter
   // would stop colouring (see code-chunks): usually one view.
   const short = shortenLongStrings(docs)
@@ -460,6 +462,23 @@ function TreeActions({ t }: { t: CollTab }): OrcaNode {
   )
 }
 
+/** Says the rows are in a header's order, sorted here and only within this page, with the way
+ *  back to the order the results came in: Orca's header only flips between the two directions,
+ *  and running again isn't always possible or harmless (shell results, a pipeline that writes). */
+function HeaderSortNote({ t }: { t: CollTab }): OrcaNode {
+  const sort = activeHeaderSort(t)
+  const p = t.page
+  if (!sort || !p?.docs.length) return null
+  const pages = p.offset > 0 || p.hasMore
+  const text = `Sorted by ${sort.name || '(empty name)'}, ${sort.direction === 'asc' ? 'ascending' : 'descending'}, ${pages ? 'within this page only' : 'here in the panel'}.`
+  return (
+    <Row gap="xs" align="center" justify="between" wrap>
+      <Text size="xs" muted>{pages ? `${text} To sort every result, use the query's Sort.` : text}</Text>
+      <Button size="sm" variant="ghost" onPress={() => clearHeaderSort(t.id)}>Result order</Button>
+    </Row>
+  )
+}
+
 const VIEWS = Object.entries(RESULT_VIEWS).map(([value, label]) => ({ value: value as ResultView, label }))
 
 export function Results({ t }: { t: CollTab }): OrcaNode {
@@ -481,6 +500,7 @@ export function Results({ t }: { t: CollTab }): OrcaNode {
         <Text size="xs" muted>{`${p.ms.toLocaleString('en-US')} ms`}</Text>
       </Row>
       <Pager t={t} />
+      <HeaderSortNote t={t} />
       {p.stoppedForSize ? <Text size="xs" muted>This page holds fewer documents than the page size, to stay under the size Orca lets a panel receive. Next page goes on from here.</Text> : null}
       {p.truncated.length ? <Text size="xs" muted>{`${p.truncated.length} document${p.truncated.length === 1 ? ' has' : 's have'} long values cut short here. Editing loads the whole document.`}</Text> : null}
       {p.docs.length === 0 && !t.loading ? (

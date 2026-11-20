@@ -180,6 +180,24 @@ describe('Copy as JSON', () => {
     assert.ok(code().includes(poly))
   })
 
+  test('a header sort orders the selection, the copies and the JSON view as the table shows them', async () => {
+    const extra = shortened()
+    const copies = (extra as unknown as { copies: { items: { doc: JsonObject }[] }[] }).copies
+    const { host } = setup(extra)
+    const view = await openOrders(host)
+    await view.sort(table, 'total')
+    await view.sort(table, 'total')
+    await view.selectRows(table, [JSON.stringify(oid(0)), JSON.stringify(oid(2))])
+    await view.press({ text: 'Copy as JSON' })
+    assert.deepEqual(copies[0]!.items.map((i) => i.doc._id), [oid(2), oid(0)])
+    await view.press({ text: 'JSON' })
+    assert.ok(view.find({ text: /^Sorted by total, descending/ }), 'the other views say so too')
+    const code = view.find({ type: 'CodeView' })!.props.code as string
+    assert.ok(code.indexOf(oid(2).$oid as string) < code.indexOf(oid(0).$oid as string))
+    await view.press({ text: 'Copy page as JSON' })
+    assert.deepEqual(copies[1]!.items.map((i) => i.doc._id), [oid(2), oid(1), oid(0)])
+  })
+
   test('the JSON view copies the whole page', async () => {
     const extra = shortened()
     const copies = (extra as unknown as { copies: { items: unknown[] }[] }).copies
@@ -308,8 +326,7 @@ describe('collection tabs', () => {
     await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
     assert.ok(view.find({ type: 'Textarea', label: 'Sort' }))
     await view.sort(table, 'total')
-    assert.equal(view.valueOf({ label: 'Sort' }), '{ total: 1 }')
-    assert.ok(view.find({ type: 'Input', label: 'Sort' }), 'a sorted column writes one line, in a one-line box')
+    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }), 'a sorted column leaves the typed sort alone')
   })
 
   test('one line re-checks the field, and Format refuses to pass what the history keeps', async () => {
@@ -328,7 +345,7 @@ describe('collection tabs', () => {
     assert.ok(view.find({ type: 'Input', label: 'Filter' }))
   })
 
-  test('paging reads on from the current page, and sorting a column re-runs', async () => {
+  test('paging reads on from the current page', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
     await view.press({ label: 'Next page' })
@@ -336,9 +353,70 @@ describe('collection tabs', () => {
     assert.ok(view.find({ text: '4–4 of 4' }))
     await view.press({ label: 'Previous page' })
     assert.deepEqual(calls.pages.map((p) => p.offset), [3, 0])
+  })
+
+  test('a header click orders the rows on screen without a request, until the query runs again', async () => {
+    const { total: _, ...noTotal } = orders[0]!
+    const shuffled = [orders[1]!, { ...orders[2]!, total: { $numberInt: '9' } }, noTotal]
+    const { host, calls } = setup({ 'query.run': (input) => (calls.runs.push(input), { queryId: 'q1', offset: 0, docs: shuffled, truncated: [], hasMore: false, stoppedForSize: false, ms: 1 }) })
+    const view = await openOrders(host)
+    await view.type({ label: 'Sort' }, '{ qty: -1 }', { submit: true })
+    const runs = calls.runs.length
+    const page = view.rowsOf(table)
+    const keyOf = (n: number) => page[n]
+    assert.equal(view.find(table)!.props.sort, undefined, "the query's sort is not a header sort")
+
     await view.sort(table, 'total')
-    assert.deepEqual(calls.runs.at(-1)!.spec.sort, { total: { $numberInt: '1' } })
+    // 9 (an int) before 20.5 (a decimal), compared as numbers; the row without a total last.
+    assert.deepEqual(view.rowsOf(table), [keyOf(1), keyOf(0), keyOf(2)])
     assert.deepEqual(view.find(table)!.props.sort, { column: 'total', direction: 'asc' })
+    await view.sort(table, 'total')
+    assert.deepEqual(view.rowsOf(table), [keyOf(0), keyOf(1), keyOf(2)], 'descending, and the missing total still last')
+    assert.equal(calls.runs.length, runs, 'no query ran')
+    assert.deepEqual(calls.pages, [])
+    assert.equal(view.valueOf({ label: 'Sort' }), '{ qty: -1 }', 'the typed sort is untouched')
+    assert.ok(view.find({ text: 'Sorted by total, descending, here in the panel.' }))
+    await view.press({ text: 'Result order' })
+    assert.deepEqual(view.rowsOf(table), page, 'back to the order the query gave, without running it')
+    assert.equal(view.find({ text: /^Sorted by/ }), null)
+    assert.equal(calls.runs.length, runs)
+
+    await view.sort(table, 'total')
+    await view.press({ text: 'Run' })
+    assert.equal(view.find(table)!.props.sort, undefined, 'running the query again shows its own order')
+    assert.deepEqual(view.rowsOf(table), page)
+    assert.deepEqual(view.errors, [])
+  })
+
+  test('a header sort says it covers only this page, and paging keeps it', async () => {
+    const { host } = setup()
+    const view = await openOrders(host)
+    await view.sort(table, 'total')
+    await view.sort(table, 'total')
+    assert.ok(view.find({ text: "Sorted by total, descending, within this page only. To sort every result, use the query's Sort." }))
+    await view.press({ label: 'Next page' })
+    assert.deepEqual(view.find(table)!.props.sort, { column: 'total', direction: 'desc' })
+  })
+
+  test('two columns with the same dotted name sort each by its own values', async () => {
+    const docs: JsonObject[] = [
+      { _id: oid(0), 'a.b': 1, a: { b: 'z' } },
+      { _id: oid(1), 'a.b': 2, a: { b: 'y' } },
+      { _id: oid(2), 'a.b': 3, a: { b: 'x' } }
+    ]
+    const { host } = setup({ 'query.run': () => ({ queryId: 'q1', offset: 0, docs, truncated: [], hasMore: false, stoppedForSize: false, ms: 1 }) })
+    const view = await openOrders(host)
+    const page = view.rowsOf(table)
+    await view.select({ label: 'Show a sub-document as columns' }, 'a')
+    const keys = view.columnsOf(table)
+    assert.deepEqual(keys.slice(0, 2), ['_id', 'a.b'])
+    const second = keys[2]!
+    assert.notEqual(second, 'a.b', 'the sub-document column gets its own key')
+    await view.sort(table, second)
+    assert.deepEqual(view.find(table)!.props.sort, { column: second, direction: 'asc' })
+    assert.deepEqual(view.rowsOf(table), [page[2], page[1], page[0]], 'by a.b inside a, not the top-level a.b')
+    await view.sort(table, second)
+    assert.deepEqual(view.find(table)!.props.sort, { column: second, direction: 'desc' }, 'a second click flips it')
   })
 
   test('a sub-document can be shown as dotted columns', async () => {

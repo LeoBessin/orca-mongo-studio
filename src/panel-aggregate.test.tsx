@@ -224,9 +224,15 @@ describe('aggregation tabs', () => {
     await view.type(value, "{ status: 'pending' }", { replace: true })
     await view.press({ label: 'Previous page' })
     assert.deepEqual(calls.pages.at(-1)!.pipeline, [{ $match: { status: 'shipped' } }])
+    // A header click orders the page on screen; the pipeline is not run again.
+    const pagesBefore = calls.pages.length
     await view.sort(table, 'status')
-    assert.ok(view.find({ text: /Add a \$sort stage/ }))
+    assert.deepEqual(view.find(table)!.props.sort, { column: 'status', direction: 'asc' })
     assert.equal(calls.runs.length, 1)
+    assert.equal(calls.pages.length, pagesBefore)
+    // A new run gives its own order again.
+    await view.press({ text: 'Run' })
+    assert.equal(view.find(table)!.props.sort, undefined)
     assert.deepEqual(view.errors, [])
   })
 
