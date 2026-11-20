@@ -308,8 +308,7 @@ describe('collection tabs', () => {
     await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
     assert.ok(view.find({ type: 'Textarea', label: 'Sort' }))
     await view.sort(table, 'total')
-    assert.equal(view.valueOf({ label: 'Sort' }), '{ total: 1 }')
-    assert.ok(view.find({ type: 'Input', label: 'Sort' }), 'a sorted column writes one line, in a one-line box')
+    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }), 'a sorted column leaves the typed sort alone')
   })
 
   test('one line re-checks the field, and Format refuses to pass what the history keeps', async () => {
@@ -328,7 +327,7 @@ describe('collection tabs', () => {
     assert.ok(view.find({ type: 'Input', label: 'Filter' }))
   })
 
-  test('paging reads on from the current page, and sorting a column re-runs', async () => {
+  test('paging reads on from the current page', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
     await view.press({ label: 'Next page' })
@@ -336,9 +335,31 @@ describe('collection tabs', () => {
     assert.ok(view.find({ text: '4–4 of 4' }))
     await view.press({ label: 'Previous page' })
     assert.deepEqual(calls.pages.map((p) => p.offset), [3, 0])
+  })
+
+  test('a header click orders the rows on screen without a request, until the query runs again', async () => {
+    const { total: _, ...noTotal } = orders[0]!
+    const shuffled = [orders[1]!, { ...orders[2]!, total: { $numberInt: '9' } }, noTotal]
+    const { host, calls } = setup({ 'query.run': (input) => (calls.runs.push(input), { queryId: 'q1', offset: 0, docs: shuffled, truncated: [], hasMore: false, stoppedForSize: false, ms: 1 }) })
+    const view = await openOrders(host)
+    await view.type({ label: 'Sort' }, '{ qty: -1 }', { submit: true })
+    const runs = calls.runs.length
+    const page = view.rowsOf(table)
+    const keyOf = (n: number) => page[n]
+    assert.equal(view.find(table)!.props.sort, undefined, "the query's sort is not a header sort")
+
     await view.sort(table, 'total')
-    assert.deepEqual(calls.runs.at(-1)!.spec.sort, { total: { $numberInt: '1' } })
+    // 9 (an int) before 20.5 (a decimal), compared as numbers; the row without a total last.
+    assert.deepEqual(view.rowsOf(table), [keyOf(1), keyOf(0), keyOf(2)])
     assert.deepEqual(view.find(table)!.props.sort, { column: 'total', direction: 'asc' })
+    await view.sort(table, 'total')
+    assert.deepEqual(view.rowsOf(table), [keyOf(0), keyOf(1), keyOf(2)], 'descending, and the missing total still last')
+    assert.equal(calls.runs.length, runs, 'no query ran')
+    assert.deepEqual(calls.pages, [])
+    assert.equal(view.valueOf({ label: 'Sort' }), '{ qty: -1 }', 'the typed sort is untouched')
+    await view.press({ text: 'Run' })
+    assert.equal(view.find(table)!.props.sort, undefined, 'running the query again shows its own order')
+    assert.deepEqual(view.errors, [])
   })
 
   test('a sub-document can be shown as dotted columns', async () => {

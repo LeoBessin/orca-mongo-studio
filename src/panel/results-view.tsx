@@ -25,6 +25,7 @@ import { BSON_TYPE_LABELS, bsonType, isContainer, isObject, toJsonText, toShellI
 import { QUERY_TEXT_MAX } from '../shared/host-size'
 import { PAGE_SIZES } from '../shared/settings'
 import { filterablePath, filterFromRows, projectionKeeps } from '../shared/table-filter'
+import { sortedOrder } from '../shared/table-sort'
 import {
   addField,
   addToQuery,
@@ -37,7 +38,6 @@ import {
   change,
   cloneDocument,
   copyAsJson,
-  currentSort,
   editDocument,
   editField,
   filterBySelection,
@@ -170,18 +170,20 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
   const { columns: shown, total } = cols
   const colKeys = columnKeys(shown)
   const columns: TableColumn[] = shown.map((c, i) => ({ key: colKeys[i]!, label: c.name || '(empty name)', sortable: true, minWidth: c.field === '_id' ? 'md' : 'sm' }))
+  // Keys come from the page's own order, so selection and row actions find the same document
+  // however the header has the rows sorted.
   const keys = rowKeys(docs)
-  const rows: TableRow[] = docs.map((d, i) => {
+  const sortAt = t.headerSort ? shown.findIndex((c) => c.name === t.headerSort!.column) : -1
+  const sort = t.headerSort && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: t.headerSort.direction } : undefined
+  const order = sort ? sortedOrder(docs.map((d) => cellValue(d, shown[sortAt]!)), sort.direction) : docs.map((_, i) => i)
+  const rows: TableRow[] = order.map((i) => {
     const cells: TableRow['cells'] = {}
     shown.forEach((c, j) => {
-      const v = cellValue(d, c)
+      const v = cellValue(docs[i]!, c)
       cells[colKeys[j]!] = v === undefined ? '' : valueText(v, 80)
     })
     return { key: keys[i]!, cells }
   })
-  const sorted = currentSort(t)
-  const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1
-  const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt]!, direction: sorted.direction } : undefined
   const objectColumns = topKeys(docs).filter((k) => k !== '' && k.length <= 1000 && docs.some((d) => d[k] !== undefined && bsonType(d[k]!) === 'object'))
   const hint = selectedDocs(t).length ? undefined : selectionHint(t)
   return (
@@ -199,7 +201,7 @@ function ResultTable({ t, cols }: { t: CollTab; cols: Columns }): OrcaNode {
           maxHeight="lg"
           onSortChange={({ column, direction }) => {
             const c = shown[colKeys.indexOf(column)]
-            if (c) void guard(t.id, () => sortBy(t.id, c.name, direction))()
+            if (c) sortBy(t.id, c.name, direction)
           }}
           onSelectionChange={({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: undefined }))}
           onRowAction={({ key }) => {

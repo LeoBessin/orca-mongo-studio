@@ -3430,7 +3430,7 @@ async function runQuery(id, record = true) {
   }
   if (t.queryId) void plugin3.request("query.close", { queryId: t.queryId }).catch(() => void 0);
   const token = t.runToken + 1;
-  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0 });
+  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", headerSort: void 0, selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0 });
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...record ? { text: t.text } : {} };
   const counting = countQuery(id, token, spec);
   try {
@@ -3515,27 +3515,8 @@ async function reloadPage(id) {
   patch(id, { notice: keepNotice });
   void recount(id);
 }
-async function sortBy(id, column, direction) {
-  if (tab(id)?.shell) {
-    say2(id, "neutral", "Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.", "results");
-    return;
-  }
-  if (tab(id)?.agg) {
-    say2(id, "neutral", "A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.", "results");
-    return;
-  }
-  const key2 = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-  replaceText(id, "sort", `{ ${key2}: ${direction === "asc" ? 1 : -1} }`);
-  await runQuery(id);
-}
-function currentSort(t) {
-  const sort = t.spec?.sort;
-  if (!sort) return void 0;
-  const entries2 = Object.entries(sort);
-  if (entries2.length !== 1) return void 0;
-  const [column, v] = entries2[0];
-  const n2 = typeof v === "number" ? v : isObject(v) ? Number(v.$numberInt ?? v.$numberDouble ?? v.$numberLong) : NaN;
-  return n2 === 1 || n2 === -1 ? { column, direction: n2 === 1 ? "asc" : "desc" } : void 0;
+function sortBy(id, column, direction) {
+  patch(id, { headerSort: { column, direction } });
 }
 function resetQuery(id) {
   patch(id, { text: { ...emptyText }, fieldErrors: {}, multiline: {} });
@@ -5637,12 +5618,12 @@ function treeItems(report, parent, expanded2) {
   return report.fields.filter((f) => f.parent === parent).map((f) => {
     const key2 = fieldKey(f.path);
     const isArray = f.types.some((t) => t.type === "array");
-    const isObject2 = f.types.some((t) => t.type === "object");
+    const isObject3 = f.types.some((t) => t.type === "object");
     const item = {
       key: key2,
       label: f.name === ELEMENT ? "elements" : f.name,
       description: `${typeSummary(f)} · ${f.name === ELEMENT ? `${numberText(f.count)} in ${numberText(f.parentCount)} arrays` : `${percent(Math.min(f.count, f.parentCount), f.parentCount)}%`}`,
-      icon: isArray ? "layers" : isObject2 ? "folder" : f.types[0]?.type === "date" ? "calendar" : "file-text"
+      icon: isArray ? "layers" : isObject3 ? "folder" : f.types[0]?.type === "date" ? "calendar" : "file-text"
     };
     const kids = report.fields.some((x) => x.parent === f.path);
     if (kids) {
@@ -8405,6 +8386,7 @@ async function runPipeline(id, confirmed2 = false) {
     runToken: token,
     agg: { ...x.agg, ran, confirmWrite: void 0 },
     count: write2 ? void 0 : "counting",
+    headerSort: void 0,
     selectedRows: [],
     treeSelected: void 0,
     treeExpanded: [],
@@ -8737,6 +8719,139 @@ import {
   Tree as Tree3
 } from "orca";
 
+// src/shared/table-sort.ts
+var RANK = {
+  minKey: 0,
+  undefined: 1,
+  null: 1,
+  int: 2,
+  long: 2,
+  double: 2,
+  decimal: 2,
+  string: 3,
+  symbol: 3,
+  object: 4,
+  array: 5,
+  binData: 6,
+  uuid: 6,
+  objectId: 7,
+  bool: 8,
+  date: 9,
+  timestamp: 10,
+  regex: 11,
+  dbPointer: 12,
+  javascript: 13,
+  maxKey: 14,
+  truncated: 3
+};
+function cmp(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function numberOf(v) {
+  if (typeof v === "number") return v;
+  const o = v;
+  if (typeof o.$numberLong === "string") {
+    try {
+      return BigInt(o.$numberLong);
+    } catch {
+      return NaN;
+    }
+  }
+  const text = o.$numberInt ?? o.$numberDouble ?? o.$numberDecimal;
+  return text === "Infinity" ? Infinity : text === "-Infinity" ? -Infinity : Number(text);
+}
+function compareNumbers(a, b) {
+  if (typeof a === "bigint" && typeof b === "bigint") return cmp(a, b);
+  const x = Number(a);
+  const y = Number(b);
+  if (Number.isNaN(x) || Number.isNaN(y)) return Number.isNaN(x) ? Number.isNaN(y) ? 0 : -1 : 1;
+  return cmp(x, y);
+}
+function untruncated(v) {
+  const t = isObject(v) && isObject(v.$msTruncated) ? v.$msTruncated.preview : void 0;
+  return t === void 0 ? v : untruncated(t);
+}
+function stringOf(v) {
+  if (typeof v === "string") return v;
+  const s = v.$symbol;
+  return typeof s === "string" ? s : "";
+}
+function binaryOf(v) {
+  const o = v;
+  if (typeof o.$uuid === "string") return { size: 16, sub: "04", data: o.$uuid.replace(/-/g, "").toLowerCase() };
+  const b = o.$binary;
+  const data = String(b.base64);
+  return { size: base64Length(data), sub: String(b.subType ?? "00"), data };
+}
+function compareValues(a, b) {
+  a = untruncated(a);
+  b = untruncated(b);
+  const ta = bsonType(a);
+  const tb = bsonType(b);
+  const rank = cmp(RANK[ta], RANK[tb]);
+  if (rank) return rank;
+  switch (RANK[ta]) {
+    case RANK.int:
+      return compareNumbers(numberOf(a), numberOf(b));
+    case RANK.string:
+      return cmp(stringOf(a), stringOf(b));
+    case RANK.object: {
+      const ea = Object.entries(a);
+      const eb = Object.entries(b);
+      for (let i = 0; i < Math.min(ea.length, eb.length); i++) {
+        const byType = cmp(RANK[bsonType(ea[i][1])], RANK[bsonType(eb[i][1])]);
+        if (byType) return byType;
+        const byName = cmp(ea[i][0], eb[i][0]);
+        if (byName) return byName;
+        const byValue = compareValues(ea[i][1], eb[i][1]);
+        if (byValue) return byValue;
+      }
+      return cmp(ea.length, eb.length);
+    }
+    case RANK.array: {
+      const xa = a;
+      const xb = b;
+      for (let i = 0; i < Math.min(xa.length, xb.length); i++) {
+        const c = compareValues(xa[i], xb[i]);
+        if (c) return c;
+      }
+      return cmp(xa.length, xb.length);
+    }
+    case RANK.binData: {
+      const x = binaryOf(a);
+      const y = binaryOf(b);
+      return cmp(x.size, y.size) || cmp(x.sub, y.sub) || cmp(x.data, y.data);
+    }
+    case RANK.objectId:
+      return cmp(String(a.$oid).toLowerCase(), String(b.$oid).toLowerCase());
+    case RANK.bool:
+      return cmp(Number(a), Number(b));
+    case RANK.date:
+      return compareNumbers(dateMillis(a), dateMillis(b));
+    case RANK.timestamp: {
+      const x = a.$timestamp;
+      const y = b.$timestamp;
+      return cmp(Number(x.t), Number(y.t)) || cmp(Number(x.i), Number(y.i));
+    }
+    case RANK.regex: {
+      const x = a.$regularExpression;
+      const y = b.$regularExpression;
+      return cmp(String(x.pattern), String(y.pattern)) || cmp(String(x.options ?? ""), String(y.options ?? ""));
+    }
+    default:
+      return cmp(JSON.stringify(a), JSON.stringify(b));
+  }
+}
+function sortedOrder(values, direction) {
+  const sign = direction === "asc" ? 1 : -1;
+  return values.map((_, i) => i).sort((i, j) => {
+    const a = values[i];
+    const b = values[j];
+    if (a === void 0 || b === void 0) return a === void 0 ? b === void 0 ? 0 : 1 : -1;
+    return sign * compareValues(a, b);
+  });
+}
+
 // src/panel/long-values-view.tsx
 import { Box as Box14, Switch as Switch2, Text as Text15 } from "orca";
 import { jsx as jsx17, jsxs as jsxs15 } from "orca/jsx-runtime";
@@ -8830,17 +8945,17 @@ function ResultTable({ t, cols }) {
   const colKeys = columnKeys(shown);
   const columns = shown.map((c, i) => ({ key: colKeys[i], label: c.name || "(empty name)", sortable: true, minWidth: c.field === "_id" ? "md" : "sm" }));
   const keys = rowKeys(docs2);
-  const rows = docs2.map((d, i) => {
+  const sortAt = t.headerSort ? shown.findIndex((c) => c.name === t.headerSort.column) : -1;
+  const sort = t.headerSort && sortAt >= 0 ? { column: colKeys[sortAt], direction: t.headerSort.direction } : void 0;
+  const order = sort ? sortedOrder(docs2.map((d) => cellValue(d, shown[sortAt])), sort.direction) : docs2.map((_, i) => i);
+  const rows = order.map((i) => {
     const cells = {};
     shown.forEach((c, j) => {
-      const v = cellValue(d, c);
+      const v = cellValue(docs2[i], c);
       cells[colKeys[j]] = v === void 0 ? "" : valueText(v, 80);
     });
     return { key: keys[i], cells };
   });
-  const sorted = currentSort(t);
-  const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1;
-  const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt], direction: sorted.direction } : void 0;
   const objectColumns = topKeys(docs2).filter((k) => k !== "" && k.length <= 1e3 && docs2.some((d) => d[k] !== void 0 && bsonType(d[k]) === "object"));
   const hint = selectedDocs(t).length ? void 0 : selectionHint(t);
   return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.group, children: [
@@ -8859,7 +8974,7 @@ function ResultTable({ t, cols }) {
           maxHeight: "lg",
           onSortChange: ({ column, direction }) => {
             const c = shown[colKeys.indexOf(column)];
-            if (c) void guard2(t.id, () => sortBy(t.id, c.name, direction))();
+            if (c) sortBy(t.id, c.name, direction);
           },
           onSelectionChange: ({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: void 0 })),
           onRowAction: ({ key: key2 }) => {
@@ -9155,7 +9270,7 @@ function regexOf(v) {
   const r = v.$regularExpression;
   return { pattern: String(r.pattern), options: String(r.options ?? "") };
 }
-function binaryOf(v) {
+function binaryOf2(v) {
   const b = v.$binary;
   return { base64: String(b.base64), subType: parseInt(String(b.subType), 16) };
 }
@@ -9165,7 +9280,7 @@ function uuidOf(v) {
   return base64Length(String(b.base64)) === 16 ? uuidText(String(b.base64)) : void 0;
 }
 function uuidAsBinary(v) {
-  return isObject(v.$binary) ? binaryOf(v) : { base64: "", subType: 4 };
+  return isObject(v.$binary) ? binaryOf2(v) : { base64: "", subType: 4 };
 }
 function timestampOf(v) {
   const ts = v.$timestamp;
@@ -9310,7 +9425,7 @@ var node = {
         return use("Binary"), `Binary.createFromBase64(${shellString(b.base64)}, ${b.subType})`;
       }
       case "binData": {
-        const b = binaryOf(o);
+        const b = binaryOf2(o);
         return use("Binary"), `Binary.createFromBase64(${shellString(b.base64)}, ${b.subType})`;
       }
       case "timestamp": {
@@ -9454,7 +9569,7 @@ var python = {
         return use("base64", "b64decode"), `Binary(b64decode(${pyStr(b.base64)}), ${b.subType})`;
       }
       case "binData": {
-        const b = binaryOf(o);
+        const b = binaryOf2(o);
         use("bson", "Binary");
         return use("base64", "b64decode"), `Binary(b64decode(${pyStr(b.base64)}), ${b.subType})`;
       }
@@ -9625,7 +9740,7 @@ var java = {
         return javaBinary(uuidAsBinary(o), use);
       }
       case "binData":
-        return javaBinary(binaryOf(o), use);
+        return javaBinary(binaryOf2(o), use);
       case "timestamp": {
         const ts = timestampOf(o);
         use("org.bson.BsonTimestamp");
@@ -9821,7 +9936,7 @@ var csharp = {
         return csBinary(uuidAsBinary(o));
       }
       case "binData":
-        return csBinary(binaryOf(o));
+        return csBinary(binaryOf2(o));
       case "timestamp": {
         const ts = timestampOf(o);
         return timestampFitsInts(ts) ? `new BsonTimestamp(${ts.t}, ${ts.i})` : `new BsonTimestamp(${timestampLong(ts)}L)`;
@@ -10027,7 +10142,7 @@ var php = {
         return phpBinary(uuidAsBinary(o), use);
       }
       case "binData":
-        return phpBinary(binaryOf(o), use);
+        return phpBinary(binaryOf2(o), use);
       case "timestamp": {
         const ts = timestampOf(o);
         return use("Timestamp"), `new Timestamp(increment: ${ts.i}, timestamp: ${ts.t})`;
@@ -10177,7 +10292,7 @@ var ruby = {
         return rubyBinary(uuidAsBinary(o));
       }
       case "binData":
-        return rubyBinary(binaryOf(o));
+        return rubyBinary(binaryOf2(o));
       case "timestamp": {
         const ts = timestampOf(o);
         return `BSON::Timestamp.new(${ts.t}, ${ts.i})`;

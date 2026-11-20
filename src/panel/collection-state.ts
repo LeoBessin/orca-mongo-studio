@@ -13,6 +13,7 @@ import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '../shared/shell-parse'
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
+import type { SortDirection } from '../shared/table-sort'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { DEFAULT_PAGE_SIZE, DOC_VIEW_KEYS, PAGE_SIZES, RESULT_VIEW_KEYS, startValue, type DocView, type PageSize, type ResultView } from '../shared/settings'
 import { followJob, type JobBox } from './data-state'
@@ -165,6 +166,9 @@ export type CollTab = {
   treeSelected?: string
   /** Sub-documents shown as dotted columns in the table. */
   flattened: string[]
+  /** A table header clicked: the rows on screen shown in that column's order, sorted here
+   *  without a request. The query's own sort is untouched; running the query again clears it. */
+  headerSort?: { column: string; direction: SortDirection }
   /** Table columns (dotted names) chosen to filter by the selected rows' values. */
   filterColumns: string[]
   editor?: Editor
@@ -542,7 +546,7 @@ export async function runQuery(id: string, record = true): Promise<void> {
   }
   if (t.queryId) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)
   const token = t.runToken + 1
-  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined })
+  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', headerSort: undefined, selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined })
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...(record ? { text: t.text } : {}) }
   const counting = countQuery(id, token, spec)
   try {
@@ -649,30 +653,10 @@ export async function reloadPage(id: string): Promise<void> {
   void recount(id)
 }
 
-/** Header click: sort by that column, flipping on a second click. */
-export async function sortBy(id: string, column: string, direction: 'asc' | 'desc'): Promise<void> {
-  if (tab(id)?.shell) {
-    say(id, 'neutral', 'Shell results keep the order the script gave them. Add .sort({ … }) to the statement and run it again.', 'results')
-    return
-  }
-  if (tab(id)?.agg) {
-    say(id, 'neutral', 'A pipeline gives its results in the order its stages make. Add a $sort stage to sort them.', 'results')
-    return
-  }
-  const key = /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(column) ? column : `'${column.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-  replaceText(id, 'sort', `{ ${key}: ${direction === 'asc' ? 1 : -1} }`)
-  await runQuery(id)
-}
-
-/** The column and direction of a one-key sort in the query that ran, for the table header. */
-export function currentSort(t: CollTab): { column: string; direction: 'asc' | 'desc' } | undefined {
-  const sort = t.spec?.sort
-  if (!sort) return undefined
-  const entries = Object.entries(sort)
-  if (entries.length !== 1) return undefined
-  const [column, v] = entries[0]!
-  const n = typeof v === 'number' ? v : isObject(v) ? Number(v.$numberInt ?? v.$numberDouble ?? v.$numberLong) : NaN
-  return n === 1 || n === -1 ? { column, direction: n === 1 ? 'asc' : 'desc' } : undefined
+/** Header click: show the rows on screen in that column's order. Only the panel sorts them;
+ *  the query bar and the server's results stay as they were. */
+export function sortBy(id: string, column: string, direction: SortDirection): void {
+  patch(id, { headerSort: { column, direction } })
 }
 
 export function resetQuery(id: string): Promise<void> {
