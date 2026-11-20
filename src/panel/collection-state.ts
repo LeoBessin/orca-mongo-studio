@@ -13,7 +13,7 @@ import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '../shared/shell-parse'
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
-import type { SortDirection } from '../shared/table-sort'
+import { sortedOrder, type SortDirection } from '../shared/table-sort'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
 import { DEFAULT_PAGE_SIZE, DOC_VIEW_KEYS, PAGE_SIZES, RESULT_VIEW_KEYS, startValue, type DocView, type PageSize, type ResultView } from '../shared/settings'
 import { followJob, type JobBox } from './data-state'
@@ -166,9 +166,10 @@ export type CollTab = {
   treeSelected?: string
   /** Sub-documents shown as dotted columns in the table. */
   flattened: string[]
-  /** A table header clicked: the rows on screen shown in that column's order, sorted here
-   *  without a request. The query's own sort is untouched; running the query again clears it. */
-  headerSort?: { column: string; direction: SortDirection }
+  /** A table header clicked: the page's rows shown in that column's order, sorted here without
+   *  a request. The query's own sort is untouched. It belongs to the run it was made in
+   *  (`runToken`), so any new run, of whatever kind, shows its own order again. */
+  headerSort?: HeaderSort
   /** Table columns (dotted names) chosen to filter by the selected rows' values. */
   filterColumns: string[]
   editor?: Editor
@@ -546,7 +547,7 @@ export async function runQuery(id: string, record = true): Promise<void> {
   }
   if (t.queryId) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)
   const token = t.runToken + 1
-  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', headerSort: undefined, selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined })
+  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined })
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...(record ? { text: t.text } : {}) }
   const counting = countQuery(id, token, spec)
   try {
@@ -653,10 +654,61 @@ export async function reloadPage(id: string): Promise<void> {
   void recount(id)
 }
 
-/** Header click: show the rows on screen in that column's order. Only the panel sorts them;
- *  the query bar and the server's results stay as they were. */
-export function sortBy(id: string, column: string, direction: SortDirection): void {
-  patch(id, { headerSort: { column, direction } })
+/** A table column, as a header sort names it: the top-level field, and the key inside it when a
+ *  sub-document is shown as columns. Two columns can share a dotted name (a top-level `a.b`
+ *  next to `a` shown as columns), so the name alone can't say which was clicked. */
+export type SortColumn = { field: string; sub?: string; name: string }
+export type HeaderSort = SortColumn & { direction: SortDirection; runToken: number }
+
+/** Header click: show the page's rows in that column's order. Only the panel sorts them; the
+ *  query bar and the server's results stay as they were. */
+export function sortBy(id: string, column: SortColumn, direction: SortDirection): void {
+  const t = tab(id)
+  if (!t) return
+  const { field, sub, name } = column
+  patch(id, { headerSort: { field, ...(sub === undefined ? {} : { sub }), name, direction, runToken: t.runToken } })
+}
+
+/** Back to the order the query, pipeline or script gave. */
+export function clearHeaderSort(id: string): void {
+  patch(id, { headerSort: undefined })
+}
+
+/** The header sort in force: none once a new run has replaced the results it was made for. */
+export function activeHeaderSort(t: CollTab): HeaderSort | undefined {
+  return t.headerSort && t.headerSort.runToken === t.runToken ? t.headerSort : undefined
+}
+
+/** A column's value in a document: the field, or a key of it when it is a sub-document. */
+export function columnValue(doc: JsonObject, column: { field: string; sub?: string }): JsonValue | undefined {
+  const v = doc[column.field]
+  if (column.sub === undefined) return v
+  return v !== undefined && isObject(v) && bsonType(v) === 'object' ? v[column.sub] : undefined
+}
+
+/** The collation the results were sorted with on the server, which a header sort follows too. */
+function resultCollation(t: CollTab): JsonObject | undefined {
+  if (t.shell) return undefined
+  return t.agg ? t.agg.ran?.options.collation : t.spec?.collation
+}
+
+// One order per page and header sort: renders (a keystroke in the query bar, a selection) reuse
+// it instead of sorting again. A new page is a new array, so it drops out of the cache.
+const orders = new WeakMap<readonly JsonObject[], { key: string; order: number[] }>()
+
+/** The page's documents as indexes in the order shown: the header sort's, or the page's own.
+ *  Table, Tree, JSON, the selection and copies all follow it. */
+export function pageOrder(t: CollTab): number[] {
+  const docs = t.page?.docs ?? []
+  const sort = activeHeaderSort(t)
+  if (!sort) return docs.map((_, i) => i)
+  const collation = resultCollation(t)
+  const key = JSON.stringify([sort.field, sort.sub ?? null, sort.direction, collation ?? null])
+  const cached = orders.get(docs)
+  if (cached?.key === key) return cached.order
+  const order = sortedOrder(docs.map((d) => columnValue(d, sort)), sort.direction, collation)
+  orders.set(docs, { key, order })
+  return order
 }
 
 export function resetQuery(id: string): Promise<void> {
@@ -686,7 +738,8 @@ export function selectedDocs(t: CollTab): JsonObject[] {
   const selected = new Set(t.selectedRows)
   const docs = t.page?.docs ?? []
   const keys = rowKeys(docs)
-  return docs.filter((_, i) => selected.has(keys[i]!))
+  // In the order shown, so copies come out as the rows read on screen.
+  return pageOrder(t).filter((i) => selected.has(keys[i]!)).map((i) => docs[i]!)
 }
 
 /** Fields sampled from the documents on screen, for the builder and the field picker. */

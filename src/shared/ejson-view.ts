@@ -234,7 +234,7 @@ function shellKey(k: string): string {
   return IDENT.test(k) ? k : shellString(k)
 }
 
-function base64ToHex(b64: string): string {
+export function base64ToHex(b64: string): string {
   const clean = b64.replace(/=+$/, '')
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
   let hex = ''

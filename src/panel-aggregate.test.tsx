@@ -230,6 +230,9 @@ describe('aggregation tabs', () => {
     assert.deepEqual(view.find(table)!.props.sort, { column: 'status', direction: 'asc' })
     assert.equal(calls.runs.length, 1)
     assert.equal(calls.pages.length, pagesBefore)
+    // A new run gives its own order again.
+    await view.press({ text: 'Run' })
+    assert.equal(view.find(table)!.props.sort, undefined)
     assert.deepEqual(view.errors, [])
   })
 

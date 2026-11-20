@@ -263,7 +263,6 @@ export async function runPipeline(id: string, confirmed = false): Promise<void> 
     runToken: token,
     agg: { ...x.agg!, ran, confirmWrite: undefined },
     count: write ? undefined : 'counting',
-    headerSort: undefined,
     selectedRows: [],
     treeSelected: undefined,
     treeExpanded: [],
