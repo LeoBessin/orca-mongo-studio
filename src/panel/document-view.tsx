@@ -29,6 +29,7 @@ import { guard } from './guard'
 import { PlaceLine } from './place-view'
 import { LongValues } from './long-values-view'
 import { shortenLongStrings } from '../shared/code-chunks'
+import { GAP } from './layout'
 
 const VIEWS = Object.entries(DOC_VIEWS).map(([value, label]) => ({ value: value as DocView, label }))
 
@@ -59,7 +60,7 @@ function DocTree({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): O
   const value = selected?.length ? valueAt(doc, selected) : undefined
   const canEdit = !t.readOnly && selected?.length && selected[0] !== '_id'
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       <Tree
         label="Fields"
         items={items}
@@ -93,14 +94,14 @@ function DocBody({ t, f, doc }: { t: CollTab; f: DocFocus; doc: JsonObject }): O
   const longValues = <LongValues count={short.count} full={Boolean(f.fullValues)} onChange={(fullValues) => setFocus(t.id, { fullValues })} />
   if (f.view === 'shell') {
     return (
-      <Box gap="sm">
+      <Box gap={GAP.group}>
         <CodeView label="Document in shell syntax" code={toShell(shown)} language="javascript" lineNumbers maxHeight="lg" />
         {longValues}
       </Box>
     )
   }
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       <Switch label="Relaxed Extended JSON" checked={f.relaxed} onChange={(relaxed) => setFocus(t.id, { relaxed })} />
       <CodeView label="Document as Extended JSON" code={toJsonText(shown, f.relaxed)} language="json" lineNumbers maxHeight="lg" />
       {longValues}

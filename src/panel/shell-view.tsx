@@ -7,13 +7,14 @@ import { guard } from './guard'
 import { TabNoticeView } from './notice-view'
 import { Results } from './results-view'
 import { closeShell, codeLanguage, openAsPipeline, openAsQuery, resultOptions, selectResult, SHELL_TAB, shellRun } from './shell-state'
+import { GAP } from './layout'
 
 /** Driver code for an operation, in the language the person last picked. */
 export function CodeSection({ op, description, emptyText }: { op: Operation | undefined; description: string; emptyText?: string }): OrcaNode {
   const lang = read(codeLanguage)
   return (
     <Collapsible title="Code" description={description}>
-      <Box gap="sm">
+      <Box gap={GAP.group}>
         <Select label="Language" value={lang} options={CODE_LANGUAGES} onChange={(v) => set(codeLanguage, v as CodeLanguage)} />
         {op ? <CodeView code={generateCode(op, lang)} label={`${lang} code`} maxHeight="md" /> : <Text muted size="xs">{emptyText ?? 'Run a query first: its code appears here.'}</Text>}
       </Box>
@@ -34,7 +35,7 @@ export function ShellTab(): OrcaNode {
   if (!run || !t?.shell) return null
   const info = run.results[t.shell.index]
   return (
-    <Box gap="sm">
+    <Box gap={GAP.section}>
       <Row gap="xs" align="center" justify="between">
         <Box gap="none" grow>
           <Text weight="semibold" truncate>Shell results</Text>

@@ -66,6 +66,7 @@ import { connections } from './state'
 import { PlaceLine } from './place-view'
 import { settings } from './settings-state'
 import { COLLECTION_PLACES, TabNoticeView } from './notice-view'
+import { GAP } from './layout'
 
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
@@ -100,16 +101,16 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
 function QueryBar({ t }: { t: CollTab }): OrcaNode {
   const extras = [t.text.collation && 'collation', t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(', ')
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       <QueryInput t={t} field="filter" label="Filter" placeholder="{ status: 'shipped', total: { $gt: 100 } }" />
-      <Box columns={2} gap="sm">
+      <Box columns={2} gap="xs">
         <QueryInput t={t} field="projection" label="Projection" placeholder="{ name: 1, _id: 0 }" />
         <QueryInput t={t} field="sort" label="Sort" placeholder="{ createdAt: -1 }" />
       </Box>
       <Collapsible title="Collation, skip and limit" {...(extras ? { description: extras } : {})} open={t.optionsOpen} onChange={(open) => change(t.id, () => ({ optionsOpen: open }))}>
-        <Box gap="sm">
+        <Box gap={GAP.group}>
           <QueryInput t={t} field="collation" label="Collation" placeholder="{ locale: 'fr', strength: 2 }" />
-          <Box columns={2} gap="sm">
+          <Box columns={2} gap="xs">
             <QueryInput t={t} field="skip" label="Skip" placeholder="0" />
             <QueryInput t={t} field="limit" label="Limit" placeholder="0 (none)" />
           </Box>
@@ -126,7 +127,7 @@ function ConditionRow({ t, c, fields }: { t: CollTab; c: Condition; fields: stri
   const problem = t.builderProblems.find((p) => p.id === c.id)
   const known = fields.includes(c.field)
   return (
-    <Box gap="sm" padding="xs" border={problem ? 'danger' : true} radius="sm">
+    <Box gap={GAP.group} padding="sm" border={problem ? 'danger' : true} radius="sm">
       <Row gap="xs" align="end">
         {known || (c.field === '' && fields.length) ? (
           <Select label="Field" value={c.field} placeholder="Field…" options={[...fields.map((f) => ({ value: f, label: f })), { value: '\u0000other', label: 'Another field…' }]} onChange={(v) => set({ field: v === '\u0000other' ? ' ' : v })} />
@@ -146,7 +147,7 @@ function ConditionRow({ t, c, fields }: { t: CollTab; c: Condition; fields: stri
 
 function GroupBlock({ t, g, fields, depth }: { t: CollTab; g: Group; fields: string[]; depth: number }): OrcaNode {
   return (
-    <Box gap="sm" {...(depth > 0 ? { padding: 'xs' as const, border: true, radius: 'md' as const, background: 'muted' as const } : {})}>
+    <Box gap={GAP.group} {...(depth > 0 ? { padding: 'sm' as const, border: true, radius: 'md' as const, background: 'muted' as const } : {})}>
       <Row gap="xs" align="end" justify="between">
         <Select
           label={depth === 0 ? 'Match' : 'Group'}
@@ -330,7 +331,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
         <Builder t={t} />
       </Box>
       {t.page || t.loading ? <Separator /> : null}
-      <Box gap="sm">
+      <Box gap={GAP.section}>
         <Results t={t} />
         <TabNoticeView id={t.id} at="results" places={COLLECTION_PLACES} />
         <Editors t={t} />

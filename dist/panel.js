@@ -4503,6 +4503,16 @@ function PlaceLine({ places, detail }) {
   ] });
 }
 
+// src/panel/layout.ts
+var GAP = {
+  /** Between sections that each hold their own fields or blocks. */
+  section: "md",
+  /** Between the labelled fields and blocks of one section. */
+  group: "sm",
+  /** Within one control: a field and its hint or error, a caption and its table, a checkbox list. */
+  tight: "xs"
+};
+
 // src/panel/database-view.tsx
 import { jsx as jsx4, jsxs as jsxs3 } from "orca/jsx-runtime";
 var KINDS = [
@@ -4558,12 +4568,14 @@ function CreateCollection({ t }) {
       ] }),
       e.size || e.max ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.size ?? e.max }) : null
     ] }) : null,
-    d.kind === "timeseries" ? /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
-        /* @__PURE__ */ jsx4(Input, { label: "Time field", placeholder: "ts", value: d.timeField, invalid: Boolean(e.timeField), onChange: (timeField) => editCreate(t.id, { timeField }) }),
-        /* @__PURE__ */ jsx4(Input, { label: "Meta field", placeholder: "sensor", value: d.metaField, invalid: Boolean(e.metaField), onChange: (metaField) => editCreate(t.id, { metaField }) })
+    d.kind === "timeseries" ? /* @__PURE__ */ jsxs3(Box2, { gap: GAP.group, children: [
+      /* @__PURE__ */ jsxs3(Box2, { gap: GAP.tight, children: [
+        /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
+          /* @__PURE__ */ jsx4(Input, { label: "Time field", placeholder: "ts", value: d.timeField, invalid: Boolean(e.timeField), onChange: (timeField) => editCreate(t.id, { timeField }) }),
+          /* @__PURE__ */ jsx4(Input, { label: "Meta field", placeholder: "sensor", value: d.metaField, invalid: Boolean(e.metaField), onChange: (metaField) => editCreate(t.id, { metaField }) })
+        ] }),
+        e.timeField || e.metaField ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.timeField ?? e.metaField }) : null
       ] }),
-      e.timeField || e.metaField ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.timeField ?? e.metaField }) : null,
       /* @__PURE__ */ jsx4(
         Select,
         {
@@ -4583,9 +4595,11 @@ function CreateCollection({ t }) {
       /* @__PURE__ */ jsx4(Input, { label: "Delete documents after (seconds)", placeholder: "Keep them", value: d.expire, invalid: Boolean(e.expire), onChange: (expire) => editCreate(t.id, { expire }) }),
       e.expire ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.expire }) : null
     ] }) : null,
-    d.kind === "timeseries" ? null : /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
-      /* @__PURE__ */ jsx4(Textarea, { label: "Validator", rows: 4, placeholder: "{ $jsonSchema: { bsonType: 'object', required: ['name'] } }", value: d.validator, invalid: Boolean(e.validator), onChange: (validator) => editCreate(t.id, { validator }) }),
-      e.validator ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.validator }) : null,
+    d.kind === "timeseries" ? null : /* @__PURE__ */ jsxs3(Box2, { gap: GAP.group, children: [
+      /* @__PURE__ */ jsxs3(Box2, { gap: GAP.tight, children: [
+        /* @__PURE__ */ jsx4(Textarea, { label: "Validator", rows: 4, placeholder: "{ $jsonSchema: { bsonType: 'object', required: ['name'] } }", value: d.validator, invalid: Boolean(e.validator), onChange: (validator) => editCreate(t.id, { validator }) }),
+        e.validator ? /* @__PURE__ */ jsx4(Text3, { size: "xs", tone: "danger", children: e.validator }) : null
+      ] }),
       d.validator.trim() ? /* @__PURE__ */ jsxs3(Row3, { gap: "xs", children: [
         /* @__PURE__ */ jsx4(Select, { label: "Level", value: d.level, options: [{ value: "strict", label: "Strict" }, { value: "moderate", label: "Moderate" }, { value: "off", label: "Off" }], onChange: (v) => editCreate(t.id, { level: v }) }),
         /* @__PURE__ */ jsx4(Select, { label: "Action", value: d.action, options: [{ value: "error", label: "Error" }, { value: "warn", label: "Warn" }, { value: "errorAndLog", label: "Error and log" }], onChange: (v) => editCreate(t.id, { action: v }) })
@@ -4663,7 +4677,7 @@ function Profiler({ t }) {
             onSelectionChange: ({ keys }) => changeAdmin(t.id, "database", () => ({ entrySelected: keys[0] }))
           }
         ) : null,
-        sel ? /* @__PURE__ */ jsxs3(Box2, { gap: "sm", children: [
+        sel ? /* @__PURE__ */ jsxs3(Box2, { gap: GAP.group, children: [
           /* @__PURE__ */ jsx4(
             KeyValue,
             {
@@ -5373,7 +5387,7 @@ function indexRow(i) {
 function IndexActions({ t, i }) {
   const isId = i.name === "_id_";
   const ro = isReadOnly(t.connectionId);
-  return /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs4(Box3, { gap: GAP.group, children: [
     ro || isId ? null : /* @__PURE__ */ jsxs4(Toolbar2, { label: `${i.name} actions`, gap: "xs", children: [
       /* @__PURE__ */ jsx5(Button2, { size: "sm", icon: i.hidden ? "play" : "pause", variant: "ghost", onPress: aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden)), children: i.hidden ? "Unhide" : "Hide" }),
       /* @__PURE__ */ jsx5(Button2, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: aguard(t.id, () => askDropIndex(t.id, i.name)), children: "Drop" })
@@ -5525,8 +5539,8 @@ function Validation({ t }) {
 function Operations({ t }) {
   const view2 = t.collKind === "view" || t.info?.kind === "view";
   const what = `${t.ns.db}.${t.ns.collection}`;
-  return /* @__PURE__ */ jsx5(Collapsible2, { title: view2 ? "Drop" : "Rename, clear and drop", description: view2 ? "Remove the view" : "Change the name or remove the data", open: t.open.operations, onChange: (open) => toggleSection(t.id, "operations", open), children: /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
-    view2 ? null : /* @__PURE__ */ jsxs4(Box3, { gap: "sm", children: [
+  return /* @__PURE__ */ jsx5(Collapsible2, { title: view2 ? "Drop" : "Rename, clear and drop", description: view2 ? "Remove the view" : "Change the name or remove the data", open: t.open.operations, onChange: (open) => toggleSection(t.id, "operations", open), children: /* @__PURE__ */ jsxs4(Box3, { gap: GAP.section, children: [
+    view2 ? null : /* @__PURE__ */ jsxs4(Box3, { gap: GAP.group, children: [
       /* @__PURE__ */ jsxs4(Row4, { gap: "xs", align: "end", children: [
         /* @__PURE__ */ jsx5(Input2, { label: "New name", placeholder: t.ns.collection, value: t.rename.to, onChange: (to) => setRename(t.id, { to }) }),
         /* @__PURE__ */ jsx5(Input2, { label: "In database", placeholder: t.ns.db, value: t.rename.toDb, onChange: (toDb) => setRename(t.id, { toDb }) })
@@ -5918,7 +5932,7 @@ function Ops({ t }) {
       }
     ) : !t.opsError ? /* @__PURE__ */ jsx7(Skeleton4, { lines: 3, label: "Reading current operations" }) : null,
     t.opsCapped ? /* @__PURE__ */ jsx7(Text6, { size: "xs", muted: true, children: "Only the 200 longest-running are shown. Narrow the filter to see others." }) : null,
-    sel ? /* @__PURE__ */ jsxs6(Box5, { gap: "sm", children: [
+    sel ? /* @__PURE__ */ jsxs6(Box5, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx7(
         KeyValue4,
         {
@@ -6024,24 +6038,26 @@ function GrantedRoles({ t, e }) {
     ...custom.map((r) => ({ value: r, label: `${r} (custom)` })),
     ...builtin.map((r) => ({ value: r, label: r }))
   ];
-  return /* @__PURE__ */ jsxs7(Box6, { gap: "sm", children: [
-    /* @__PURE__ */ jsx8(Text7, { weight: "medium", children: e.kind === "user" ? "Roles" : "Inherits from" }),
-    /* @__PURE__ */ jsx8(
-      Table5,
-      {
-        label: e.kind === "user" ? "Granted roles" : "Inherited roles",
-        columns: [
-          { key: "role", label: "Role" },
-          { key: "db", label: "Database", width: "sm" }
-        ],
-        rows: e.roles.map((r) => ({ key: roleKey(r), cells: { role: r.role, db: r.db } })),
-        selectionMode: "multiple",
-        selected: e.rolesSelected,
-        emptyText: e.kind === "user" ? "No roles: the user can sign in but do nothing." : "Inherits nothing.",
-        maxHeight: "sm",
-        onSelectionChange: ({ keys }) => changeEditor(t.id, { rolesSelected: keys })
-      }
-    ),
+  return /* @__PURE__ */ jsxs7(Box6, { gap: GAP.group, children: [
+    /* @__PURE__ */ jsxs7(Box6, { gap: GAP.tight, children: [
+      /* @__PURE__ */ jsx8(Text7, { weight: "medium", children: e.kind === "user" ? "Roles" : "Inherits from" }),
+      /* @__PURE__ */ jsx8(
+        Table5,
+        {
+          label: e.kind === "user" ? "Granted roles" : "Inherited roles",
+          columns: [
+            { key: "role", label: "Role" },
+            { key: "db", label: "Database", width: "sm" }
+          ],
+          rows: e.roles.map((r) => ({ key: roleKey(r), cells: { role: r.role, db: r.db } })),
+          selectionMode: "multiple",
+          selected: e.rolesSelected,
+          emptyText: e.kind === "user" ? "No roles: the user can sign in but do nothing." : "Inherits nothing.",
+          maxHeight: "sm",
+          onSelectionChange: ({ keys }) => changeEditor(t.id, { rolesSelected: keys })
+        }
+      )
+    ] }),
     /* @__PURE__ */ jsxs7(Row7, { gap: "xs", align: "end", wrap: true, children: [
       /* @__PURE__ */ jsx8(Select4, { label: "Role", labelHidden: true, value: options4.some((o) => o.value === e.addRole) ? e.addRole : "", placeholder: "Choose a role…", options: options4, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
       /* @__PURE__ */ jsx8(Input5, { label: "Role name", labelHidden: true, placeholder: "or type a role", value: e.addRole, onChange: (addRole) => changeEditor(t.id, { addRole }) }),
@@ -6144,7 +6160,7 @@ function UsersTabView({ id }) {
           onRowAction: ({ key: key2 }) => ro ? void 0 : editUser(t.id, key2.slice(2))
         }
       ),
-      user ? /* @__PURE__ */ jsxs7(Box6, { gap: "sm", children: [
+      user ? /* @__PURE__ */ jsxs7(Box6, { gap: GAP.tight, children: [
         ro ? null : /* @__PURE__ */ jsxs7(Toolbar5, { label: `${user.user} actions`, gap: "xs", children: [
           /* @__PURE__ */ jsx8(Button5, { size: "sm", icon: "edit", onPress: () => editUser(t.id, user.user), children: "Edit" }),
           /* @__PURE__ */ jsx8(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "user", name: user.user } })), children: "Drop" })
@@ -6170,7 +6186,7 @@ function UsersTabView({ id }) {
           onRowAction: ({ key: key2 }) => ro ? void 0 : editRole(t.id, key2.slice(2))
         }
       ),
-      role ? /* @__PURE__ */ jsxs7(Box6, { gap: "sm", children: [
+      role ? /* @__PURE__ */ jsxs7(Box6, { gap: GAP.tight, children: [
         ro ? null : /* @__PURE__ */ jsxs7(Toolbar5, { label: `${role.role} actions`, gap: "xs", children: [
           /* @__PURE__ */ jsx8(Button5, { size: "sm", icon: "edit", onPress: () => editRole(t.id, role.role), children: "Edit" }),
           /* @__PURE__ */ jsx8(Button5, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: () => changeAdmin(t.id, "users", () => ({ confirmDrop: { kind: "role", name: role.role } })), children: "Drop" })
@@ -6480,7 +6496,7 @@ function JobProgress({ box, what, onCancel, onSave }) {
   const s = box.state;
   const d = box.download;
   const pct = s ? progressPercent(s) : void 0;
-  return /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs8(Box7, { gap: GAP.group, children: [
     s && s.status === "running" ? /* @__PURE__ */ jsxs8(Box7, { gap: "xs", children: [
       /* @__PURE__ */ jsx9(Progress2, { label: `${s.phase} · ${progressText(s)}`, ...pct !== void 0 ? { value: pct } : {} }),
       /* @__PURE__ */ jsxs8(Row8, { gap: "xs", align: "center", justify: "between", children: [
@@ -6495,7 +6511,7 @@ function JobProgress({ box, what, onCancel, onSave }) {
     d && !d.ready && !d.error ? /* @__PURE__ */ jsx9(Progress2, { label: `Fetching ${d.name}: ${bytesText(d.fetched)} of ${bytesText(d.size)}`, value: d.size ? Math.round(d.fetched / d.size * 100) : 100 }) : null,
     d?.error ? /* @__PURE__ */ jsx9(Callout7, { tone: "danger", icon: "error", title: "Could not fetch the file", children: d.error }) : null,
     d?.ready && onSave ? /* @__PURE__ */ jsx9(Row8, { gap: "xs", align: "center", children: /* @__PURE__ */ jsx9(Button6, { variant: "solid", tone: "accent", icon: "download", onPress: onSave, children: `Save ${d.name} (${bytesText(d.size)})…` }) }) : null,
-    s && s.errorCount > 0 ? /* @__PURE__ */ jsxs8(Box7, { gap: "sm", children: [
+    s && s.errorCount > 0 ? /* @__PURE__ */ jsxs8(Box7, { gap: GAP.tight, children: [
       /* @__PURE__ */ jsx9(Text8, { size: "sm", tone: "warning", children: `${s.errorCount.toLocaleString("en-US")} error${s.errorCount === 1 ? "" : "s"}${s.errorCount > s.errors.length ? `; the first ${s.errors.length}:` : ":"}` }),
       /* @__PURE__ */ jsx9(
         Table6,
@@ -7253,9 +7269,9 @@ function TaskSaver({ tabId, task, taskName, placeholder, kinds }) {
 import { jsx as jsx11, jsxs as jsxs10 } from "orca/jsx-runtime";
 function Other({ t }) {
   const conns = read15(connections)?.connections ?? [];
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs10(Box9, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx11(Select5, { label: "Compare with, on", value: t.b.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setCompare(t.id, { b: { ...t.b, connectionId: v } }) }),
-    /* @__PURE__ */ jsxs10(Box9, { columns: 2, gap: "sm", children: [
+    /* @__PURE__ */ jsxs10(Box9, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx11(Input7, { label: "Database", value: t.b.db, onChange: (v) => setCompare(t.id, { b: { ...t.b, db: v } }) }),
       /* @__PURE__ */ jsx11(Input7, { label: "Collection", value: t.b.collection, placeholder: `${t.a.collection}_copy`, onChange: (v) => setCompare(t.id, { b: { ...t.b, collection: v } }) })
     ] })
@@ -7272,7 +7288,7 @@ function Results({ t }) {
   const ids = idsShown(t);
   const counts = { differ: r.differ, onlyA: r.onlyA, onlyB: r.onlyB };
   const equal = r.differ + r.onlyA + r.onlyB === 0;
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs10(Box9, { gap: GAP.section, children: [
     /* @__PURE__ */ jsx11(
       KeyValue7,
       {
@@ -7286,22 +7302,24 @@ function Results({ t }) {
       }
     ),
     equal ? /* @__PURE__ */ jsx11(Callout9, { tone: "success", icon: "check", children: `Every document matches${t.ran.filter ? " the filter" : ""} on both sides.` }) : null,
-    !equal ? /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
-      /* @__PURE__ */ jsx11(Toolbar7, { label: "Show", gap: "xs", children: SHOW.map((s) => /* @__PURE__ */ jsx11(Button8, { size: "sm", variant: t.show === s.value ? "solid" : "ghost", tone: t.show === s.value ? "accent" : "neutral", disabled: counts[s.value] === 0, onPress: () => changeAdmin(t.id, "compare", () => ({ show: s.value, selected: void 0, diff: void 0 })), children: s.label(counts[s.value]) }, s.value)) }),
-      /* @__PURE__ */ jsx11(
-        Table8,
-        {
-          label: "Documents",
-          columns: [{ key: "id", label: "_id" }],
-          rows: ids.map((v) => ({ key: idKey(v), cells: { id: valueText(v, 120) } })),
-          selectionMode: "single",
-          selected: t.selected ? [t.selected] : [],
-          emptyText: "None.",
-          maxHeight: "md",
-          onSelectionChange: ({ keys }) => keys[0] && void aguard(t.id, () => selectPair(t.id, keys[0]))()
-        }
-      ),
-      r.capped ? /* @__PURE__ */ jsx11(Text10, { size: "xs", muted: true, children: `Only the first _ids of each kind are listed (at most ${numberText(1e3)}); the counts are complete.` }) : null,
+    !equal ? /* @__PURE__ */ jsxs10(Box9, { gap: GAP.group, children: [
+      /* @__PURE__ */ jsxs10(Box9, { gap: GAP.tight, children: [
+        /* @__PURE__ */ jsx11(Toolbar7, { label: "Show", gap: "xs", children: SHOW.map((s) => /* @__PURE__ */ jsx11(Button8, { size: "sm", variant: t.show === s.value ? "solid" : "ghost", tone: t.show === s.value ? "accent" : "neutral", disabled: counts[s.value] === 0, onPress: () => changeAdmin(t.id, "compare", () => ({ show: s.value, selected: void 0, diff: void 0 })), children: s.label(counts[s.value]) }, s.value)) }),
+        /* @__PURE__ */ jsx11(
+          Table8,
+          {
+            label: "Documents",
+            columns: [{ key: "id", label: "_id" }],
+            rows: ids.map((v) => ({ key: idKey(v), cells: { id: valueText(v, 120) } })),
+            selectionMode: "single",
+            selected: t.selected ? [t.selected] : [],
+            emptyText: "None.",
+            maxHeight: "md",
+            onSelectionChange: ({ keys }) => keys[0] && void aguard(t.id, () => selectPair(t.id, keys[0]))()
+          }
+        ),
+        r.capped ? /* @__PURE__ */ jsx11(Text10, { size: "xs", muted: true, children: `Only the first _ids of each kind are listed (at most ${numberText(1e3)}); the counts are complete.` }) : null
+      ] }),
       /* @__PURE__ */ jsx11(Pair, { t })
     ] }) : null,
     /* @__PURE__ */ jsx11(SyncSection, { t })
@@ -7312,7 +7330,7 @@ function Pair({ t }) {
   if (!d) return /* @__PURE__ */ jsx11(Text10, { size: "xs", muted: true, children: "Select a document to see it on both sides." });
   if (d.loading) return /* @__PURE__ */ jsx11(Skeleton7, { lines: 4, label: "Reading both documents" });
   if (d.error) return /* @__PURE__ */ jsx11(Callout9, { tone: "danger", icon: "error", children: d.error });
-  return /* @__PURE__ */ jsxs10(Box9, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs10(Box9, { gap: GAP.group, children: [
     d.diffs && d.diffs.length ? /* @__PURE__ */ jsx11(
       Table8,
       {
@@ -7432,9 +7450,9 @@ function QueryFields({ t }) {
     const error = t.queryErrors[key2];
     return /* @__PURE__ */ jsx12(Field, { label, ...error ? { error } : {}, children: /* @__PURE__ */ jsx12(Input8, { label, labelHidden: true, value: t.query[key2], placeholder, invalid: Boolean(error), onChange: (v) => setExport2(t.id, (x) => ({ query: { ...x.query, [key2]: v }, queryErrors: { ...x.queryErrors, [key2]: void 0 } })) }) });
   };
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs11(Box10, { gap: GAP.group, children: [
     field("filter", "Filter", "{} for every document"),
-    /* @__PURE__ */ jsxs11(Box10, { columns: 3, gap: "sm", children: [
+    /* @__PURE__ */ jsxs11(Box10, { columns: 3, gap: "xs", children: [
       field("projection", "Projection", "{ name: 1 }"),
       field("sort", "Sort", "{ _id: 1 }"),
       field("limit", "Limit", "0 (none)")
@@ -7446,7 +7464,7 @@ function CsvOptions({ t }) {
   const sel = c.selected.filter((f) => c.fields.includes(f));
   const one = sel.length === 1 ? sel[0] : void 0;
   const missing = (c.available ?? []).filter((f) => !c.fields.includes(f));
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs11(Box10, { gap: GAP.group, children: [
     /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "end", children: [
       /* @__PURE__ */ jsx12(Select6, { label: "Delimiter", value: c.delimiter, options: DELIMITERS, onChange: (v) => setExport2(t.id, { csv: { ...c, delimiter: v } }) }),
       /* @__PURE__ */ jsx12(Box10, { grow: true, children: /* @__PURE__ */ jsx12(Checkbox6, { label: "A first row with the field names", checked: c.header, onChange: (header) => setExport2(t.id, { csv: { ...c, header } }) }) })
@@ -7482,9 +7500,9 @@ function TargetOptions({ t }) {
   const x = t.target;
   const conns = read16(connections)?.connections ?? [];
   const many = t.from.kind === "database";
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs11(Box10, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx12(Select6, { label: "Connection", value: x.connectionId, options: conns.map((c) => ({ value: c.id, label: c.name })), onChange: (v) => setExport2(t.id, { target: { ...x, connectionId: v } }) }),
-    /* @__PURE__ */ jsxs11(Box10, { columns: many ? 1 : 2, gap: "sm", children: [
+    /* @__PURE__ */ jsxs11(Box10, { columns: many ? 1 : 2, gap: "xs", children: [
       /* @__PURE__ */ jsx12(Input8, { label: "Database", value: x.db, onChange: (v) => setExport2(t.id, { target: { ...x, db: v } }) }),
       many ? null : /* @__PURE__ */ jsx12(Input8, { label: "Collection", value: x.collection, onChange: (v) => setExport2(t.id, { target: { ...x, collection: v } }) })
     ] }),
@@ -7503,7 +7521,7 @@ function TargetOptions({ t }) {
         onChange: (v) => setExport2(t.id, { target: { ...x, mode: v } })
       }
     ),
-    t.from.kind !== "pipeline" ? /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+    t.from.kind !== "pipeline" ? /* @__PURE__ */ jsxs11(Box10, { gap: GAP.tight, children: [
       /* @__PURE__ */ jsx12(Checkbox6, { label: "Copy the indexes", checked: x.indexes, onChange: (indexes) => setExport2(t.id, { target: { ...x, indexes } }) }),
       /* @__PURE__ */ jsx12(Checkbox6, { label: "Create a new collection with the same options", description: "Capped size, validation, collation, time series", checked: x.options, onChange: (options4) => setExport2(t.id, { target: { ...x, options: options4 } }) })
     ] }) : null
@@ -7522,7 +7540,7 @@ function ExportTabView({ id }) {
   const problems = exportProblems(t);
   const many = t.from.kind === "database";
   const copied2 = t.job?.state?.status === "done" && t.format === "collection" && !many;
-  return /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs11(Box10, { gap: GAP.section, children: [
     /* @__PURE__ */ jsxs11(Row11, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsxs11(Box10, { gap: "none", grow: true, children: [
         /* @__PURE__ */ jsx12(Text11, { weight: "semibold", truncate: true, children: t.format === "collection" ? "Copy" : "Export" }),
@@ -7533,7 +7551,7 @@ function ExportTabView({ id }) {
     /* @__PURE__ */ jsx12(QueryFields, { t }),
     t.from.kind === "pipeline" ? /* @__PURE__ */ jsx12(Text11, { size: "xs", muted: true, children: "The pipeline as it was when Export was pressed. Export again from the aggregation tab after changing it." }) : null,
     /* @__PURE__ */ jsx12(RadioGroup4, { label: "Format", value: t.format, options: FORMATS, onChange: (v) => setExport2(t.id, { format: v }) }),
-    t.format === "json" ? /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+    t.format === "json" ? /* @__PURE__ */ jsxs11(Box10, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx12(
         RadioGroup4,
         {
@@ -7552,7 +7570,7 @@ function ExportTabView({ id }) {
     ] }) : null,
     t.format === "csv" ? /* @__PURE__ */ jsx12(CsvOptions, { t }) : null,
     t.format === "bson" ? /* @__PURE__ */ jsx12(Checkbox6, { label: "Write .metadata.json with the indexes and options", description: "Only when writing to a path", checked: t.bsonMetadata, onChange: (bsonMetadata) => setExport2(t.id, { bsonMetadata }) }) : null,
-    t.format === "collection" ? /* @__PURE__ */ jsx12(TargetOptions, { t }) : /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+    t.format === "collection" ? /* @__PURE__ */ jsx12(TargetOptions, { t }) : /* @__PURE__ */ jsxs11(Box10, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx12(
         RadioGroup4,
         {
@@ -7565,7 +7583,7 @@ function ExportTabView({ id }) {
           onChange: (v) => setExport2(t.id, { destination: v })
         }
       ),
-      t.destination === "path" ? /* @__PURE__ */ jsxs11(Box10, { gap: "sm", children: [
+      t.destination === "path" ? /* @__PURE__ */ jsxs11(Box10, { gap: GAP.tight, children: [
         /* @__PURE__ */ jsx12(Input8, { label: many ? "Folder" : "Path", value: t.path, placeholder: many ? "~/dumps/shop" : `~/exports/${t.from.kind === "database" ? "" : t.from.ns.collection}.${t.format === "csv" ? "csv" : t.format}`, onChange: (v) => setExport2(t.id, { path: v }) }),
         /* @__PURE__ */ jsx12(Checkbox6, { label: "Replace an existing file", checked: t.overwrite, onChange: (overwrite) => setExport2(t.id, { overwrite }) })
       ] }) : null
@@ -7780,7 +7798,7 @@ function Selected2({ t }) {
       /* @__PURE__ */ jsx13(CodeView7, { label: `Start of ${f.filename}`, code: p.data.text, language: language(f.filename, f.contentType), lineNumbers: true, maxHeight: "md" }),
       p.data.cut ? /* @__PURE__ */ jsx13(Text12, { size: "xs", muted: true, children: `The first ${bytesText(64 * 1024)} of ${bytesText(f.length)}.` }) : null
     ] }) : p?.data?.binary ? /* @__PURE__ */ jsx13(Text12, { size: "xs", muted: true, children: "Binary content: download it to open it." }) : null,
-    /* @__PURE__ */ jsx13(Collapsible7, { title: "Download", description: d.destination === "download" ? "The save dialog" : "To a path", defaultOpen: true, children: /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
+    /* @__PURE__ */ jsx13(Collapsible7, { title: "Download", description: d.destination === "download" ? "The save dialog" : "To a path", defaultOpen: true, children: /* @__PURE__ */ jsxs12(Box11, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx13(
         RadioGroup5,
         {
@@ -7795,7 +7813,7 @@ function Selected2({ t }) {
           onChange: (v) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, destination: v } }))
         }
       ),
-      d.destination === "path" ? /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
+      d.destination === "path" ? /* @__PURE__ */ jsxs12(Box11, { gap: GAP.tight, children: [
         /* @__PURE__ */ jsx13(Input9, { label: "Path", value: d.path, placeholder: `~/Downloads (or ~/Downloads/${f.filename.split("/").pop()})`, onChange: (v) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, path: v } })) }),
         /* @__PURE__ */ jsx13(Checkbox7, { label: "Replace an existing file", checked: d.overwrite, onChange: (overwrite) => changeAdmin(t.id, "gridfs", (x) => ({ download: { ...x.download, overwrite } })) })
       ] }) : null,
@@ -7820,7 +7838,7 @@ function Upload({ t }) {
   const u = t.upload;
   const set16 = (change4) => changeAdmin(t.id, "gridfs", (x) => ({ upload: { ...x.upload, ...change4 } }));
   const running = jobRunning(u.job);
-  return /* @__PURE__ */ jsx13(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set16({ open }), children: /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
+  return /* @__PURE__ */ jsx13(Collapsible7, { title: "Upload a file", description: `Into ${t.bucket}`, open: u.open, onChange: (open) => set16({ open }), children: /* @__PURE__ */ jsxs12(Box11, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx13(
       RadioGroup5,
       {
@@ -7835,7 +7853,7 @@ function Upload({ t }) {
       }
     ),
     u.sourceKind === "path" ? /* @__PURE__ */ jsx13(Input9, { label: "Path", value: u.path, placeholder: "~/Documents/report.pdf", onChange: (v) => set16({ path: v }) }) : /* @__PURE__ */ jsx13(Textarea4, { label: "Text", rows: 5, value: u.text, onChange: (v) => set16({ text: v }) }),
-    /* @__PURE__ */ jsxs12(Box11, { columns: 2, gap: "sm", children: [
+    /* @__PURE__ */ jsxs12(Box11, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx13(Input9, { label: "File name", value: u.filename, placeholder: u.sourceKind === "path" ? "As on disk" : "notes.txt", onChange: (v) => set16({ filename: v }) }),
       /* @__PURE__ */ jsx13(Input9, { label: "Content type", value: u.contentType, placeholder: "text/plain", onChange: (v) => set16({ contentType: v }) })
     ] }),
@@ -7865,7 +7883,7 @@ function GridfsTabView({ id }) {
     /* @__PURE__ */ jsx13(NoticeBar, { id: t.id, notice: t.notice }),
     t.error ? /* @__PURE__ */ jsx13(Callout11, { tone: "danger", icon: "error", title: "Could not list the files", children: t.error }) : null,
     !t.files && t.loading ? /* @__PURE__ */ jsx13(Skeleton8, { lines: 5, label: "Listing files" }) : null,
-    t.files ? /* @__PURE__ */ jsxs12(Box11, { gap: "sm", children: [
+    t.files ? /* @__PURE__ */ jsxs12(Box11, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx13(
         Table10,
         {
@@ -7930,7 +7948,7 @@ function Columns({ t }) {
   const cols = t.columns;
   if (!cols) return null;
   const sel = cols.find((c) => c.name === t.columnSelected);
-  return /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs13(Box12, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx14(
       Table11,
       {
@@ -7948,7 +7966,7 @@ function Columns({ t }) {
         onSelectionChange: ({ keys }) => changeAdmin(t.id, "import", () => ({ columnSelected: keys[0] }))
       }
     ),
-    sel ? /* @__PURE__ */ jsxs13(Box12, { columns: 2, gap: "sm", children: [
+    sel ? /* @__PURE__ */ jsxs13(Box12, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx14(Input10, { label: `Field for "${sel.name}"`, value: sel.field, placeholder: "name or address.city", onChange: (v) => setColumn(t.id, sel.name, { field: v }) }),
       /* @__PURE__ */ jsx14(Select7, { label: "Type", value: sel.type, options: CSV_TYPES, onChange: (v) => setColumn(t.id, sel.name, { type: v }) })
     ] }) : /* @__PURE__ */ jsx14(Text13, { size: "xs", muted: true, children: "Select a column to change its field or type. A dotted field (address.city) makes a sub-document." })
@@ -7996,7 +8014,7 @@ function ImportTabView({ id }) {
       ] }),
       /* @__PURE__ */ jsx14(IconButton11, { icon: "close", label: "Close the import", variant: "ghost", size: "sm", onPress: () => closeAdmin(t.id) })
     ] }),
-    /* @__PURE__ */ jsxs13(Box12, { columns: 2, gap: "sm", children: [
+    /* @__PURE__ */ jsxs13(Box12, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx14(Input10, { label: "Database", value: t.db, onChange: (v) => setImport(t.id, { db: v }) }),
       /* @__PURE__ */ jsx14(Input10, { label: "Collection", value: t.collection, placeholder: folder ? "One per file" : "Name", disabled: folder, onChange: (v) => setImport(t.id, { collection: v }) })
     ] }),
@@ -8021,7 +8039,7 @@ function ImportTabView({ id }) {
       /* @__PURE__ */ jsx14(Select7, { label: "Format", value: t.format, options: FORMATS2, onChange: (v) => setImport(t.id, { format: v }, true) }),
       csvLike ? /* @__PURE__ */ jsx14(Select7, { label: "Delimiter", value: t.csv.delimiter, options: DELIMITERS, onChange: (v) => setImport(t.id, { csv: { ...t.csv, delimiter: v } }, true) }) : null
     ] }),
-    csvLike ? /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
+    csvLike ? /* @__PURE__ */ jsxs13(Box12, { gap: GAP.tight, children: [
       /* @__PURE__ */ jsx14(Checkbox8, { label: "The first row names the columns", description: "Names like age.int32() also give the type, as mongoimport reads them", checked: t.csv.header, onChange: (header) => setImport(t.id, { csv: { ...t.csv, header } }, true) }),
       /* @__PURE__ */ jsx14(Checkbox8, { label: "Leave out empty cells", checked: t.csv.ignoreEmpty, onChange: (ignoreEmpty) => setImport(t.id, { csv: { ...t.csv, ignoreEmpty } }) })
     ] }) : null,
@@ -8032,7 +8050,7 @@ function ImportTabView({ id }) {
     ] }),
     t.previewError ? /* @__PURE__ */ jsx14(Callout12, { tone: "danger", icon: "error", title: "Could not read the source", children: t.previewError }) : null,
     /* @__PURE__ */ jsx14(Preview, { t }),
-    /* @__PURE__ */ jsx14(Collapsible8, { title: "How to write", description: MODES.find((m) => m.value === t.mode)?.label ?? "", children: /* @__PURE__ */ jsxs13(Box12, { gap: "sm", children: [
+    /* @__PURE__ */ jsx14(Collapsible8, { title: "How to write", description: MODES.find((m) => m.value === t.mode)?.label ?? "", children: /* @__PURE__ */ jsxs13(Box12, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx14(RadioGroup6, { label: "Documents", value: t.mode, options: MODES, onChange: (v) => setImport(t.id, { mode: v }) }),
       /* @__PURE__ */ jsx14(Checkbox8, { label: folder ? "Drop each collection first" : "Drop the collection first", description: "Its documents and indexes are deleted before the import", checked: t.drop, onChange: (drop) => setImport(t.id, { drop }) }),
       /* @__PURE__ */ jsx14(Checkbox8, { label: "Stop at the first error", checked: t.stopOnError, onChange: (stopOnError) => setImport(t.id, { stopOnError }) }),
@@ -8824,35 +8842,39 @@ function ResultTable({ t, cols }) {
   const sortAt = sorted ? shown.findIndex((c) => c.name === sorted.column) : -1;
   const sort = sorted && sortAt >= 0 ? { column: colKeys[sortAt], direction: sorted.direction } : void 0;
   const objectColumns = topKeys(docs2).filter((k) => k !== "" && k.length <= 1e3 && docs2.some((d) => d[k] !== void 0 && bsonType(d[k]) === "object"));
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "md", children: [
-    /* @__PURE__ */ jsx18(
-      Table12,
-      {
-        label: "Documents",
-        columns,
-        rows,
-        ...sort ? { sort } : {},
-        selectionMode: canFilterBySelection(t) ? "multiple" : "single",
-        selected: t.selectedRows,
-        loading: t.loading,
-        emptyText: "No documents match.",
-        maxHeight: "lg",
-        onSortChange: ({ column, direction }) => {
-          const c = shown[colKeys.indexOf(column)];
-          if (c) void guard2(t.id, () => sortBy(t.id, c.name, direction))();
-        },
-        onSelectionChange: ({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: void 0 })),
-        onRowAction: ({ key: key2 }) => {
-          const i = keys.indexOf(key2);
-          const d = docs2[i];
-          if (!d || !("_id" in d)) return;
-          if (!t.readOnly) void guard2(t.id, () => editDocument(t.id, d._id))();
-          else if (canOpenDocuments(t)) void guard2(t.id, () => openDocument(t.id, d._id))();
-          else setResultView(t.id, "tree", { treeExpanded: [`r${i}`], treeSelected: `r${i}` });
+  const hint = selectedDocs(t).length ? void 0 : selectionHint(t);
+  return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.group, children: [
+    /* @__PURE__ */ jsxs16(Box15, { gap: GAP.tight, children: [
+      /* @__PURE__ */ jsx18(
+        Table12,
+        {
+          label: "Documents",
+          columns,
+          rows,
+          ...sort ? { sort } : {},
+          selectionMode: canFilterBySelection(t) ? "multiple" : "single",
+          selected: t.selectedRows,
+          loading: t.loading,
+          emptyText: "No documents match.",
+          maxHeight: "lg",
+          onSortChange: ({ column, direction }) => {
+            const c = shown[colKeys.indexOf(column)];
+            if (c) void guard2(t.id, () => sortBy(t.id, c.name, direction))();
+          },
+          onSelectionChange: ({ keys: sel }) => change(t.id, (x) => ({ ...dropBulkPreview(x), selectedRows: sel, confirmDelete: void 0 })),
+          onRowAction: ({ key: key2 }) => {
+            const i = keys.indexOf(key2);
+            const d = docs2[i];
+            if (!d || !("_id" in d)) return;
+            if (!t.readOnly) void guard2(t.id, () => editDocument(t.id, d._id))();
+            else if (canOpenDocuments(t)) void guard2(t.id, () => openDocument(t.id, d._id))();
+            else setResultView(t.id, "tree", { treeExpanded: [`r${i}`], treeSelected: `r${i}` });
+          }
         }
-      }
-    ),
-    total > shown.length ? /* @__PURE__ */ jsx18(Text16, { size: "xs", muted: true, children: `Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.` }) : null,
+      ),
+      total > shown.length ? /* @__PURE__ */ jsx18(Text16, { size: "xs", muted: true, children: `Showing ${shown.length} of ${total} columns, as many as Orca draws. Tree, JSON and Open show every field.` }) : null,
+      hint ? /* @__PURE__ */ jsx18(Text16, { muted: true, size: "xs", children: hint }) : null
+    ] }),
     objectColumns.length ? /* @__PURE__ */ jsx18(
       Select9,
       {
@@ -8935,12 +8957,13 @@ function OpenButtons({ t, doc }) {
     /* @__PURE__ */ jsx18(IconButton12, { icon: "file-text", label: "Open in a tab", size: "sm", variant: "ghost", onPress: guard2(t.id, () => openDocumentTab(t.id, doc._id)) })
   ] });
 }
+function selectionHint(t) {
+  if (!t.readOnly) return "Select rows to open, edit, clone, delete or filter by. Enter on a row edits it.";
+  return canFilterBySelection(t) ? "Select a row to open it, or rows to filter by. Enter on a row opens it." : "Select a row to look at it in the Tree view.";
+}
 function TableActions({ t, cols }) {
   const docs2 = selectedDocs(t);
-  if (docs2.length === 0) {
-    const hint = !t.readOnly ? "Select rows to open, edit, clone, delete or filter by. Enter on a row edits it." : canFilterBySelection(t) ? "Select a row to open it, or rows to filter by. Enter on a row opens it." : "Select a row to look at it in the Tree view.";
-    return /* @__PURE__ */ jsx18(Text16, { muted: true, size: "xs", children: hint });
-  }
+  if (docs2.length === 0) return null;
   const one = docs2.length === 1 ? docs2[0] : void 0;
   const hasId = docs2.every((d) => "_id" in d);
   const copyJson = /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard2(t.id, () => copyAsJson(t.id, docs2)), children: "Copy as JSON" });
@@ -8949,7 +8972,7 @@ function TableActions({ t, cols }) {
     say2(t.id, "neutral", `Copied ${docs2.length} document${docs2.length === 1 ? "" : "s"}. Select a collection or database in the tree and press Paste.`, "results");
   } }) : null;
   if (t.readOnly) {
-    return /* @__PURE__ */ jsxs16(Box15, { gap: "md", children: [
+    return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.section, children: [
       /* @__PURE__ */ jsxs16(Toolbar11, { label: "Row actions", gap: "xs", children: [
         /* @__PURE__ */ jsx18(OpenButtons, { t, doc: one }),
         one ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "search", variant: "ghost", onPress: () => {
@@ -8963,21 +8986,23 @@ function TableActions({ t, cols }) {
     ] });
   }
   const fields = one ? Object.keys(one).filter((k) => k !== "_id" && k !== "" && k.length <= 1e3) : [];
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "md", children: [
-    /* @__PURE__ */ jsxs16(Toolbar11, { label: "Row actions", gap: "xs", children: [
-      one && hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "edit", onPress: guard2(t.id, () => editDocument(t.id, one._id)), children: "Edit document" }) : null,
-      /* @__PURE__ */ jsx18(OpenButtons, { t, doc: one }),
-      one && hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard2(t.id, () => cloneDocument(t.id, one._id)), children: "Clone" }) : null,
-      hasId && docs2.length > 1 && canUpdateMany(t) ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "edit", variant: "ghost", onPress: () => openUpdateMany(t.id, "selection"), children: `Update ${docs2.length}` }) : null,
-      hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard2(t.id, () => askDelete(t.id)), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
-      copyJson,
-      copy
+  return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.section, children: [
+    /* @__PURE__ */ jsxs16(Box15, { gap: GAP.tight, children: [
+      /* @__PURE__ */ jsxs16(Toolbar11, { label: "Row actions", gap: "xs", children: [
+        one && hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "edit", onPress: guard2(t.id, () => editDocument(t.id, one._id)), children: "Edit document" }) : null,
+        /* @__PURE__ */ jsx18(OpenButtons, { t, doc: one }),
+        one && hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "copy", variant: "ghost", onPress: guard2(t.id, () => cloneDocument(t.id, one._id)), children: "Clone" }) : null,
+        hasId && docs2.length > 1 && canUpdateMany(t) ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "edit", variant: "ghost", onPress: () => openUpdateMany(t.id, "selection"), children: `Update ${docs2.length}` }) : null,
+        hasId ? /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "delete", variant: "ghost", tone: "danger", onPress: guard2(t.id, () => askDelete(t.id)), children: docs2.length === 1 ? "Delete" : `Delete ${docs2.length}` }) : null,
+        copyJson,
+        copy
+      ] }),
+      !hasId ? /* @__PURE__ */ jsx18(Text16, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null
     ] }),
     one && hasId ? /* @__PURE__ */ jsxs16(Row15, { gap: "xs", align: "end", wrap: true, children: [
       /* @__PURE__ */ jsx18(Select9, { label: "Edit a field", value: "", placeholder: "Choose a field to edit…", options: fields.map((f) => ({ value: f, label: f })), onChange: (f) => void guard2(t.id, () => editField(t.id, one._id, [f]))() }),
       /* @__PURE__ */ jsx18(Button13, { size: "sm", icon: "add", variant: "ghost", onPress: () => addField(t.id, one._id), children: "Add field" })
     ] }) : null,
-    !hasId ? /* @__PURE__ */ jsx18(Text16, { muted: true, size: "xs", children: "Documents without an _id (from a projection or a view) can't be edited here." }) : null,
     /* @__PURE__ */ jsx18(FilterBySelection, { t, docs: docs2, cols })
   ] });
 }
@@ -8992,7 +9017,7 @@ function FilterBySelection({ t, docs: docs2, cols }) {
   const text = built?.filter ? toShellInline(built.filter) : "";
   const error = built?.error ?? (text.length > QUERY_TEXT_MAX ? `This filter would be ${text.length.toLocaleString("en-US")} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString("en-US")}. Select fewer rows.` : void 0);
   const filter2 = error ? void 0 : built?.filter;
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "xs", children: [
+  return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.tight, children: [
     /* @__PURE__ */ jsxs16(Row15, { gap: "xs", align: "end", wrap: true, children: [
       /* @__PURE__ */ jsx18(
         Select9,
@@ -9037,7 +9062,7 @@ function Results2({ t }) {
   if (!t.page) return null;
   const p = t.page;
   const cols = t.resultView === "table" ? tableColumns(t) : void 0;
-  return /* @__PURE__ */ jsxs16(Box15, { gap: "md", children: [
+  return /* @__PURE__ */ jsxs16(Box15, { gap: GAP.section, children: [
     /* @__PURE__ */ jsxs16(Row15, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
       /* @__PURE__ */ jsx18(Toolbar11, { label: "Show results as", gap: "xs", children: VIEWS.map((v) => /* @__PURE__ */ jsx18(Button13, { size: "sm", variant: t.resultView === v.value ? "solid" : "ghost", tone: t.resultView === v.value ? "accent" : "neutral", onPress: () => setResultView(t.id, v.value), children: v.label }, v.value)) }),
       /* @__PURE__ */ jsx18(Text16, { size: "xs", muted: true, children: `${p.ms.toLocaleString("en-US")} ms` })
@@ -10333,7 +10358,7 @@ async function openAsPipeline(info) {
 import { jsx as jsx19, jsxs as jsxs17 } from "orca/jsx-runtime";
 function CodeSection({ op, description, emptyText: emptyText2 }) {
   const lang = read23(codeLanguage);
-  return /* @__PURE__ */ jsx19(Collapsible10, { title: "Code", description, children: /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
+  return /* @__PURE__ */ jsx19(Collapsible10, { title: "Code", description, children: /* @__PURE__ */ jsxs17(Box16, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx19(Select10, { label: "Language", value: lang, options: CODE_LANGUAGES, onChange: (v) => set10(codeLanguage, v) }),
     op ? /* @__PURE__ */ jsx19(CodeView11, { code: generateCode(op, lang), label: `${lang} code`, maxHeight: "md" }) : /* @__PURE__ */ jsx19(Text17, { muted: true, size: "xs", children: emptyText2 ?? "Run a query first: its code appears here." })
   ] }) });
@@ -10348,7 +10373,7 @@ function ShellTab() {
   const t = read23(collTabs)[SHELL_TAB];
   if (!run2 || !t?.shell) return null;
   const info = run2.results[t.shell.index];
-  return /* @__PURE__ */ jsxs17(Box16, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs17(Box16, { gap: GAP.section, children: [
     /* @__PURE__ */ jsxs17(Row16, { gap: "xs", align: "center", justify: "between", children: [
       /* @__PURE__ */ jsxs17(Box16, { gap: "none", grow: true, children: [
         /* @__PURE__ */ jsx19(Text17, { weight: "semibold", truncate: true, children: "Shell results" }),
@@ -10377,7 +10402,7 @@ import { Fragment as Fragment2, jsx as jsx20, jsxs as jsxs18 } from "orca/jsx-ru
 function StageList({ t, a }) {
   const at = a.stages.findIndex((s) => s.id === a.selected);
   const sel = a.stages[at];
-  return /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs18(Box17, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx20(
       Table13,
       {
@@ -10428,7 +10453,7 @@ function Preview2({ t, a }) {
   const r = p.result;
   const side = a.previewSide === "output" && r?.output ? "output" : "input";
   const docs2 = r ? side === "output" ? r.output : r.input : void 0;
-  return /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs18(Box17, { gap: GAP.group, children: [
     /* @__PURE__ */ jsxs18(Row17, { gap: "xs", align: "center", justify: "between", wrap: true, children: [
       /* @__PURE__ */ jsxs18(Toolbar13, { label: "Preview", gap: "xs", children: [
         ["input", "output"].map((s) => /* @__PURE__ */ jsx20(Button15, { size: "sm", disabled: s === "output" && Boolean(r) && !r.output, variant: side === s ? "solid" : "ghost", tone: side === s ? "accent" : "neutral", onPress: () => changeAgg(t.id, () => ({ previewSide: s })), children: s === "input" ? "Input" : "Output" }, s)),
@@ -10466,10 +10491,12 @@ function StageEditor({ t, a }) {
 }
 function TextEditor({ t, a }) {
   const off = a.stages.filter((s) => !s.enabled).length;
-  return /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-    /* @__PURE__ */ jsx20(Textarea6, { label: "Pipeline", rows: 16, value: a.text, invalid: Boolean(a.textError), onChange: (v) => setPipelineText(t.id, v), onSubmit: () => void guard(t.id, () => applyText(t.id))() }),
-    a.textError ? /* @__PURE__ */ jsx20(Text18, { size: "xs", tone: "danger", children: a.textError }) : /* @__PURE__ */ jsx20(Text18, { size: "xs", muted: true, children: "An array of stages in shell syntax. Ctrl+Enter applies it." }),
-    off ? /* @__PURE__ */ jsx20(Text18, { size: "xs", tone: "warning", children: `${off} stage${off === 1 ? " is" : "s are"} off and left out of the text; applying it removes ${off === 1 ? "it" : "them"}.` }) : null,
+  return /* @__PURE__ */ jsxs18(Box17, { gap: GAP.group, children: [
+    /* @__PURE__ */ jsxs18(Box17, { gap: GAP.tight, children: [
+      /* @__PURE__ */ jsx20(Textarea6, { label: "Pipeline", rows: 16, value: a.text, invalid: Boolean(a.textError), onChange: (v) => setPipelineText(t.id, v), onSubmit: () => void guard(t.id, () => applyText(t.id))() }),
+      a.textError ? /* @__PURE__ */ jsx20(Text18, { size: "xs", tone: "danger", children: a.textError }) : /* @__PURE__ */ jsx20(Text18, { size: "xs", muted: true, children: "An array of stages in shell syntax. Ctrl+Enter applies it." }),
+      off ? /* @__PURE__ */ jsx20(Text18, { size: "xs", tone: "warning", children: `${off} stage${off === 1 ? " is" : "s are"} off and left out of the text; applying it removes ${off === 1 ? "it" : "them"}.` }) : null
+    ] }),
     /* @__PURE__ */ jsxs18(Row17, { gap: "xs", children: [
       /* @__PURE__ */ jsx20(Button15, { size: "sm", variant: "solid", tone: "accent", icon: "check", onPress: guard(t.id, () => applyText(t.id)), children: "Apply" }),
       /* @__PURE__ */ jsx20(Button15, { size: "sm", variant: "ghost", onPress: () => leaveText(t.id), children: "Cancel" })
@@ -10567,9 +10594,11 @@ function AggregationTab({ id }) {
       /* @__PURE__ */ jsx20(StageEditor, { t, a })
     ] }),
     t.page || t.loading ? /* @__PURE__ */ jsx20(Separator, {}) : null,
-    /* @__PURE__ */ jsxs18(Box17, { gap: "sm", children: [
-      t.page || t.loading ? /* @__PURE__ */ jsx20(Text18, { weight: "semibold", children: "Results" }) : null,
-      /* @__PURE__ */ jsx20(Results2, { t }),
+    /* @__PURE__ */ jsxs18(Box17, { gap: GAP.section, children: [
+      /* @__PURE__ */ jsxs18(Box17, { gap: GAP.tight, children: [
+        t.page || t.loading ? /* @__PURE__ */ jsx20(Text18, { weight: "semibold", children: "Results" }) : null,
+        /* @__PURE__ */ jsx20(Results2, { t })
+      ] }),
       /* @__PURE__ */ jsx20(TabNoticeView, { id: t.id, at: "results", places: AGGREGATION_PLACES })
     ] }),
     /* @__PURE__ */ jsx20(Separator, {}),
@@ -10633,7 +10662,7 @@ function DocTree({ t, f, doc }) {
   const selected2 = f.selected ? parseTreeKey(f.selected).path : void 0;
   const value = selected2?.length ? valueAt(doc, selected2) : void 0;
   const canEdit = !t.readOnly && selected2?.length && selected2[0] !== "_id";
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs19(Box18, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx21(
       Tree4,
       {
@@ -10662,12 +10691,12 @@ function DocBody({ t, f, doc }) {
   const shown = f.fullValues ? doc : short.value;
   const longValues = /* @__PURE__ */ jsx21(LongValues, { count: short.count, full: Boolean(f.fullValues), onChange: (fullValues) => setFocus(t.id, { fullValues }) });
   if (f.view === "shell") {
-    return /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
+    return /* @__PURE__ */ jsxs19(Box18, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx21(CodeView13, { label: "Document in shell syntax", code: toShell(shown), language: "javascript", lineNumbers: true, maxHeight: "lg" }),
       longValues
     ] });
   }
-  return /* @__PURE__ */ jsxs19(Box18, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs19(Box18, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx21(Switch5, { label: "Relaxed Extended JSON", checked: f.relaxed, onChange: (relaxed) => setFocus(t.id, { relaxed }) }),
     /* @__PURE__ */ jsx21(CodeView13, { label: "Document as Extended JSON", code: toJsonText(shown, f.relaxed), language: "json", lineNumbers: true, maxHeight: "lg" }),
     longValues
@@ -10729,7 +10758,7 @@ function ValueInputs({ t, draft }) {
     case "javascript":
       return /* @__PURE__ */ jsx22(Textarea7, { label: draft.type === "javascript" ? "Code" : "Value", rows: 8, value: draft.text, invalid, onChange: (text) => set16({ text }), onSubmit: () => void guard3(t.id, () => saveField(t.id))() });
     case "binData":
-      return /* @__PURE__ */ jsxs20(Box19, { gap: "sm", children: [
+      return /* @__PURE__ */ jsxs20(Box19, { gap: GAP.group, children: [
         /* @__PURE__ */ jsx22(Input12, { label: "Subtype (0 to 255)", value: draft.subtype, onChange: (subtype) => set16({ subtype }) }),
         /* @__PURE__ */ jsx22(Textarea7, { label: "Data (base64)", rows: 3, value: draft.text, invalid, onChange: (text) => set16({ text }) })
       ] });
@@ -10851,7 +10880,7 @@ function Preview3({ t, p, plan }) {
   if (p.error) return /* @__PURE__ */ jsx23(Callout18, { tone: "danger", icon: "error", title: "The preview failed", children: p.error });
   const r = p.result;
   const s = r.sample;
-  return /* @__PURE__ */ jsxs21(Box20, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs21(Box20, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx23(Text21, { weight: "semibold", children: reachText(p) }),
     s?.error ? /* @__PURE__ */ jsx23(Callout18, { tone: "danger", icon: "error", title: "The server refuses this update on the first document", children: s.error }) : null,
     s?.note ? /* @__PURE__ */ jsx23(Text21, { size: "xs", muted: true, children: s.note }) : null,
@@ -10945,15 +10974,15 @@ function QueryInput({ t, field, label, placeholder }) {
 }
 function QueryBar({ t }) {
   const extras = [t.text.collation && "collation", t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(", ");
-  return /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
+  return /* @__PURE__ */ jsxs22(Box21, { gap: GAP.group, children: [
     /* @__PURE__ */ jsx24(QueryInput, { t, field: "filter", label: "Filter", placeholder: "{ status: 'shipped', total: { $gt: 100 } }" }),
-    /* @__PURE__ */ jsxs22(Box21, { columns: 2, gap: "sm", children: [
+    /* @__PURE__ */ jsxs22(Box21, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx24(QueryInput, { t, field: "projection", label: "Projection", placeholder: "{ name: 1, _id: 0 }" }),
       /* @__PURE__ */ jsx24(QueryInput, { t, field: "sort", label: "Sort", placeholder: "{ createdAt: -1 }" })
     ] }),
-    /* @__PURE__ */ jsx24(Collapsible12, { title: "Collation, skip and limit", ...extras ? { description: extras } : {}, open: t.optionsOpen, onChange: (open) => change(t.id, () => ({ optionsOpen: open })), children: /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
+    /* @__PURE__ */ jsx24(Collapsible12, { title: "Collation, skip and limit", ...extras ? { description: extras } : {}, open: t.optionsOpen, onChange: (open) => change(t.id, () => ({ optionsOpen: open })), children: /* @__PURE__ */ jsxs22(Box21, { gap: GAP.group, children: [
       /* @__PURE__ */ jsx24(QueryInput, { t, field: "collation", label: "Collation", placeholder: "{ locale: 'fr', strength: 2 }" }),
-      /* @__PURE__ */ jsxs22(Box21, { columns: 2, gap: "sm", children: [
+      /* @__PURE__ */ jsxs22(Box21, { columns: 2, gap: "xs", children: [
         /* @__PURE__ */ jsx24(QueryInput, { t, field: "skip", label: "Skip", placeholder: "0" }),
         /* @__PURE__ */ jsx24(QueryInput, { t, field: "limit", label: "Limit", placeholder: "0 (none)" })
       ] })
@@ -10964,7 +10993,7 @@ function ConditionRow({ t, c, fields }) {
   const set16 = (values) => setBuilder(t.id, updateCondition(t.builder, c.id, values));
   const problem = t.builderProblems.find((p) => p.id === c.id);
   const known = fields.includes(c.field);
-  return /* @__PURE__ */ jsxs22(Box21, { gap: "sm", padding: "xs", border: problem ? "danger" : true, radius: "sm", children: [
+  return /* @__PURE__ */ jsxs22(Box21, { gap: GAP.group, padding: "sm", border: problem ? "danger" : true, radius: "sm", children: [
     /* @__PURE__ */ jsxs22(Row21, { gap: "xs", align: "end", children: [
       known || c.field === "" && fields.length ? /* @__PURE__ */ jsx24(Select13, { label: "Field", value: c.field, placeholder: "Field…", options: [...fields.map((f) => ({ value: f, label: f })), { value: "\0other", label: "Another field…" }], onChange: (v) => set16({ field: v === "\0other" ? " " : v }) }) : /* @__PURE__ */ jsx24(Input14, { label: "Field", value: c.field.trim(), placeholder: "a.b.c", onChange: (v) => set16({ field: v }) }),
       /* @__PURE__ */ jsx24(IconButton16, { icon: "close", label: "Remove condition", variant: "ghost", size: "sm", onPress: () => setBuilder(t.id, removeItem(t.builder, c.id)) })
@@ -10977,7 +11006,7 @@ function ConditionRow({ t, c, fields }) {
   ] });
 }
 function GroupBlock({ t, g, fields, depth }) {
-  return /* @__PURE__ */ jsxs22(Box21, { gap: "sm", ...depth > 0 ? { padding: "xs", border: true, radius: "md", background: "muted" } : {}, children: [
+  return /* @__PURE__ */ jsxs22(Box21, { gap: GAP.group, ...depth > 0 ? { padding: "sm", border: true, radius: "md", background: "muted" } : {}, children: [
     /* @__PURE__ */ jsxs22(Row21, { gap: "xs", align: "end", justify: "between", children: [
       /* @__PURE__ */ jsx24(
         Select13,
@@ -11133,7 +11162,7 @@ function CollectionTab({ id }) {
       /* @__PURE__ */ jsx24(Builder, { t })
     ] }),
     t.page || t.loading ? /* @__PURE__ */ jsx24(Separator2, {}) : null,
-    /* @__PURE__ */ jsxs22(Box21, { gap: "sm", children: [
+    /* @__PURE__ */ jsxs22(Box21, { gap: GAP.section, children: [
       /* @__PURE__ */ jsx24(Results2, { t }),
       /* @__PURE__ */ jsx24(TabNoticeView, { id: t.id, at: "results", places: COLLECTION_PLACES }),
       /* @__PURE__ */ jsx24(Editors, { t }),
@@ -11460,7 +11489,7 @@ function testResult() {
   const warned = report.steps.some((s) => s.status === "warning");
   const tone = failed ? "danger" : warned ? "warning" : "success";
   const title = failed ? `Failed at "${failed.title}"` : warned ? "Connected, with warnings" : "Connected";
-  return /* @__PURE__ */ jsx25(Callout20, { tone, icon: failed ? "error" : warned ? "warning" : "check", title, children: /* @__PURE__ */ jsxs23(Box22, { gap: "sm", children: [
+  return /* @__PURE__ */ jsx25(Callout20, { tone, icon: failed ? "error" : warned ? "warning" : "check", title, children: /* @__PURE__ */ jsxs23(Box22, { gap: GAP.group, children: [
     report.server ? /* @__PURE__ */ jsxs23(Text23, { size: "sm", children: [
       "MongoDB ",
       report.server.version,
@@ -11516,7 +11545,7 @@ function ConnectionForm() {
       /* @__PURE__ */ jsx25(Field3, { label: "Connection string", description: "mongodb:// or mongodb+srv://. A password in it is saved encrypted, apart from the string.", ...problem.error ? { error: problem.error } : {}, children: /* @__PURE__ */ jsx25(Textarea10, { label: "Connection string", labelHidden: true, rows: 4, value: read26(uriText), onChange: editUri, invalid: Boolean(problem.error) }) }),
       problem.warnings.map((w) => /* @__PURE__ */ jsx25(Text23, { tone: "warning", size: "sm", children: w }, w)),
       /* @__PURE__ */ jsx25(Text23, { muted: true, size: "sm", children: "Set the SSH tunnel, pasted certificates and AWS keys in Form mode." })
-    ] }) : /* @__PURE__ */ jsxs23(Box22, { gap: "sm", children: [
+    ] }) : /* @__PURE__ */ jsxs23(Box22, { gap: GAP.group, children: [
       serverSection(def),
       authSection(def),
       tlsSection(def),
@@ -11785,7 +11814,7 @@ function exportSection() {
   };
   return /* @__PURE__ */ jsxs24(Box23, { gap: "sm", children: [
     /* @__PURE__ */ jsx26(Heading2, { level: 3, children: "Export" }),
-    all.length === 0 ? /* @__PURE__ */ jsx26(Text24, { muted: true, children: "There are no connections to export yet." }) : /* @__PURE__ */ jsx26(Box23, { gap: "sm", children: all.map((c) => /* @__PURE__ */ jsx26(Checkbox10, { label: c.name, description: c.group ? `${c.group} · ${c.subtitle}` : c.subtitle, checked: chosen.includes(c.id), onChange: (on) => toggle(c.id, on) }, c.id)) }),
+    all.length === 0 ? /* @__PURE__ */ jsx26(Text24, { muted: true, children: "There are no connections to export yet." }) : /* @__PURE__ */ jsx26(Box23, { gap: GAP.tight, children: all.map((c) => /* @__PURE__ */ jsx26(Checkbox10, { label: c.name, description: c.group ? `${c.group} · ${c.subtitle}` : c.subtitle, checked: chosen.includes(c.id), onChange: (on) => toggle(c.id, on) }, c.id)) }),
     all.length ? /* @__PURE__ */ jsx26(
       Checkbox10,
       {

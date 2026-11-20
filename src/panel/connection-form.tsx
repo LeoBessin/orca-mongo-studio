@@ -63,6 +63,7 @@ import {
   uriProblem,
   uriText
 } from './state'
+import { GAP } from './layout'
 
 const MECHANISM_ORDER: AuthMechanism[] = ['none', 'DEFAULT', 'SCRAM-SHA-256', 'SCRAM-SHA-1', 'MONGODB-X509', 'PLAIN', 'MONGODB-AWS', 'MONGODB-OIDC', 'GSSAPI']
 const READ_PREFS: ReadPreferenceMode[] = ['primary', 'primaryPreferred', 'secondary', 'secondaryPreferred', 'nearest']
@@ -410,7 +411,7 @@ function testResult(): OrcaNode {
   const title = failed ? `Failed at "${failed.title}"` : warned ? 'Connected, with warnings' : 'Connected'
   return (
     <Callout tone={tone} icon={failed ? 'error' : warned ? 'warning' : 'check'} title={title}>
-      <Box gap="sm">
+      <Box gap={GAP.group}>
         {report.server ? <Text size="sm">MongoDB {report.server.version}, {report.server.topology}.</Text> : null}
         <List label="Test steps">
           {report.steps.map((s) => (
@@ -482,7 +483,7 @@ export function ConnectionForm(): OrcaNode {
           <Text muted size="sm">Set the SSH tunnel, pasted certificates and AWS keys in Form mode.</Text>
         </Box>
       ) : (
-        <Box gap="sm">
+        <Box gap={GAP.group}>
           {serverSection(def)}
           {authSection(def)}
           {tlsSection(def)}

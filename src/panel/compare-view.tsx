@@ -29,13 +29,14 @@ import { TaskSaver } from './tasks-view'
 import { JobProgress } from './job-view'
 import { connections } from './state'
 import { PlaceLine } from './place-view'
+import { GAP } from './layout'
 
 function Other({ t }: { t: CompareTab }): OrcaNode {
   const conns = read(connections)?.connections ?? []
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       <Select label="Compare with, on" value={t.b.connectionId} options={conns.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => setCompare(t.id, { b: { ...t.b, connectionId: v } })} />
-      <Box columns={2} gap="sm">
+      <Box columns={2} gap="xs">
         <Input label="Database" value={t.b.db} onChange={(v) => setCompare(t.id, { b: { ...t.b, db: v } })} />
         <Input label="Collection" value={t.b.collection} placeholder={`${t.a.collection}_copy`} onChange={(v) => setCompare(t.id, { b: { ...t.b, collection: v } })} />
       </Box>
@@ -56,7 +57,7 @@ function Results({ t }: { t: CompareTab }): OrcaNode {
   const counts: Record<CompareShow, number> = { differ: r.differ, onlyA: r.onlyA, onlyB: r.onlyB }
   const equal = r.differ + r.onlyA + r.onlyB === 0
   return (
-    <Box gap="sm">
+    <Box gap={GAP.section}>
       <KeyValue
         label="Comparison"
         items={[
@@ -68,25 +69,27 @@ function Results({ t }: { t: CompareTab }): OrcaNode {
       />
       {equal ? <Callout tone="success" icon="check">{`Every document matches${t.ran.filter ? ' the filter' : ''} on both sides.`}</Callout> : null}
       {!equal ? (
-        <Box gap="sm">
-          <Toolbar label="Show" gap="xs">
-            {SHOW.map((s) => (
-              <Button key={s.value} size="sm" variant={t.show === s.value ? 'solid' : 'ghost'} tone={t.show === s.value ? 'accent' : 'neutral'} disabled={counts[s.value] === 0} onPress={() => changeAdmin(t.id, 'compare', () => ({ show: s.value, selected: undefined, diff: undefined }))}>
-                {s.label(counts[s.value])}
-              </Button>
-            ))}
-          </Toolbar>
-          <Table
-            label="Documents"
-            columns={[{ key: 'id', label: '_id' }]}
-            rows={ids.map((v) => ({ key: idKey(v), cells: { id: valueText(v, 120) } }))}
-            selectionMode="single"
-            selected={t.selected ? [t.selected] : []}
-            emptyText="None."
-            maxHeight="md"
-            onSelectionChange={({ keys }) => keys[0] && void aguard(t.id, () => selectPair(t.id, keys[0]!))()}
-          />
-          {r.capped ? <Text size="xs" muted>{`Only the first _ids of each kind are listed (at most ${numberText(1000)}); the counts are complete.`}</Text> : null}
+        <Box gap={GAP.group}>
+          <Box gap={GAP.tight}>
+            <Toolbar label="Show" gap="xs">
+              {SHOW.map((s) => (
+                <Button key={s.value} size="sm" variant={t.show === s.value ? 'solid' : 'ghost'} tone={t.show === s.value ? 'accent' : 'neutral'} disabled={counts[s.value] === 0} onPress={() => changeAdmin(t.id, 'compare', () => ({ show: s.value, selected: undefined, diff: undefined }))}>
+                  {s.label(counts[s.value])}
+                </Button>
+              ))}
+            </Toolbar>
+            <Table
+              label="Documents"
+              columns={[{ key: 'id', label: '_id' }]}
+              rows={ids.map((v) => ({ key: idKey(v), cells: { id: valueText(v, 120) } }))}
+              selectionMode="single"
+              selected={t.selected ? [t.selected] : []}
+              emptyText="None."
+              maxHeight="md"
+              onSelectionChange={({ keys }) => keys[0] && void aguard(t.id, () => selectPair(t.id, keys[0]!))()}
+            />
+            {r.capped ? <Text size="xs" muted>{`Only the first _ids of each kind are listed (at most ${numberText(1000)}); the counts are complete.`}</Text> : null}
+          </Box>
           <Pair t={t} />
         </Box>
       ) : null}
@@ -101,7 +104,7 @@ function Pair({ t }: { t: CompareTab }): OrcaNode {
   if (d.loading) return <Skeleton lines={4} label="Reading both documents" />
   if (d.error) return <Callout tone="danger" icon="error">{d.error}</Callout>
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       {d.diffs && d.diffs.length ? (
         <Table
           label="Differences"

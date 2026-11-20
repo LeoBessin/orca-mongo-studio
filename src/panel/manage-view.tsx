@@ -59,6 +59,7 @@ import {
 import { openSchema } from './schema-state'
 import { NoticeBar } from './admin-notice'
 import { PlaceLine } from './place-view'
+import { GAP } from './layout'
 
 const LEVELS = [
   { value: 'strict', label: 'Strict: every insert and update' },
@@ -90,7 +91,7 @@ function IndexActions({ t, i }: { t: ManageTab; i: IndexInfo }): OrcaNode {
   const isId = i.name === '_id_'
   const ro = isReadOnly(t.connectionId)
   return (
-    <Box gap="sm">
+    <Box gap={GAP.group}>
       {ro || isId ? null : (
         <Toolbar label={`${i.name} actions`} gap="xs">
           <Button size="sm" icon={i.hidden ? 'play' : 'pause'} variant="ghost" onPress={aguard(t.id, () => setIndexHidden(t.id, i.name, !i.hidden))}>
@@ -295,9 +296,9 @@ function Operations({ t }: { t: ManageTab }): OrcaNode {
   const what = `${t.ns.db}.${t.ns.collection}`
   return (
     <Collapsible title={view ? 'Drop' : 'Rename, clear and drop'} description={view ? 'Remove the view' : 'Change the name or remove the data'} open={t.open.operations} onChange={(open) => toggleSection(t.id, 'operations', open)}>
-      <Box gap="sm">
+      <Box gap={GAP.section}>
         {view ? null : (
-          <Box gap="sm">
+          <Box gap={GAP.group}>
             <Row gap="xs" align="end">
               <Input label="New name" placeholder={t.ns.collection} value={t.rename.to} onChange={(to) => setRename(t.id, { to })} />
               <Input label="In database" placeholder={t.ns.db} value={t.rename.toDb} onChange={(toDb) => setRename(t.id, { toDb })} />

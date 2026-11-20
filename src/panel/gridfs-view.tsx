@@ -26,6 +26,7 @@ import { bytesText, jobRunning } from './data-state'
 import { cancelGridJob, deleteSelected, downloadFile, loadFiles, renameSelected, saveFile, selectedFile, selectFile, uploadFile, type GridfsTab } from './gridfs-state'
 import { JobProgress } from './job-view'
 import { PlaceLine } from './place-view'
+import { GAP } from './layout'
 
 function language(name: string, type?: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
@@ -65,7 +66,7 @@ function Selected({ t }: { t: GridfsTab }): OrcaNode {
         <Text size="xs" muted>Binary content: download it to open it.</Text>
       ) : null}
       <Collapsible title="Download" description={d.destination === 'download' ? 'The save dialog' : 'To a path'} defaultOpen>
-        <Box gap="sm">
+        <Box gap={GAP.group}>
           <RadioGroup
             label="Save to"
             labelHidden
@@ -78,7 +79,7 @@ function Selected({ t }: { t: GridfsTab }): OrcaNode {
             onChange={(v) => changeAdmin(t.id, 'gridfs', (x) => ({ download: { ...x.download, destination: v as 'download' | 'path' } }))}
           />
           {d.destination === 'path' ? (
-            <Box gap="sm">
+            <Box gap={GAP.tight}>
               <Input label="Path" value={d.path} placeholder={`~/Downloads (or ~/Downloads/${f.filename.split('/').pop()})`} onChange={(v) => changeAdmin(t.id, 'gridfs', (x) => ({ download: { ...x.download, path: v } }))} />
               <Checkbox label="Replace an existing file" checked={d.overwrite} onChange={(overwrite) => changeAdmin(t.id, 'gridfs', (x) => ({ download: { ...x.download, overwrite } }))} />
             </Box>
@@ -119,7 +120,7 @@ function Upload({ t }: { t: GridfsTab }): OrcaNode {
   const running = jobRunning(u.job)
   return (
     <Collapsible title="Upload a file" description={`Into ${t.bucket}`} open={u.open} onChange={(open) => set({ open })}>
-      <Box gap="sm">
+      <Box gap={GAP.group}>
         <RadioGroup
           label="Source"
           orientation="horizontal"
@@ -131,7 +132,7 @@ function Upload({ t }: { t: GridfsTab }): OrcaNode {
           onChange={(v) => set({ sourceKind: v as 'path' | 'paste' })}
         />
         {u.sourceKind === 'path' ? <Input label="Path" value={u.path} placeholder="~/Documents/report.pdf" onChange={(v) => set({ path: v })} /> : <Textarea label="Text" rows={5} value={u.text} onChange={(v) => set({ text: v })} />}
-        <Box columns={2} gap="sm">
+        <Box columns={2} gap="xs">
           <Input label="File name" value={u.filename} placeholder={u.sourceKind === 'path' ? 'As on disk' : 'notes.txt'} onChange={(v) => set({ filename: v })} />
           <Input label="Content type" value={u.contentType} placeholder="text/plain" onChange={(v) => set({ contentType: v })} />
         </Box>
@@ -170,7 +171,7 @@ export function GridfsTabView({ id }: { id: string }): OrcaNode {
       {t.error ? <Callout tone="danger" icon="error" title="Could not list the files">{t.error}</Callout> : null}
       {!t.files && t.loading ? <Skeleton lines={5} label="Listing files" /> : null}
       {t.files ? (
-        <Box gap="sm">
+        <Box gap={GAP.group}>
           <Table
             label="Files"
             columns={[
