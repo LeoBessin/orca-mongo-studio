@@ -34,6 +34,9 @@ typecheck need Orca's typings in `.orca/types` (git-ignored, `npm run types`): w
 esbuild builds a different `dist/`. CI (`.github/workflows/ci.yml`) runs typecheck, `npm test`,
 the `dist/` freshness check, `npm run check` and `npm run test:it`, with the CLI from the Orca
 release pinned there; bump `ORCA_VERSION`, `ORCA_DEB_SHA256` and `NODE_VERSION` together.
+A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml`. It checks the tag, reruns CI on it
+through `workflow_call` and writes the GitHub Release from the commit subjects. Run it by hand with
+a tag to backfill that tag's release.
 
 How to start each database set is in the header of `dev/docker-compose.yml`; `/test` says which
 set each level needs.
