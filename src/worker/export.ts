@@ -376,11 +376,11 @@ async function copyParts(source: MongoClient, target: MongoClient, from: ExportS
   return result
 }
 
-/** Dotted fields of a sample of documents, for choosing CSV columns. */
-export async function sampleFields(client: MongoClient, ns: Namespace, filter?: JsonObject): Promise<string[]> {
+/** Dotted fields of a sample of documents, for choosing CSV columns and suggesting fields. */
+export async function sampleFields(client: MongoClient, ns: Namespace, filter?: JsonObject, size = 200): Promise<string[]> {
   const pipeline: Document[] = []
   if (filter && Object.keys(filter).length) pipeline.push({ $match: toBson<Document>(filter) })
-  pipeline.push({ $sample: { size: 200 } })
+  pipeline.push({ $sample: { size } })
   const docs = await client.db(ns.db).collection(ns.collection).aggregate(pipeline, { ...EXACT, maxTimeMS: 30_000 }).toArray()
   const out = new Set<string>()
   for (const d of docs) fieldPaths(toCanonical(d), '', out)

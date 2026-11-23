@@ -292,57 +292,34 @@ describe('collection tabs', () => {
     assert.equal(calls.runs.length, 1)
   })
 
-  test('Format puts a field on several lines, Ctrl+Enter runs it, and one line puts it back', async () => {
+  test('the query fields are multi-line boxes: Ctrl+Enter runs, Format lays the text out', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
-    await view.type({ label: 'Filter' }, "{status:'shipped',total:{$gt:100}}")
-    await view.press({ type: 'IconButton', label: 'Format the filter on several lines' })
-    assert.equal(view.valueOf({ label: 'Filter' }), "{\n  status: 'shipped',\n  total: { $gt: 100 }\n}")
     assert.ok(view.find({ type: 'Textarea', label: 'Filter' }))
+    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }))
     assert.ok(view.find({ text: 'Ctrl+Enter or Cmd+Enter runs the query.' }))
+    await view.type({ label: 'Filter' }, "{status:'shipped',total:{$gt:100}}")
+    await view.press({ type: 'IconButton', label: 'Format the filter' })
+    assert.equal(view.valueOf({ label: 'Filter' }), "{\n  status: 'shipped',\n  total: { $gt: 100 }\n}")
     await view.submit({ label: 'Filter' })
     assert.deepEqual(calls.runs.at(-1)!.spec.filter, { status: 'shipped', total: { $gt: { $numberInt: '100' } } })
     assert.equal(calls.runs.at(-1)!.text!.filter, "{\n  status: 'shipped',\n  total: { $gt: 100 }\n}", 'the history keeps it formatted')
-    await view.press({ type: 'IconButton', label: 'Put the filter on one line' })
-    assert.equal(view.valueOf({ label: 'Filter' }), "{ status: 'shipped', total: { $gt: 100 } }")
-    assert.ok(view.find({ type: 'Input', label: 'Filter' }))
     await view.type({ label: 'Sort' }, '{ total: -1')
-    await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
+    await view.press({ type: 'IconButton', label: 'Format the sort' })
     assert.equal(view.valueOf({ label: 'Sort' }), '{ total: -1', 'unclosed text is not reformatted')
-    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }), 'but it still gets the room to finish it')
     assert.ok(view.find({ text: "Can't format: This { is never closed with } (line 1, column 1)" }))
     assert.deepEqual(view.warnings, [])
     assert.deepEqual(view.errors, [])
   })
 
-  test('a multi-line box stays one while typed in, and follows text replaced from elsewhere', async () => {
+  test('Format refuses to pass what the history keeps', async () => {
     const { host } = setup()
     const view = await openOrders(host)
-    await view.type({ label: 'Filter' }, "{\n  status: 'shipped'\n}")
-    assert.ok(view.find({ type: 'Textarea', label: 'Filter' }), 'text with a line break opens multi-line')
-    await view.type({ label: 'Filter' }, "{ status: 'shipped' }", { replace: true })
-    assert.ok(view.find({ type: 'Textarea', label: 'Filter' }), 'joining the lines keeps the box being typed in')
-    await view.type({ label: 'Sort' }, '{ qty: 1, total: -1 }')
-    await view.press({ type: 'IconButton', label: 'Format the sort on several lines' })
-    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }))
-    await view.sort(table, 'total')
-    assert.ok(view.find({ type: 'Textarea', label: 'Sort' }), 'a sorted column leaves the typed sort alone')
-  })
-
-  test('one line re-checks the field, and Format refuses to pass what the history keeps', async () => {
-    const { host } = setup()
-    const view = await openOrders(host)
-    await view.type({ label: 'Filter' }, '{\n  a: 1\n  b: 2\n}')
-    assert.ok(view.find({ text: /\(line 3, column 3\)/ }))
-    await view.press({ type: 'IconButton', label: 'Put the filter on one line' })
-    assert.equal(view.valueOf({ label: 'Filter' }), '{ a: 1 b: 2 }')
-    assert.equal(view.find({ text: /line 3/ }), null, 'the old position is gone')
-    assert.ok(view.find({ text: /\(line 1, column 8\)/ }))
     const ids = Array.from({ length: 140 }, (_, i) => `'${String(i).padStart(24, '0')}'`).join(',')
-    await view.type({ label: 'Filter' }, `{ _id: { $in: [${ids}] } }`, { replace: true })
-    await view.press({ type: 'IconButton', label: 'Format the filter on several lines' })
+    await view.type({ label: 'Filter' }, `{ _id: { $in: [${ids}] } }`)
+    await view.press({ type: 'IconButton', label: 'Format the filter' })
     assert.ok(view.find({ text: /Formatted, this would be [\d,]+ characters, and the query history keeps up to 4,000\. Left as it is\./ }))
-    assert.ok(view.find({ type: 'Input', label: 'Filter' }))
+    assert.ok(!(view.valueOf({ label: 'Filter' }) as string).includes('\n'))
   })
 
   test('paging reads on from the current page', async () => {
@@ -774,6 +751,39 @@ describe('collection tabs', () => {
     assert.match(code(), /"qty": \{\n\s+"\$numberInt": "1"/)
   })
 
+  test('fields seen and sampled stay suggested, even when a query finds nothing', async () => {
+    const samples: unknown[] = []
+    const empty: QueryPage = { queryId: 'q2', offset: 0, docs: [], truncated: [], hasMore: false, stoppedForSize: false, ms: 1 }
+    const { host } = setup({
+      'query.fields': (input) => {
+        samples.push(input)
+        return { fields: ['_id', 'rare.flag'] }
+      },
+      'query.run': (input) => (Object.keys(input.spec.filter).length ? empty : { ...empty, queryId: 'q1', docs: orders, hasMore: true })
+    })
+    const view = await openOrders(host)
+    await view.settled()
+    assert.deepEqual(samples, [{ ns: { connectionId: 'c1', db: 'shop', collection: 'orders' } }])
+    const fieldOptions = () => (view.find({ type: 'Select', label: 'Field' })!.props.options as { value: string }[]).map((o) => o.value)
+    await view.toggle({ type: 'Collapsible', label: 'Query Builder' })
+    await view.press({ text: 'Condition' })
+    assert.ok(fieldOptions().includes('rare.flag'), 'a field only the sample has')
+    assert.ok(fieldOptions().includes('status'), 'a field of the page')
+    await view.type({ label: 'Filter' }, '{ status: "none" }')
+    await view.submit({ label: 'Filter' })
+    assert.ok(fieldOptions().includes('status'), 'an empty result keeps the fields seen before')
+  })
+
+  test('no sample for a view, or with the setting off', async () => {
+    for (const [kind, settings] of [['view', {}], ['coll', { sampleFields: false }]] as const) {
+      const samples: unknown[] = []
+      const { host } = setup({ 'query.fields': (input) => (samples.push(input), { fields: [] }) }, kind, {}, settings)
+      const view = await openOrders(host, kind)
+      await view.settled()
+      assert.deepEqual(samples, [], kind)
+    }
+  })
+
   test('Query Builder: nested OR, problems per row, and loading a filter back', async () => {
     const { host, calls } = setup()
     const view = await openOrders(host)
@@ -1196,14 +1206,12 @@ describe('settings', () => {
   test('with checking while typing off, errors wait for Run; with Format buttons off, there are none', async () => {
     const { host, calls } = setup({}, 'coll', {}, { liveCheck: false, formatButtons: false })
     const view = await openOrders(host)
-    assert.equal(view.find({ type: 'IconButton', label: 'Format the filter on several lines' }), null)
+    assert.equal(view.find({ type: 'IconButton', label: 'Format the filter' }), null)
     await view.type({ label: 'Filter' }, '{ a: 1 ]')
     assert.equal(view.find({ type: 'Field', label: 'Filter' })!.props.error, undefined)
     await view.submit({ label: 'Filter' })
     assert.ok(view.find({ type: 'Field', label: 'Filter' })!.props.error, 'Run still says what is wrong')
     assert.equal(calls.runs.length, 1)
-    await view.type({ label: 'Filter' }, '{\n  a: 1\n}', { replace: true })
-    assert.ok(view.find({ type: 'IconButton', label: 'Put the filter on one line' }), 'a multi-line box can always go back')
   })
 })
 

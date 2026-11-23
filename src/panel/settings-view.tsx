@@ -55,7 +55,8 @@ export function SettingsView(): OrcaNode {
       <Card title="Query bar">
         <Stack gap="sm">
           <Toggle s={s} name="liveCheck" label="Check fields as you type" description="Say what doesn't parse while it is typed. Off, errors wait for Run." />
-          <Toggle s={s} name="formatButtons" label="Format buttons" description="Format a filter, projection, sort or collation onto several lines." />
+          <Toggle s={s} name="formatButtons" label="Format buttons" description="A button beside the filter, projection, sort and collation that lays the query out on indented lines." />
+          <Toggle s={s} name="sampleFields" label="Suggest fields from a sample" description="Opening a collection reads 100 random documents in the background, so the query bar suggests fields the first page doesn't have. Not for views." />
         </Stack>
       </Card>
       <Card title="Confirmations" description="Read-only connections refuse every write whatever these say.">

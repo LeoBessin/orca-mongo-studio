@@ -23,6 +23,7 @@ import {
 import { idKey, toShell, valueText } from '../shared/ejson-view'
 import { adminTabs, aguard, changeAdmin, closeAdmin, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
+import { QueryCodeInput } from './code-input'
 import { bNs, cancelCompare, comparePlaces, compareProblems, idsShown, runCompare, runSync, selectPair, setCompare, syncPlan, type CompareShow, type CompareTab } from './compare-state'
 import { jobRunning } from './data-state'
 import { TaskSaver } from './tasks-view'
@@ -187,7 +188,7 @@ export function CompareTabView({ id }: { id: string }): OrcaNode {
         <IconButton icon="close" label="Close the comparison" variant="ghost" size="sm" onPress={() => closeAdmin(t.id)} />
       </Row>
       <Other t={t} />
-      <Input label="Filter (both sides)" value={t.filter} placeholder="{} for every document" invalid={Boolean(t.filterError)} onChange={(v) => setCompare(t.id, { filter: v, filterError: undefined })} />
+      <QueryCodeInput kind="filter" multi={false} error={t.filterError} box={{ label: 'Filter (both sides)', value: t.filter, placeholder: '{} for every document', invalid: Boolean(t.filterError), onChange: (v) => setCompare(t.id, { filter: v, filterError: undefined }) }} />
       {t.filterError ? <Text size="xs" tone="danger">{t.filterError}</Text> : null}
       <Input label="Leave out fields" value={t.ignore} placeholder="updatedAt, meta.version" onChange={(v) => setCompare(t.id, { ignore: v })} />
       <Checkbox label="Field order doesn't count" description="{ a, b } equals { b, a }; types always count (1 and 1.0 differ)" checked={t.ignoreOrder} onChange={(ignoreOrder) => setCompare(t.id, { ignoreOrder })} />

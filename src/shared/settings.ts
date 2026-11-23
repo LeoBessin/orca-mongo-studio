@@ -33,6 +33,9 @@ export type Settings = {
   liveCheck: boolean
   /** The query bar's Format buttons. */
   formatButtons: boolean
+  /** A collection opened samples a few documents in the background, so the query bar suggests
+   *  fields the first page lacks. */
+  sampleFields: boolean
   /** Ask before deleting selected documents or the open one. */
   confirmDeleteDocs: boolean
   /** Ask before dropping a collection, a view or an index, or deleting all of a collection's
@@ -53,6 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ejson: 'relaxed',
   liveCheck: true,
   formatButtons: true,
+  sampleFields: true,
   confirmDeleteDocs: true,
   confirmDrop: true,
   confirmByName: true
@@ -83,6 +87,7 @@ export function readSetting<K extends SettingKey>(key: K, raw: unknown): Setting
     ejson: (r) => oneOf<Settings['ejson']>(r, ['relaxed', 'canonical'], d.ejson),
     liveCheck: (r) => flag(r, d.liveCheck),
     formatButtons: (r) => flag(r, d.formatButtons),
+    sampleFields: (r) => flag(r, d.sampleFields),
     confirmDeleteDocs: (r) => flag(r, d.confirmDeleteDocs),
     confirmDrop: (r) => flag(r, d.confirmDrop),
     confirmByName: (r) => flag(r, d.confirmByName)

@@ -201,7 +201,7 @@ describe('export', () => {
     const { host, calls, content } = setup()
     const view = await at(host, 'conn:c1/db:shop/coll:orders')
     await view.press({ text: 'Open' })
-    await view.type({ type: 'Input', label: 'Filter' }, "{ status: 'shipped' }")
+    await view.type({ type: 'Textarea', label: 'Filter' }, "{ status: 'shipped' }")
     await view.press({ label: 'Export this query: JSON, CSV, BSON or another collection' })
     assert.equal(view.valueOf({ type: 'Input', label: 'Filter' }), "{ status: 'shipped' }")
     await view.press({ type: 'Button', text: 'Export' })
