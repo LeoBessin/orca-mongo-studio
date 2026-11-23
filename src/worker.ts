@@ -504,6 +504,8 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('import.start', async ({ source, options, ns }) => ({ jobId: await startImport(source, options, ns) }))
   orca.panels.handle('export.start', async ({ source, options, destination }) => ({ jobId: await startExport(source, options, destination) }))
   orca.panels.handle('export.fields', async ({ ns, filter }) => ({ fields: await sampleFields(await nsOf(ns), ns, filter) }))
+  // Fewer than export's 200: it only feeds suggestions, and runs on every collection opened.
+  orca.panels.handle('query.fields', async ({ ns }) => ({ fields: await sampleFields(await nsOf(ns), ns, undefined, 100) }))
   orca.panels.handle('data.count', async ({ ns }) => {
     const client = await nsOf(ns)
     const db = client.db(ns.db)

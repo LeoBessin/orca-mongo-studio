@@ -71,6 +71,7 @@ describe('the manifest', () => {
       ejson: ['relaxed', 'canonical'],
       liveCheck: undefined,
       formatButtons: undefined,
+      sampleFields: undefined,
       confirmDeleteDocs: undefined,
       confirmDrop: undefined,
       confirmByName: undefined

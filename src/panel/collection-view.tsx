@@ -15,7 +15,6 @@ import {
   Separator,
   Table,
   Text,
-  Textarea,
   Toolbar,
   type OrcaNode
 } from 'orca'
@@ -31,9 +30,7 @@ import {
   applyBuilder,
   change,
   clearHistory,
-  compactField,
   formatField,
-  isMultiline,
   closeTab,
   collTabs,
   deleteSaved,
@@ -55,6 +52,7 @@ import {
 } from './collection-state'
 import { openAggregation } from './aggregate-state'
 import { DocumentView } from './document-view'
+import { QueryCodeInput } from './code-input'
 import { Editors } from './editors-view'
 import { UpdateMany } from './update-view'
 import { ExplainSection } from './explain-view'
@@ -72,24 +70,18 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
   const error = t.fieldErrors[field]
   const value = t.text[field]
   const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v: string) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }
-  // Skip and limit are numbers: nothing to format.
-  const formats = field !== 'skip' && field !== 'limit'
-  const multi = formats && isMultiline(t, field)
-  // With the Format buttons turned off in Settings, a one-line field has none; a multi-line one
-  // keeps "one line", so it can always be put back.
-  const button = formats && (multi || settings().formatButtons)
-  const name = label.toLowerCase()
-  const input = multi ? <Textarea {...box} rows={Math.min(12, Math.max(3, value.split('\n').length))} /> : <Input {...box} />
+  // Skip and limit are numbers: one line, nothing to format. The others are always a
+  // multi-line box, where Enter breaks the line and Ctrl/Cmd+Enter runs.
+  const kind = field === 'skip' || field === 'limit' ? undefined : field
+  const input = kind ? <QueryCodeInput box={box} kind={kind} multi fields={sampledFields(t)} error={error} /> : <Input {...box} />
+  // Said once, under the first field, rather than under each box.
+  const hint = field === 'filter' ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {}
   return (
-    <Field label={label} {...(error ? { error } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
-      {button ? (
+    <Field label={label} {...(error ? { error } : hint)}>
+      {kind && settings().formatButtons ? (
         <Box direction="row" gap="xs" align="start">
           <Box grow>{input}</Box>
-          {multi ? (
-            <IconButton icon="collapse" label={`Put the ${name} on one line`} variant="ghost" size="sm" onPress={() => compactField(t.id, field)} />
-          ) : (
-            <IconButton icon="code" label={`Format the ${name} on several lines`} variant="ghost" size="sm" disabled={!value.trim()} onPress={() => formatField(t.id, field)} />
-          )}
+          <IconButton icon="code" label={`Format the ${label.toLowerCase()}`} variant="ghost" size="sm" disabled={!value.trim()} onPress={() => formatField(t.id, field)} />
         </Box>
       ) : (
         input

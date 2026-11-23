@@ -82740,10 +82740,10 @@ async function copyParts(source, target, from, parts, db, options, job, result) 
   if (failed) throw firstError;
   return result;
 }
-async function sampleFields(client, ns, filter) {
+async function sampleFields(client, ns, filter, size = 200) {
   const pipeline = [];
   if (filter && Object.keys(filter).length) pipeline.push({ $match: toBson(filter) });
-  pipeline.push({ $sample: { size: 200 } });
+  pipeline.push({ $sample: { size } });
   const docs2 = await client.db(ns.db).collection(ns.collection).aggregate(pipeline, { ...EXACT, maxTimeMS: 3e4 }).toArray();
   const out = /* @__PURE__ */ new Set();
   for (const d6 of docs2) fieldPaths(toCanonical(d6), "", out);
@@ -83524,6 +83524,7 @@ function activate(orca) {
   orca.panels.handle("import.start", async ({ source, options, ns }) => ({ jobId: await startImport(source, options, ns) }));
   orca.panels.handle("export.start", async ({ source, options, destination }) => ({ jobId: await startExport(source, options, destination) }));
   orca.panels.handle("export.fields", async ({ ns, filter }) => ({ fields: await sampleFields(await nsOf(ns), ns, filter) }));
+  orca.panels.handle("query.fields", async ({ ns }) => ({ fields: await sampleFields(await nsOf(ns), ns, void 0, 100) }));
   orca.panels.handle("data.count", async ({ ns }) => {
     const client = await nsOf(ns);
     const db = client.db(ns.db);

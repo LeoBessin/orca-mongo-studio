@@ -18,6 +18,7 @@ import {
 } from 'orca'
 import { adminTabs, aguard, changeAdmin, closeAdmin, numberText } from './admin-state'
 import { NoticeBar } from './admin-notice'
+import { QueryCodeInput } from './code-input'
 import { openNamespace } from './collection-state'
 import { jobRunning } from './data-state'
 import { cancelExport, exportProblems, loadFields, moveField, saveExport, setExport, setFields, exportPlaces, sourceDetail, startExport, type ExportTab } from './export-state'
@@ -32,9 +33,10 @@ function QueryFields({ t }: { t: ExportTab }): OrcaNode {
   if (t.from.kind !== 'query') return null
   const field = (key: keyof ExportTab['query'], label: string, placeholder: string): OrcaNode => {
     const error = t.queryErrors[key]
+    const box = { label, labelHidden: true, value: t.query[key], placeholder, invalid: Boolean(error), onChange: (v: string) => setExport(t.id, (x) => ({ query: { ...x.query, [key]: v }, queryErrors: { ...x.queryErrors, [key]: undefined } })) }
     return (
       <Field label={label} {...(error ? { error } : {})}>
-        <Input label={label} labelHidden value={t.query[key]} placeholder={placeholder} invalid={Boolean(error)} onChange={(v) => setExport(t.id, (x) => ({ query: { ...x.query, [key]: v }, queryErrors: { ...x.queryErrors, [key]: undefined } }))} />
+        {key === 'limit' ? <Input {...box} /> : <QueryCodeInput box={box} kind={key} multi={false} error={error} />}
       </Field>
     )
   }

@@ -10,7 +10,6 @@ import {
   Collapsible,
   files,
   IconButton,
-  Input,
   KeyValue,
   Progress,
   RadioGroup,
@@ -30,6 +29,7 @@ import { BSON_TYPE_LABELS } from '../shared/ejson-view'
 import { bar, ELEMENT, percent, presenceText, rangeText, typeSummary, type Bucket, type SchemaField, type SchemaReport } from '../shared/schema'
 import { adminTabs, aguard, changeAdmin, closeAdmin, numberText, type SchemaTab } from './admin-state'
 import { NoticeBar } from './admin-notice'
+import { QueryCodeInput } from './code-input'
 import { openManage } from './manage-state'
 import { analyze, exportText, fieldKey, SAMPLE_SIZES, setExport, toggleField } from './schema-state'
 import { PlaceLine } from './place-view'
@@ -150,7 +150,7 @@ export function SchemaTabView({ id }: { id: string }): OrcaNode {
       </Row>
       <Row gap="xs" align="end">
         <Box grow>
-          <Input label="Filter" placeholder="{ status: 'shipped' }" value={t.filter} invalid={Boolean(t.filterError)} onChange={(v) => changeAdmin(t.id, 'schema', () => ({ filter: v, filterError: undefined }))} onSubmit={() => void aguard(t.id, () => analyze(t.id))()} />
+          <QueryCodeInput kind="filter" multi={false} error={t.filterError} box={{ label: 'Filter', placeholder: "{ status: 'shipped' }", value: t.filter, invalid: Boolean(t.filterError), onChange: (v) => changeAdmin(t.id, 'schema', () => ({ filter: v, filterError: undefined })), onSubmit: () => void aguard(t.id, () => analyze(t.id))() }} />
         </Box>
         <Select label="Sample" value={String(t.size)} options={SAMPLE_SIZES.map((n) => ({ value: String(n), label: `${numberText(n)} documents` }))} onChange={(v) => changeAdmin(t.id, 'schema', () => ({ size: Number(v) }))} />
       </Row>

@@ -555,6 +555,9 @@ declare module 'orca' {
     /** Runs a find and answers its first page; `text` is recorded in the query history. */
     'query.run': { input: { ns: Namespace; spec: QuerySpec; pageSize: number; text?: QueryText }; output: QueryPage }
     /** Another page of a query: read on from its cursor, or re-run with skip when needed. */
+    /** Dotted field names from a small random sample of a collection, for the query bar's
+     *  suggestions. Not for views: `$sample` would run the whole view pipeline first. */
+    'query.fields': { input: { ns: Namespace }; output: { fields: string[] } }
     'query.page': { input: { queryId: string; ns: Namespace; spec: QuerySpec; offset: number; pageSize: number }; output: QueryPage }
     /** Counted separately, with a time limit, so the first page never waits for it. */
     'query.count': { input: { ns: Namespace; spec: QuerySpec }; output: CountResult }

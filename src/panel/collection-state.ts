@@ -11,7 +11,7 @@ import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type Builde
 import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '../shared/shell-parse'
-import { compactQuery, formatQuery } from '../shared/query-format'
+import { formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { sortedOrder, type SortDirection } from '../shared/table-sort'
 import { parseUpdateText, scopeIsEverything, type UpdateScope, type UpdateSpec } from '../shared/update-spec'
@@ -147,8 +147,9 @@ export type CollTab = {
   readOnly: boolean
   text: QueryText
   fieldErrors: Partial<Record<QueryField, string>>
-  /** Fields shown as several lines after Format; a field whose text has a line break is too. */
-  multiline: Partial<Record<QueryField, boolean>>
+  /** Field paths seen in this tab, on every page shown and in the sample taken when it opened,
+   *  so the suggestions only grow and an empty result doesn't take them away. */
+  seenFields: string[]
   pageSize: number
   /** The query as last run: paging and counting use it, not what is typed now. */
   spec?: QuerySpec
@@ -237,21 +238,33 @@ export function change(id: string, fn: (t: CollTab) => CollTab | Partial<CollTab
     if (!t) return prev
     const next = fn(t)
     const out = 'id' in next && next.id === t.id ? (next as CollTab) : { ...t, ...next }
-    return { ...prev, [id]: withBoxes(t, out) }
+    return { ...prev, [id]: out.page && out.page !== t.page ? withSeenFields(out, out.page.docs) : out }
   })
 }
 
-/** A field's text replaced from elsewhere (history, a saved query, the Query Builder, a sorted
- *  column, Filter by) gets the box its new text needs, unless the change chose the box itself. */
-function withBoxes(before: CollTab, after: CollTab): CollTab {
-  if (after.text === before.text || after.multiline !== before.multiline) return after
-  let multiline: CollTab['multiline'] | undefined
-  for (const field of Object.keys(after.text) as QueryField[]) {
-    if (after.text[field] === before.text[field] || after.multiline[field] === undefined) continue
-    multiline ??= { ...after.multiline }
-    delete multiline[field]
+/** The tab with the field paths of `docs` added to the ones it has seen. */
+function withSeenFields(t: CollTab, docs: readonly JsonValue[]): CollTab {
+  const seen = new Set(t.seenFields)
+  for (const d of docs) fieldPaths(d, '', seen)
+  return seen.size === t.seenFields.length ? t : { ...t, seenFields: [...seen] }
+}
+
+/** Once, as a collection opens: a few random documents' fields, so the query bar suggests the
+ *  ones the first page lacks. Views would run their whole pipeline for it, and time-series
+ *  collections unpack their buckets, so neither is sampled. A failure only means fewer
+ *  suggestions, so it is not reported. */
+async function sampleTabFields(id: string): Promise<void> {
+  const t = tab(id)
+  if (!t || t.kind !== 'coll' || !settings().sampleFields) return
+  try {
+    const { fields } = await plugin.request('query.fields', { ns: t.ns }, { timeoutMs: 60000 })
+    change(id, (x) => {
+      const seen = new Set([...x.seenFields, ...fields])
+      return seen.size === x.seenFields.length ? x : { seenFields: [...seen] }
+    })
+  } catch {
+    // Fewer suggestions; the page's own fields are still there.
   }
-  return multiline ? { ...after, multiline } : after
 }
 
 function patch(id: string, values: Partial<CollTab>): void {
@@ -311,6 +324,8 @@ export async function openNamespace(ns: Namespace, kind: NodeKind, text?: QueryT
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => [...prev, id])
   set(view, id)
+  // In the background: opening waits for neither the sample nor its 60 s limit.
+  void sampleTabFields(id)
   await Promise.all([runQuery(id, text !== undefined), loadLibrary(id)])
 }
 
@@ -323,7 +338,7 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     readOnly: kind === 'view',
     text: { ...emptyText },
     fieldErrors: {},
-    multiline: {},
+    seenFields: [],
     pageSize: startPageSize(),
     loading: false,
     runToken: 0,
@@ -433,21 +448,8 @@ export function askDeleteFocused(id: string): Promise<void> {
 export function setText(id: string, field: QueryField, value: string): void {
   change(id, (t) => ({
     text: { ...t.text, [field]: value },
-    // Typing keeps the box it is typed in: joining the last two lines doesn't swap a multi-line
-    // box for a one-line one under the cursor.
-    multiline: { ...t.multiline, [field]: isMultiline(t, field) || value.includes('\n') },
     fieldErrors: withLiveProblem(t.fieldErrors, field, value)
   }))
-}
-
-/** A field's text written by Mongo Studio (a sorted column, Filter by, the Query Builder): the box
- *  follows the new text, multi-line only when it has a line break. */
-function replaceText(id: string, field: QueryField, value: string): void {
-  change(id, (t) => {
-    const multiline = { ...t.multiline }
-    delete multiline[field]
-    return { text: { ...t.text, [field]: value }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, value) }
-  })
 }
 
 /** The error to show while a field is typed: what running it would say, unless the text only
@@ -468,33 +470,16 @@ function withLiveProblem(errors: CollTab['fieldErrors'], field: QueryField, valu
   return out
 }
 
-/** A multi-line box after Format or while typed in one; otherwise one when the text has a line
- *  break (a formatted query from history, a restored tab). */
-export function isMultiline(t: CollTab, field: QueryField): boolean {
-  return t.multiline[field] ?? t.text[field].includes('\n')
-}
-
-/** Pretty-prints a field onto several lines and keeps it as a multi-line box. */
+/** Pretty-prints a field onto several lines. */
 export function formatField(id: string, field: QueryField): void {
   change(id, (t) => {
     const result = formatQuery(t.text[field])
-    const multiline = { ...t.multiline, [field]: true }
-    // Not closed yet: the box still gets the room to finish it.
-    if (!result.ok) return { multiline, fieldErrors: { ...t.fieldErrors, [field]: `Can't format: ${result.problem}` } }
+    if (!result.ok) return { fieldErrors: { ...t.fieldErrors, [field]: `Can't format: ${result.problem}` } }
     if (result.text.length > QUERY_TEXT_MAX) {
       const size = (n: number): string => n.toLocaleString('en-US')
       return { fieldErrors: { ...t.fieldErrors, [field]: `Formatted, this would be ${size(result.text.length)} characters, and the query history keeps up to ${size(QUERY_TEXT_MAX)}. Left as it is.` } }
     }
-    return { text: { ...t.text, [field]: result.text }, multiline, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) }
-  })
-}
-
-/** Puts a field back on one line, as a single-line box. */
-export function compactField(id: string, field: QueryField): void {
-  change(id, (t) => {
-    const result = compactQuery(t.text[field])
-    if (!result.ok) return { fieldErrors: { ...t.fieldErrors, [field]: `Can't put on one line: ${result.problem}` } }
-    return { text: { ...t.text, [field]: result.text }, multiline: { ...t.multiline, [field]: false }, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) }
+    return { text: { ...t.text, [field]: result.text }, fieldErrors: withLiveProblem(t.fieldErrors, field, result.text) }
   })
 }
 
@@ -712,7 +697,7 @@ export function pageOrder(t: CollTab): number[] {
 }
 
 export function resetQuery(id: string): Promise<void> {
-  patch(id, { text: { ...emptyText }, fieldErrors: {}, multiline: {} })
+  patch(id, { text: { ...emptyText }, fieldErrors: {} })
   return runQuery(id)
 }
 
@@ -742,11 +727,14 @@ export function selectedDocs(t: CollTab): JsonObject[] {
   return pageOrder(t).filter((i) => selected.has(keys[i]!)).map((i) => docs[i]!)
 }
 
-/** Fields sampled from the documents on screen, for the builder and the field picker. */
+// The Query Builder lists them in a Select, which takes 500 options.
+const MAX_FIELDS = 400
+
+/** Fields seen in this tab (every page shown, and the sample taken when it opened), for the
+ *  builder, the field picker and the query bar's suggestions. */
 export function sampledFields(t: CollTab): string[] {
-  const out = new Set<string>()
-  for (const d of t.page?.docs ?? []) fieldPaths(d, '', out)
-  return [...out].sort((a, b) => (a === '_id' ? -1 : b === '_id' ? 1 : a.localeCompare(b)))
+  const sorted = [...t.seenFields].sort((a, b) => (a === '_id' ? -1 : b === '_id' ? 1 : a.localeCompare(b)))
+  return sorted.slice(0, MAX_FIELDS)
 }
 
 export function say(id: string, tone: TabNotice['tone'], text: string, at: NoticeAt = 'top'): void {
@@ -1198,9 +1186,9 @@ export async function filterBySelection(id: string, filter: JsonObject, mode: 'r
   if (text.length > QUERY_TEXT_MAX) {
     return say(id, 'danger', `This filter would be ${text.length.toLocaleString('en-US')} characters, and the query history keeps up to ${QUERY_TEXT_MAX.toLocaleString('en-US')}. Select fewer rows.`, 'results')
   }
-  replaceText(id, 'filter', text)
+  setText(id, 'filter', text)
   // The new filter matches fewer documents: a skip typed for the old one could pass them all.
-  replaceText(id, 'skip', '')
+  setText(id, 'skip', '')
   await runQuery(id)
 }
 
@@ -1212,7 +1200,7 @@ export async function applyBuilder(id: string): Promise<void> {
     patch(id, { builderProblems: problems })
     return
   }
-  replaceText(id, 'filter', Object.keys(filter).length ? toShellInline(filter) : '')
+  setText(id, 'filter', Object.keys(filter).length ? toShellInline(filter) : '')
   patch(id, { builderProblems: [] })
   await runQuery(id)
 }
