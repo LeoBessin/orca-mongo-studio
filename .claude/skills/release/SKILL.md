@@ -67,3 +67,10 @@ Read the "Never uninstall" rule in `CLAUDE.md` first. Nothing in this skill unin
    confirm `git push origin main vX.Y.Z`. Pushing the tag publishes the release to everyone.
    After the push, point them to https://orca.dev/plugins/leobessin/orca-mongo-studio for the
    listing's status.
+
+9. **Watch the Release workflow.** The tag push starts `.github/workflows/release.yml`. It checks
+   that the tag matches both versions and is on `main`, reruns CI on the tag, then writes the
+   GitHub Release. Its notes are the headline from the release commit plus every `Mongo Studio:`
+   commit since the previous tag, so those subjects must read well for users. Follow the run with
+   `gh run watch $(gh run list --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')`.
+   A failure doesn't unpublish the tag: say so, and fix it with a patch release. Don't move the tag.

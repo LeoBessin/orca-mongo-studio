@@ -1,0 +1,120 @@
+# Turns a pushed vX.Y.Z tag into a GitHub Release. The tag itself is what publishes Mongo Studio
+# (the Orca plugin directory lists the newest tag and installs clone it), so this workflow can't
+# hold a release back: it checks the tag, reruns CI on it, and only then writes the release notes.
+# A red run means a published tag needs a fix release. Cut the tag with the `/release` skill.
+#
+# To add the release for a tag pushed before this workflow existed, run it by hand with that tag.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing vX.Y.Z tag to write the GitHub Release for
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+jobs:
+  verify:
+    name: Tag matches the release commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Tag, manifest and package agree on the version
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is not a vX.Y.Z tag."; exit 1; }
+          version="${TAG#v}"
+          for file in orca-plugin.json package.json package-lock.json; do
+            found="$(jq -r .version "$file")"
+            if [ "$found" != "$version" ]; then
+              echo "::error file=$file::$file says $found but the tag is $TAG. Bump both files together (see /release)."
+              exit 1
+            fi
+          done
+          main="$(jq -r .main orca-plugin.json)"
+          if [ "$main" != dist/worker.mjs ]; then
+            echo "::error file=orca-plugin.json::main is $main; a release must run dist/worker.mjs."
+            exit 1
+          fi
+
+      # A tag off a side branch would publish code that never went through main.
+      - name: The tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "refs/tags/$TAG" origin/main; then
+            echo "::error::$TAG points at a commit that isn't on main."
+            exit 1
+          fi
+
+  ci:
+    name: CI on the tag
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
+  release:
+    name: GitHub Release
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+
+      # The release commit is "Mongo Studio X.Y.Z: <headline>", and every change since the last
+      # tag is a "Mongo Studio: <what changed, for a user>" commit, so the notes are those lines.
+      - name: Write the release notes
+        run: |
+          headline="$(git log -1 --format=%s "refs/tags/$TAG^{commit}" | sed -n 's/^Mongo Studio [0-9.]*: //p')"
+          previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "refs/tags/$TAG^{commit}^" 2>/dev/null || true)"
+          range="refs/tags/$TAG^{commit}"
+          [ -n "$previous" ] && range="$previous..$range"
+          {
+            if [ -n "$headline" ]; then
+              echo "${headline^}."
+              echo
+            fi
+            echo '## Changes'
+            echo
+            git log --no-merges --reverse --format=%s "$range" \
+              | sed -n 's/^Mongo Studio: \(.*\)$/- \u\1/p'
+            echo
+            echo "Install or update from Orca's plugin directory: https://orca.dev/plugins/leobessin/orca-mongo-studio"
+            if [ -n "$previous" ]; then
+              echo
+              echo "**Full changelog:** https://github.com/$GH_REPO/compare/$previous...$TAG"
+            fi
+          } > notes.md
+          cat notes.md
+          echo "title=Mongo Studio ${TAG#v}" >> "$GITHUB_ENV"
+
+      # A rerun, or a manual run for a tag that already has a release, updates it in place.
+      - name: Create or update the release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file notes.md
+          else
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file notes.md
+          fi
