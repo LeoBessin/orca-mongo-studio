@@ -30,7 +30,8 @@ function setup(extra: MockRequests = {}, kind: 'coll' | 'view' = 'coll', storage
   let library: QueryLibrary = { history: [], saved: [] }
   const page = (offset: number, docs: JsonObject[], hasMore: boolean): QueryPage => ({ queryId: 'q1', offset, docs, truncated: [], hasMore, stoppedForSize: false, ms: 3 })
   const host = mockHost({
-    storage,
+    // These tests are about the fields; Shell mode, the default, has its own in panel-data.
+    storage: { 'mongo-studio.queryMode': 'fields', ...storage },
     settings,
     requests: {
       'connections.state': state,

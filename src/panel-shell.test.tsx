@@ -94,6 +94,9 @@ describe('the Shell tab', () => {
     await view.press({ text: 'Open as query' })
     assert.equal(view.valueOf({ type: 'Tabs' }), tabIdFor({ connectionId: 'c1', db: 'shop', collection: 'orders' }))
     assert.deepEqual(runs.at(-1), { filter: { status: 'A' }, sort: { at: { $numberInt: '-1' } }, skip: 0, limit: 5 })
+    // Shell mode, the default, shows the query as one statement; the fields hold it too.
+    assert.equal(view.valueOf({ type: 'Textarea', label: 'Statement' }), `db.getCollection("orders").find({ status: 'A' }).sort({ at: -1 }).limit(5)`)
+    await view.select({ type: 'RadioGroup', label: 'Query as' }, 'fields')
     assert.equal(view.valueOf({ label: 'Filter' }), "{ status: 'A' }")
   })
 

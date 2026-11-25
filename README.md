@@ -46,18 +46,22 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 
 - A tree of databases, collections, views, time-series collections, GridFS buckets, indexes,
   users and roles, with counts, sizes and a filter.
-- One tab per collection. The query bar takes filter, projection, sort, collation, skip and limit
-  in mongo shell syntax, says what doesn't parse as you type, and formats a long filter onto
-  several lines (Ctrl+Enter or Cmd+Enter runs it). Every tab names, under its title, the connection
-  it works on, and for a copy, an import or a comparison, each side it reads and writes
-  (`From: Prod › shop.orders · Into: Dev › shop.orders`).
-- **Paste a whole statement** into the filter, as it comes from a teammate, Compass or mongosh:
-  `db.orders.find({ status: 'A' }).sort({ at: -1 }).limit(5)` fills the query bar and runs,
-  `aggregate([...])` opens the collection's aggregation, and `countDocuments`, `count`,
-  `estimatedDocumentCount` and `distinct` show what they found. `db.<collection>`,
-  `db.getCollection('<name>')` and `db.getSiblingDB('<db>')` all work. The statement is read, never
-  run: one that uses variables, or one that writes, is offered to the Mongo Shell instead (and an
-  `updateMany` to **Update many**), and one on another collection asks before going there.
+- One tab per collection, queried in one of two modes, the last one chosen remembered:
+  - **Shell** (the default): the query as one statement, starting as
+    `db.getCollection("orders").find({})`. Paste one as it comes from a teammate, Compass or
+    mongosh: a `find` with `.sort()`, `.skip()`, `.limit()` runs into the results, `aggregate([...])`
+    opens the collection's aggregation, and `countDocuments`, `count`, `estimatedDocumentCount` and
+    `distinct` show what they found. `db.<collection>`, `db.getCollection('<name>')` and
+    `db.getSiblingDB('<db>')` all work. The statement is read, never run: one that uses variables,
+    or one that writes, is offered to the Mongo Shell instead (and an `updateMany` to
+    **Update many**), and one on another collection asks before going there.
+  - **Filter, projection, sort**: filter, projection, sort, collation, skip and limit as separate
+    fields, which say what doesn't parse as you type and format a long filter onto several lines.
+    A whole statement pasted into the filter is read the same way.
+
+  Ctrl+Enter or Cmd+Enter runs the query, and switching modes carries it across. Every tab names,
+  under its title, the connection it works on, and for a copy, an import or a comparison, each side
+  it reads and writes (`From: Prod › shop.orders · Into: Dev › shop.orders`).
 - Tabs, their queries and pipelines, and the tree's open nodes come back when you return to the
   panel from another sidebar tab. Connections Orca closed while the panel was idle reopen by
   themselves, except ones that sign in through the browser.

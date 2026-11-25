@@ -14,10 +14,11 @@ import type { JsonValue } from '../shared/ejson-view'
 import type { NodeKind } from '../shared/nodes'
 import { cloneStages, hasWriteStage, pipelineOf, type StageText } from '../shared/pipeline'
 import { emptyGroup, filterToBuilder } from '../shared/query-builder'
+import { queryStatement } from '../shared/query-statement'
 import { parseShellDocument } from '../shared/shell-parse'
 import { adminTabs, type AdminTab } from './admin-state'
 import { loadSavedPipelines, newAgg, refreshPreview, runPipeline } from './aggregate-state'
-import { collTabs, loadFocus, loadLibrary, newFocus, newTab, runQuery, tabOrder, type CollTab, type DocView, type ResultView } from './collection-state'
+import { collTabs, loadFocus, loadLibrary, newFocus, newTab, runQuery, tabOrder, type CollTab, type DocView, type QueryMode, type ResultView } from './collection-state'
 import { openDatabase } from './database-state'
 import { openGridfs } from './gridfs-state'
 import { openManage } from './manage-state'
@@ -31,6 +32,9 @@ export type SavedTab =
   | (SavedBase & {
       type: 'query'
       text: QueryText
+      /** Older layouts have neither: the tab starts in the remembered mode, its statement from `text`. */
+      queryMode?: QueryMode
+      shellText?: string
       pageSize: number
       resultView: ResultView
       relaxed: boolean
@@ -97,6 +101,8 @@ function saveColl(t: CollTab): SavedTab | undefined {
     ...base,
     type: 'query',
     text: t.text,
+    queryMode: t.queryMode,
+    shellText: t.shellText,
     pageSize: t.pageSize,
     resultView: t.resultView,
     relaxed: t.relaxed,
@@ -173,6 +179,8 @@ function restoreColl(t: SavedTab & { type: 'query' | 'pipeline' | 'document' }, 
     }
     Object.assign(tab, {
       text: { ...t.text },
+      queryMode: t.queryMode ?? tab.queryMode,
+      shellText: t.shellText ?? queryStatement(t.ns.collection, t.text),
       pageSize: t.pageSize,
       resultView: t.resultView,
       relaxed: t.relaxed,

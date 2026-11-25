@@ -3,7 +3,7 @@
 // server, schema). Everything is drawn with Orca's
 // own components, so every Orca theme applies.
 import { Box, plugin, read, set, Tab, Tabs, type IconName, type OrcaNode, type PanelContext } from 'orca'
-import { collTabs, tabOrder } from './panel/collection-state'
+import { collTabs, resetQueryModeRun, tabOrder } from './panel/collection-state'
 import { adminTabs } from './panel/admin-state'
 import { ADMIN_ICONS, AdminTabView } from './panel/admin-view'
 import { AggregationTab } from './panel/aggregate-view'
@@ -37,6 +37,7 @@ import { SettingsView } from './panel/settings-view'
 
 export function setup(ctx: PanelContext): void {
   resetLayoutRun()
+  resetQueryModeRun()
   ctx.subscriptions.push(
     plugin.on('connections.changed', (state) => setConnections(state)),
     plugin.on('ui.navigate', ({ view: target }) => {

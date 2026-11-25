@@ -10,6 +10,7 @@ import {
   IconButton,
   Input,
   read,
+  RadioGroup,
   Row,
   Select,
   Separator,
@@ -49,11 +50,14 @@ import {
   setText,
   specFromText,
   useQuery,
+  hasShellMode,
+  tab,
   type CollTab,
+  type QueryMode,
   type QueryField
 } from './collection-state'
 import { openAggregation } from './aggregate-state'
-import { runBar } from './statement-state'
+import { runBar, setQueryMode, setShellText, syncFromShell } from './statement-state'
 import { StatementOfferView } from './statement-view'
 import { isShellStatement } from '../shared/shell-call'
 import { DocumentView } from './document-view'
@@ -101,10 +105,45 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
   )
 }
 
+const QUERY_MODES = [
+  { value: 'shell', label: 'Shell' },
+  { value: 'fields', label: 'Filter, projection, sort' }
+]
+
+/** Shell mode: the query as one statement, `db.getCollection("orders").find({})` to start with. */
+function ShellInput({ t }: { t: CollTab }): OrcaNode {
+  const lines = t.shellText.split('\n').length
+  return (
+    <Field label="Statement" {...(t.shellError ? { error: t.shellError } : { description: 'find, findOne, aggregate, countDocuments, count, estimatedDocumentCount or distinct. Ctrl+Enter or Cmd+Enter runs it.' })}>
+      <Textarea
+        label="Statement"
+        labelHidden
+        placeholder={`db.getCollection(${JSON.stringify(t.ns.collection)}).find({})`}
+        rows={Math.min(12, Math.max(2, lines))}
+        value={t.shellText}
+        invalid={Boolean(t.shellError)}
+        onChange={(v) => setShellText(t.id, v)}
+        onSubmit={() => void guard(t.id, () => runBar(t.id))()}
+      />
+    </Field>
+  )
+}
+
 function QueryBar({ t }: { t: CollTab }): OrcaNode {
   const extras = [t.text.collation && 'collation', t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(', ')
+  const modes = hasShellMode(t)
+  const switcher = modes ? <RadioGroup label="Query as" orientation="horizontal" value={t.queryMode} options={QUERY_MODES} onChange={(v) => setQueryMode(t.id, v as QueryMode)} /> : null
+  if (modes && t.queryMode === 'shell') {
+    return (
+      <Box gap={GAP.group}>
+        {switcher}
+        <ShellInput t={t} />
+      </Box>
+    )
+  }
   return (
     <Box gap={GAP.group}>
+      {switcher}
       <QueryInput t={t} field="filter" label="Filter" placeholder="{ status: 'shipped', total: { $gt: 100 } }" />
       <Box columns={2} gap="xs">
         <QueryInput t={t} field="projection" label="Projection" placeholder="{ name: 1, _id: 0 }" />
@@ -270,14 +309,18 @@ function Library({ t }: { t: CollTab }): OrcaNode {
 // ---- The tab ----
 
 /** The aggregation tab of this collection, started from the query in the bar when it parses. */
-function openAsAggregation(t: CollTab): Promise<void> {
+function openAsAggregation(from: CollTab): Promise<void> {
+  syncFromShell(from.id)
+  const t = tab(from.id) ?? from
   const { spec } = specFromText(t.text)
   const typed = spec && (Object.keys(spec.filter).length || spec.projection || spec.sort || spec.skip || spec.limit)
   return openAggregation(t.ns, t.kind, typed ? stagesFromFind(spec) : undefined, typed ? 'the query bar' : undefined)
 }
 
 /** The Export tab, with the query in the bar (as typed: it is checked there). */
-function exportQuery(t: CollTab): void {
+function exportQuery(from: CollTab): void {
+  syncFromShell(from.id)
+  const t = tab(from.id) ?? from
   openExport({ kind: 'query', ns: t.ns, collKind: t.kind }, queryText(t.text))
 }
 
@@ -317,7 +360,10 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
             {t.loading ? 'Running…' : 'Run'}
           </Button>
           <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
-          <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => runExplain(t.id))} />
+          <IconButton icon="gauge" label="Explain the query" variant="ghost" onPress={guard(t.id, () => {
+            syncFromShell(t.id)
+            return runExplain(t.id)
+          })} />
           <IconButton icon="layers" label="Open in the aggregation editor" variant="ghost" onPress={guard(t.id, () => openAsAggregation(t))} />
           {t.shell ? null : <IconButton icon="upload" label="Export this query: JSON, CSV, BSON or another collection" variant="ghost" onPress={guard(t.id, () => exportQuery(t))} />}
           {t.shell ? null : <IconButton icon="bar-chart-3" label="Schema of this collection" variant="ghost" onPress={guard(t.id, () => openSchema(t.ns, t.kind))} />}

@@ -1,5 +1,5 @@
-// Whole shell statements typed or pasted where a query is expected: `db.orders.find({…}).sort({…})`
-// in the query bar's filter, run with Run. A find fills the query bar and runs; an aggregate opens
+// Whole shell statements where a query is expected: Shell mode's statement (a collection tab's
+// default), or `db.orders.find({…}).sort({…})` pasted into the filter in Fields mode, run with Run. A find fills the query bar and runs; an aggregate opens
 // the collection's aggregation tab; a count or distinct runs its filter and says what it found. A
 // statement on another collection asks before going there, and one that writes, or that can't be
 // read without running it, is offered to the Mongo Shell (and an updateMany to Update many) but
@@ -10,7 +10,8 @@ import { toShell, toShellInline, type JsonObject, type JsonValue } from '../shar
 import { isShellStatement, readStatement, ShellCallError, type StatementRead } from '../shared/shell-call'
 import { newStage, stagesFromPipeline } from '../shared/pipeline'
 import { openAggregation } from './aggregate-state'
-import { canUpdateMany, change, nsLabel, openNamespace, openUpdateMany, runQuery, say, setBulk, tab, type CollTab } from './collection-state'
+import { canUpdateMany, change, chooseQueryMode, hasShellMode, nsLabel, openNamespace, openUpdateMany, runQuery, say, setBulk, tab, type CollTab, type QueryMode } from './collection-state'
+import { queryStatement } from '../shared/query-statement'
 import { queryTextOf } from './shell-state'
 import { connections, errorText, view } from './state'
 
@@ -23,11 +24,17 @@ export function connectionReadOnly(ns: Namespace): boolean {
   return read(connections)?.connections.find((c) => c.id === ns.connectionId)?.readOnly === true
 }
 
-/** Run: the query bar as it is, or the statement typed as its filter. */
+/** Run: Shell mode's statement, or in Fields mode the fields, or a statement pasted as the filter. */
 export async function runBar(id: string): Promise<void> {
   const t = tab(id)
-  if (!t || t.agg || t.shell || t.docTab || !isShellStatement(t.text.filter)) return runQuery(id)
-  const text = t.text.filter.trim()
+  if (!t) return
+  const shell = hasShellMode(t) && t.queryMode === 'shell'
+  if (!shell && (!hasShellMode(t) || !isShellStatement(t.text.filter))) return runQuery(id)
+  const text = (shell ? t.shellText : t.text.filter).trim()
+  if (shell && !isShellStatement(text)) {
+    change(id, () => ({ shellError: `Write a statement on db, such as db.getCollection(${JSON.stringify(t.ns.collection)}).find({}).`, statement: undefined }))
+    return
+  }
   let r: StatementRead
   try {
     r = readStatement(text, t.ns.db)
@@ -48,7 +55,7 @@ export async function runBar(id: string): Promise<void> {
     change(id, () => ({ statement: { kind: 'elsewhere', read: r, target }, fieldErrors: {} }))
     return
   }
-  await useRead(id, r)
+  await useRead(id, r, shell)
 }
 
 function targetOf(r: Exclude<StatementRead, { kind: 'shell' }>, ns: Namespace): Namespace {
@@ -70,22 +77,27 @@ function barText(r: Exclude<StatementRead, { kind: 'shell' | 'aggregate' }>): Qu
   }
 }
 
-/** Uses what a statement reads in tab `id`, on that tab's collection whatever the statement named. */
-async function useRead(id: string, r: Exclude<StatementRead, { kind: 'shell' }>): Promise<void> {
+/** Uses what a statement reads in tab `id`, on that tab's collection whatever the statement named.
+ *  `keepShell`: the statement came from Shell mode and names this collection, so it stays as typed;
+ *  otherwise Shell mode's statement is written again from the fields. */
+async function useRead(id: string, r: Exclude<StatementRead, { kind: 'shell' }>, keepShell = false): Promise<void> {
   const t = tab(id)
   if (!t) return
   if (r.kind === 'aggregate') return openPipeline(t.ns, t.kind, r, t.agg ? undefined : `the query bar of ${t.title}`)
   const text = barText(r)
-  change(id, () => ({ text, fieldErrors: {}, statement: undefined, ...(text.collation || text.skip || text.limit ? { optionsOpen: true } : {}) }))
+  change(id, () => ({ text, ...(keepShell ? { shellRead: text } : {}), fieldErrors: {}, statement: undefined, shellError: undefined, ...(text.collation || text.skip || text.limit ? { optionsOpen: true } : {}) }))
   await runQuery(id)
   await report(id, r)
 }
 
-/** Opens (or shows) a collection's tab and uses what a find, count or distinct reads there. */
-async function openRead(ns: Namespace, r: Exclude<StatementRead, { kind: 'shell' | 'aggregate' }>): Promise<void> {
+/** Opens (or shows) a collection's tab and uses what a find, count or distinct reads there. Its
+ *  Shell mode gets the statement as typed, which names that collection. */
+async function openRead(ns: Namespace, r: Exclude<StatementRead, { kind: 'shell' | 'aggregate' }>, statement: string): Promise<void> {
   await openNamespace(ns, 'coll', barText(r))
   const id = read(view)
-  if (tab(id)) await report(id, r)
+  if (!tab(id)) return
+  change(id, (t) => ({ shellText: statement, shellRead: t.text, shellError: undefined }))
+  await report(id, r)
 }
 
 /** Opens (or shows) a collection's aggregation tab with the statement's pipeline and options. */
@@ -147,7 +159,8 @@ export async function openElsewhere(id: string): Promise<void> {
   const r = s.read
   if (r.kind === 'shell') return
   if (r.kind === 'aggregate') return openPipeline(s.target, 'coll', r, `a statement in ${tab(id)?.title ?? 'another tab'}`)
-  return openRead(s.target, r)
+  const t = tab(id)
+  return openRead(s.target, r, t && t.queryMode === 'shell' ? t.shellText.trim() : t?.text.filter.trim() ?? '')
 }
 
 /** Uses the statement on this tab's collection instead of the one it names. */
@@ -161,6 +174,56 @@ export function dismissStatement(id: string): void {
   change(id, () => ({ statement: undefined }))
 }
 
+// ---- Shell mode ----
+
+/** Shell mode's statement as typed: a choice offered for the one before no longer applies. */
+export function setShellText(id: string, value: string): void {
+  change(id, () => ({ shellText: value, shellError: undefined, statement: undefined }))
+}
+
+/** Switches a tab between Shell and Fields mode, and remembers the choice for new tabs. Going to
+ *  Fields, a find on this collection typed since the last run fills the fields; any other
+ *  statement leaves them as last run, and says so. */
+export function setQueryMode(id: string, mode: QueryMode): void {
+  const t = tab(id)
+  if (!t || !hasShellMode(t)) return
+  chooseQueryMode(mode)
+  if (t.queryMode === mode) return
+  if (mode === 'fields') {
+    const from = fieldsFromShell(t)
+    change(id, () => ({ queryMode: mode, statement: undefined, shellError: undefined, ...from.values }))
+    if (from.note) say(id, 'neutral', from.note)
+    return
+  }
+  change(id, () => ({ queryMode: mode, statement: undefined }))
+}
+
+/** The fields that Shell mode's statement stands for, when it is a find on this collection. */
+function fieldsFromShell(t: CollTab): { values?: Partial<CollTab>; note?: string } {
+  const statement = t.shellText.trim()
+  if (statement === queryStatement(t.ns.collection, t.text)) return {}
+  let r: StatementRead | undefined
+  try {
+    r = isShellStatement(statement) ? readStatement(statement, t.ns.db) : undefined
+  } catch {
+    r = undefined
+  }
+  if (r?.kind === 'find' && r.op.db === t.ns.db && r.op.collection === t.ns.collection) {
+    const text = barText(r)
+    return { values: { text, shellRead: text, fieldErrors: {}, ...(text.collation || text.skip || text.limit ? { optionsOpen: true } : {}) } }
+  }
+  return { note: "The statement isn't a find on this collection, so the fields keep the query as last run. Shell mode keeps the statement." }
+}
+
+/** Before something uses the query as the fields hold it (Explain, Export, the aggregation editor):
+ *  in Shell mode, a find on this collection typed since the last run fills them first. */
+export function syncFromShell(id: string): void {
+  const t = tab(id)
+  if (!t || !hasShellMode(t) || t.queryMode !== 'shell') return
+  const from = fieldsFromShell(t)
+  if (from.values) change(id, () => from.values!)
+}
+
 /** Copies the statement, to paste into a Mongo Shell editor. Not for a write on a read-only
  *  connection, which the shell would refuse. */
 export async function copyForShell(id: string): Promise<void> {
@@ -170,7 +233,7 @@ export async function copyForShell(id: string): Promise<void> {
   try {
     await plugin.request('clipboard.copyText', { text: s.text })
   } catch (error) {
-    say(id, 'danger', `Could not copy the statement: ${errorText(error)}. Select it in the filter and copy it.`)
+    say(id, 'danger', `Could not copy the statement: ${errorText(error)}. Select it and copy it.`)
     return
   }
   say(id, 'success', 'Copied the statement. Paste it into a Mongo Shell editor (Mongo Studio: New shell script) and run it there.')

@@ -53,7 +53,7 @@ const csvPreview: ImportPreview = {
 
 type Calls = Record<string, unknown[]>
 
-function setup(extra: MockRequests = {}) {
+function setup(extra: MockRequests = {}, mode: 'shell' | 'fields' = 'fields') {
   const calls: Calls = {}
   const log = (name: string, input: unknown) => {
     ;(calls[name] ??= []).push(input)
@@ -68,6 +68,8 @@ function setup(extra: MockRequests = {}) {
   }
   const content = Buffer.from('{"a":1}\n{"a":2}\n')
   const host = mockHost({
+    // Filled-in fields unless a test starts in Shell mode, the default.
+    storage: { 'mongo-studio.queryMode': mode },
     requests: {
       'connections.state': state,
       'tree.children': ({ key }) =>
@@ -547,5 +549,82 @@ describe('shell statements in the query bar', () => {
     await view.press({ text: 'Use orders' })
     assert.equal(view.rowsOf(stages).length, 4)
     assert.equal(view.find(text), null)
+  })
+})
+
+describe('Shell mode', () => {
+  const statement = { type: 'Textarea', label: 'Statement' }
+  const mode = { type: 'RadioGroup', label: 'Query as' }
+
+  async function shellTab(host: ReturnType<typeof setup>['host'], collection = 'orders') {
+    const view = await at(host, `conn:c1/db:shop/coll:${collection}`)
+    await view.press({ text: 'Open' })
+    return view
+  }
+
+  test('a collection tab starts in Shell mode with a find of everything, and runs what is typed', async () => {
+    const { host, calls } = setup({}, 'shell')
+    const view = await shellTab(host)
+    assert.equal(view.valueOf(mode), 'shell')
+    assert.equal(view.valueOf(statement), 'db.getCollection("orders").find({})')
+    assert.equal(view.find({ label: 'Filter' }), null)
+    assert.deepEqual((calls.queryRun!.at(-1) as { spec: unknown }).spec, { filter: {}, skip: 0, limit: 0 })
+    await view.type(statement, `db.getCollection("orders").find({ status: 'A' }).sort({ at: -1 }).limit(5)`, { replace: true, submit: true })
+    assert.deepEqual((calls.queryRun!.at(-1) as { spec: unknown }).spec, { filter: { status: 'A' }, sort: { at: int(-1) }, skip: 0, limit: 5 })
+    assert.equal(view.valueOf(statement), `db.getCollection("orders").find({ status: 'A' }).sort({ at: -1 }).limit(5)`, 'kept as typed')
+    assert.deepEqual(view.refusals, [])
+  })
+
+  test('the mode is chosen per tab and remembered for new tabs; the query goes across', async () => {
+    const { host, calls } = setup({}, 'shell')
+    const view = await shellTab(host)
+    // Typed but not run: switching takes it to the fields all the same.
+    await view.type(statement, `db.getCollection("orders").find({ a: 1 }, { b: 1 })`, { replace: true })
+    await view.select(mode, 'fields')
+    assert.equal(host.data().storage['mongo-studio.queryMode'], 'fields')
+    assert.equal(view.valueOf({ label: 'Filter' }), '{ a: 1 }')
+    assert.equal(view.valueOf({ label: 'Projection' }), '{ b: 1 }')
+    await view.type({ label: 'Filter' }, '{ a: 2 }', { replace: true })
+    await view.type({ label: 'Sort' }, '{ n: -1 }', { submit: true })
+    assert.deepEqual((calls.queryRun!.at(-1) as { spec: { filter: unknown } }).spec.filter, { a: int(2) })
+    await view.select(mode, 'shell')
+    assert.equal(view.valueOf(statement), 'db.getCollection("orders").find({ a: 2 }, { b: 1 }).sort({ n: -1 })')
+    await view.select(mode, 'fields')
+    await view.select({ type: 'Tabs' }, 'tree')
+    await view.selectItem(tree, 'conn:c1/db:shop/coll:archive')
+    await view.press({ text: 'Open' })
+    assert.equal(view.valueOf(mode), 'fields', 'a new tab starts in the mode last chosen')
+  })
+
+  test('a count stays as typed after it runs; a statement that is no find leaves the fields as run', async () => {
+    const { host } = setup({}, 'shell')
+    const view = await shellTab(host)
+    await view.type(statement, "db.getCollection('orders').countDocuments({ status: 'A' })", { replace: true, submit: true })
+    assert.ok(view.find({ text: 'countDocuments: 2 documents.' }))
+    assert.equal(view.valueOf(statement), "db.getCollection('orders').countDocuments({ status: 'A' })")
+    await view.select(mode, 'fields')
+    assert.equal(view.valueOf({ label: 'Filter' }), "{ status: 'A' }")
+    await view.select(mode, 'shell')
+    await view.type(statement, 'db.orders.getIndexes()', { replace: true })
+    await view.select(mode, 'fields')
+    assert.ok(view.find({ text: /isn't a find on this collection, so the fields keep the query as last run/ }))
+    assert.equal(view.valueOf({ label: 'Filter' }), "{ status: 'A' }")
+  })
+
+  test('text that is not a statement says what to write, and runs nothing', async () => {
+    const { host, calls } = setup({}, 'shell')
+    const view = await shellTab(host)
+    const before = calls.queryRun!.length
+    await view.type(statement, "{ status: 'A' }", { replace: true, submit: true })
+    assert.equal(calls.queryRun!.length, before)
+    assert.match(String(view.find({ type: 'Field', label: 'Statement' })!.props.error), /Write a statement on db, such as db\.getCollection\("orders"\)\.find\(\{\}\)/)
+  })
+
+  test('history and Reset write the statement again', async () => {
+    const { host } = setup({ 'history.list': { history: [{ at: 1, query: { filter: '{ x: 1 }', projection: '', sort: '', collation: '', skip: '', limit: '3' } }], saved: [] } }, 'shell')
+    const view = await shellTab(host)
+    await view.type(statement, 'db.orders.find({ y: 2 })', { replace: true, submit: true })
+    await view.press({ label: 'Reset the query' })
+    assert.equal(view.valueOf(statement), 'db.getCollection("orders").find({})')
   })
 })

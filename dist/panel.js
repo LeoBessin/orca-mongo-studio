@@ -2213,6 +2213,18 @@ function formatBytes(bytes) {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+// src/shared/query-statement.ts
+var ONE_LINE_MAX = 80;
+function queryStatement(collection, text) {
+  const filter2 = text.filter.trim() || "{}";
+  const projection = text.projection.trim();
+  const head = `db.getCollection(${JSON.stringify(collection)}).find(${filter2}${projection ? `, ${projection}` : ""})`;
+  const chain = ["sort", "collation", "skip", "limit"].filter((k) => text[k].trim()).map((k) => `.${k}(${text[k].trim()})`);
+  const flat = head + chain.join("");
+  if (chain.length === 0 || flat.length <= ONE_LINE_MAX && !flat.includes("\n")) return flat;
+  return [head, ...chain.map((c) => `  ${c}`)].join("\n");
+}
+
 // src/shared/query-format.ts
 var PAIRS = { "{": "}", "[": "]", "(": ")" };
 var CLOSERS = /* @__PURE__ */ new Set(["}", "]", ")"]);
@@ -3855,6 +3867,7 @@ var collTabs = atom4({});
 var tabOrder = atom4([]);
 var defaultPageSize = atom4("mongo-studio.pageSize", DEFAULT_PAGE_SIZE, { persist: "plugin" });
 var lastResultView = atom4("mongo-studio.resultView", "table", { persist: "storage" });
+var lastQueryMode = atom4("mongo-studio.queryMode", "shell", { persist: "storage" });
 var lastDocView = atom4("mongo-studio.docView", "tree", { persist: "storage" });
 var RESULT_VIEWS = { table: "Table", tree: "Tree", json: "JSON" };
 var DOC_VIEWS = { tree: "Tree", json: "JSON", shell: "Shell" };
@@ -3877,7 +3890,7 @@ function change(id, fn) {
     if (!t) return prev;
     const next = fn(t);
     const out = "id" in next && next.id === t.id ? next : { ...t, ...next };
-    return { ...prev, [id]: withBoxes(t, out) };
+    return { ...prev, [id]: withShell(t, withBoxes(t, out)) };
   });
 }
 function withBoxes(before, after) {
@@ -3889,6 +3902,10 @@ function withBoxes(before, after) {
     delete multiline[field];
   }
   return multiline ? { ...after, multiline } : after;
+}
+function withShell(before, after) {
+  if (after.text === before.text || after.text === after.shellRead || after.shellText !== before.shellText) return after;
+  return { ...after, shellText: queryStatement(after.ns.collection, after.text), shellError: void 0 };
 }
 function patch(id, values) {
   change(id, () => values);
@@ -3932,7 +3949,10 @@ async function openNamespace(ns, kind, text) {
   }
   const id = tabIdFor(ns);
   const t = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() };
-  if (text) t.text = text;
+  if (text) {
+    t.text = text;
+    t.shellText = queryStatement(ns.collection, text);
+  }
   update3(collTabs, (prev) => ({ ...prev, [id]: t }));
   update3(tabOrder, (prev) => [...prev, id]);
   set4(view, id);
@@ -3961,8 +3981,25 @@ function newTab(id, ns, kind, title) {
     builderProblems: [],
     builderOpen: false,
     optionsOpen: false,
-    saveName: ""
+    saveName: "",
+    queryMode: startQueryMode(),
+    shellText: queryStatement(ns.collection, emptyText)
   };
+}
+var chosenQueryMode;
+function chooseQueryMode(mode) {
+  chosenQueryMode = mode;
+  set4(lastQueryMode, mode);
+}
+function resetQueryModeRun() {
+  chosenQueryMode = void 0;
+}
+function startQueryMode() {
+  const m = chosenQueryMode ?? read4(lastQueryMode);
+  return m === "fields" ? "fields" : "shell";
+}
+function hasShellMode(t) {
+  return !t.shell && !t.agg && !t.docTab;
 }
 function closeTab(id) {
   const t = tab(id);
@@ -4130,7 +4167,7 @@ async function runQuery(id, record = true) {
   }
   if (t.queryId) void plugin3.request("query.close", { queryId: t.queryId }).catch(() => void 0);
   const token = t.runToken + 1;
-  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0, statement: void 0 });
+  patch(id, { ...dropBulkPreview(t), loading: true, error: void 0, fieldErrors: {}, runToken: token, spec, count: "counting", selectedRows: [], editor: void 0, confirmDelete: void 0, treeSelected: void 0, treeExpanded: [], notice: void 0, statement: void 0, shellError: void 0 });
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...record ? { text: t.text } : {} };
   const counting = countQuery(id, token, spec);
   try {
@@ -9548,8 +9585,14 @@ function connectionReadOnly(ns) {
 }
 async function runBar(id) {
   const t = tab(id);
-  if (!t || t.agg || t.shell || t.docTab || !isShellStatement(t.text.filter)) return runQuery(id);
-  const text = t.text.filter.trim();
+  if (!t) return;
+  const shell = hasShellMode(t) && t.queryMode === "shell";
+  if (!shell && (!hasShellMode(t) || !isShellStatement(t.text.filter))) return runQuery(id);
+  const text = (shell ? t.shellText : t.text.filter).trim();
+  if (shell && !isShellStatement(text)) {
+    change(id, () => ({ shellError: `Write a statement on db, such as db.getCollection(${JSON.stringify(t.ns.collection)}).find({}).`, statement: void 0 }));
+    return;
+  }
   let r;
   try {
     r = readStatement(text, t.ns.db);
@@ -9568,7 +9611,7 @@ async function runBar(id) {
     change(id, () => ({ statement: { kind: "elsewhere", read: r, target }, fieldErrors: {} }));
     return;
   }
-  await useRead(id, r);
+  await useRead(id, r, shell);
 }
 function targetOf(r, ns) {
   const { db, collection } = r.kind === "find" || r.kind === "aggregate" ? r.op : r;
@@ -9586,19 +9629,21 @@ function barText(r) {
     limit: r.kind === "count" && r.limit ? String(r.limit) : ""
   };
 }
-async function useRead(id, r) {
+async function useRead(id, r, keepShell = false) {
   const t = tab(id);
   if (!t) return;
   if (r.kind === "aggregate") return openPipeline(t.ns, t.kind, r, t.agg ? void 0 : `the query bar of ${t.title}`);
   const text = barText(r);
-  change(id, () => ({ text, fieldErrors: {}, statement: void 0, ...text.collation || text.skip || text.limit ? { optionsOpen: true } : {} }));
+  change(id, () => ({ text, ...keepShell ? { shellRead: text } : {}, fieldErrors: {}, statement: void 0, shellError: void 0, ...text.collation || text.skip || text.limit ? { optionsOpen: true } : {} }));
   await runQuery(id);
   await report(id, r);
 }
-async function openRead(ns, r) {
+async function openRead(ns, r, statement) {
   await openNamespace(ns, "coll", barText(r));
   const id = read23(view);
-  if (tab(id)) await report(id, r);
+  if (!tab(id)) return;
+  change(id, (t) => ({ shellText: statement, shellRead: t.text, shellError: void 0 }));
+  await report(id, r);
 }
 async function openPipeline(ns, kind, r, from) {
   const { stages, error } = stagesFromPipeline(r.op.pipeline);
@@ -9650,7 +9695,8 @@ async function openElsewhere(id) {
   const r = s.read;
   if (r.kind === "shell") return;
   if (r.kind === "aggregate") return openPipeline(s.target, "coll", r, `a statement in ${tab(id)?.title ?? "another tab"}`);
-  return openRead(s.target, r);
+  const t = tab(id);
+  return openRead(s.target, r, t && t.queryMode === "shell" ? t.shellText.trim() : t?.text.filter.trim() ?? "");
 }
 async function useHere(id) {
   const s = tab(id)?.statement;
@@ -9660,6 +9706,43 @@ async function useHere(id) {
 function dismissStatement(id) {
   change(id, () => ({ statement: void 0 }));
 }
+function setShellText(id, value) {
+  change(id, () => ({ shellText: value, shellError: void 0, statement: void 0 }));
+}
+function setQueryMode(id, mode) {
+  const t = tab(id);
+  if (!t || !hasShellMode(t)) return;
+  chooseQueryMode(mode);
+  if (t.queryMode === mode) return;
+  if (mode === "fields") {
+    const from = fieldsFromShell(t);
+    change(id, () => ({ queryMode: mode, statement: void 0, shellError: void 0, ...from.values }));
+    if (from.note) say2(id, "neutral", from.note);
+    return;
+  }
+  change(id, () => ({ queryMode: mode, statement: void 0 }));
+}
+function fieldsFromShell(t) {
+  const statement = t.shellText.trim();
+  if (statement === queryStatement(t.ns.collection, t.text)) return {};
+  let r;
+  try {
+    r = isShellStatement(statement) ? readStatement(statement, t.ns.db) : void 0;
+  } catch {
+    r = void 0;
+  }
+  if (r?.kind === "find" && r.op.db === t.ns.db && r.op.collection === t.ns.collection) {
+    const text = barText(r);
+    return { values: { text, shellRead: text, fieldErrors: {}, ...text.collation || text.skip || text.limit ? { optionsOpen: true } : {} } };
+  }
+  return { note: "The statement isn't a find on this collection, so the fields keep the query as last run. Shell mode keeps the statement." };
+}
+function syncFromShell(id) {
+  const t = tab(id);
+  if (!t || !hasShellMode(t) || t.queryMode !== "shell") return;
+  const from = fieldsFromShell(t);
+  if (from.values) change(id, () => from.values);
+}
 async function copyForShell(id) {
   const t = tab(id);
   const s = t?.statement;
@@ -9667,7 +9750,7 @@ async function copyForShell(id) {
   try {
     await plugin17.request("clipboard.copyText", { text: s.text });
   } catch (error) {
-    say2(id, "danger", `Could not copy the statement: ${errorText(error)}. Select it in the filter and copy it.`);
+    say2(id, "danger", `Could not copy the statement: ${errorText(error)}. Select it and copy it.`);
     return;
   }
   say2(id, "success", "Copied the statement. Paste it into a Mongo Shell editor (Mongo Studio: New shell script) and run it there.");
@@ -11548,6 +11631,7 @@ import {
   IconButton as IconButton16,
   Input as Input14,
   read as read26,
+  RadioGroup as RadioGroup9,
   Row as Row22,
   Select as Select13,
   Separator as Separator2,
@@ -11896,9 +11980,38 @@ function QueryInput({ t, field, label, placeholder }) {
     multi ? /* @__PURE__ */ jsx25(IconButton16, { icon: "collapse", label: `Put the ${name} on one line`, variant: "ghost", size: "sm", onPress: () => compactField(t.id, field) }) : /* @__PURE__ */ jsx25(IconButton16, { icon: "code", label: `Format the ${name} on several lines`, variant: "ghost", size: "sm", disabled: !value.trim(), onPress: () => formatField(t.id, field) })
   ] }) : input });
 }
+var QUERY_MODES = [
+  { value: "shell", label: "Shell" },
+  { value: "fields", label: "Filter, projection, sort" }
+];
+function ShellInput({ t }) {
+  const lines = t.shellText.split("\n").length;
+  return /* @__PURE__ */ jsx25(Field2, { label: "Statement", ...t.shellError ? { error: t.shellError } : { description: "find, findOne, aggregate, countDocuments, count, estimatedDocumentCount or distinct. Ctrl+Enter or Cmd+Enter runs it." }, children: /* @__PURE__ */ jsx25(
+    Textarea9,
+    {
+      label: "Statement",
+      labelHidden: true,
+      placeholder: `db.getCollection(${JSON.stringify(t.ns.collection)}).find({})`,
+      rows: Math.min(12, Math.max(2, lines)),
+      value: t.shellText,
+      invalid: Boolean(t.shellError),
+      onChange: (v) => setShellText(t.id, v),
+      onSubmit: () => void guard(t.id, () => runBar(t.id))()
+    }
+  ) });
+}
 function QueryBar({ t }) {
   const extras = [t.text.collation && "collation", t.text.skip && `skip ${t.text.skip}`, t.text.limit && `limit ${t.text.limit}`].filter(Boolean).join(", ");
+  const modes = hasShellMode(t);
+  const switcher = modes ? /* @__PURE__ */ jsx25(RadioGroup9, { label: "Query as", orientation: "horizontal", value: t.queryMode, options: QUERY_MODES, onChange: (v) => setQueryMode(t.id, v) }) : null;
+  if (modes && t.queryMode === "shell") {
+    return /* @__PURE__ */ jsxs23(Box22, { gap: GAP.group, children: [
+      switcher,
+      /* @__PURE__ */ jsx25(ShellInput, { t })
+    ] });
+  }
   return /* @__PURE__ */ jsxs23(Box22, { gap: GAP.group, children: [
+    switcher,
     /* @__PURE__ */ jsx25(QueryInput, { t, field: "filter", label: "Filter", placeholder: "{ status: 'shipped', total: { $gt: 100 } }" }),
     /* @__PURE__ */ jsxs23(Box22, { columns: 2, gap: "xs", children: [
       /* @__PURE__ */ jsx25(QueryInput, { t, field: "projection", label: "Projection", placeholder: "{ name: 1, _id: 0 }" }),
@@ -12035,12 +12148,16 @@ function Library({ t }) {
     ] })
   ] }) });
 }
-function openAsAggregation(t) {
+function openAsAggregation(from) {
+  syncFromShell(from.id);
+  const t = tab(from.id) ?? from;
   const { spec } = specFromText(t.text);
   const typed = spec && (Object.keys(spec.filter).length || spec.projection || spec.sort || spec.skip || spec.limit);
   return openAggregation(t.ns, t.kind, typed ? stagesFromFind(spec) : void 0, typed ? "the query bar" : void 0);
 }
-function exportQuery(t) {
+function exportQuery(from) {
+  syncFromShell(from.id);
+  const t = tab(from.id) ?? from;
   openExport({ kind: "query", ns: t.ns, collKind: t.kind }, queryText(t.text));
 }
 var KIND_LABEL = { view: "View · read only", timeseries: "Time-series" };
@@ -12069,7 +12186,10 @@ function CollectionTab({ id }) {
       /* @__PURE__ */ jsxs23(Toolbar15, { label: "Query actions", gap: "xs", children: [
         /* @__PURE__ */ jsx25(Button20, { variant: "solid", tone: "accent", icon: "play", disabled: t.loading, onPress: guard(t.id, () => runBar(t.id)), children: t.loading ? "Running…" : "Run" }),
         /* @__PURE__ */ jsx25(IconButton16, { icon: "refresh", label: "Reset the query", variant: "ghost", onPress: guard(t.id, () => resetQuery(t.id)) }),
-        /* @__PURE__ */ jsx25(IconButton16, { icon: "gauge", label: "Explain the query", variant: "ghost", onPress: guard(t.id, () => runExplain(t.id)) }),
+        /* @__PURE__ */ jsx25(IconButton16, { icon: "gauge", label: "Explain the query", variant: "ghost", onPress: guard(t.id, () => {
+          syncFromShell(t.id);
+          return runExplain(t.id);
+        }) }),
         /* @__PURE__ */ jsx25(IconButton16, { icon: "layers", label: "Open in the aggregation editor", variant: "ghost", onPress: guard(t.id, () => openAsAggregation(t)) }),
         t.shell ? null : /* @__PURE__ */ jsx25(IconButton16, { icon: "upload", label: "Export this query: JSON, CSV, BSON or another collection", variant: "ghost", onPress: guard(t.id, () => exportQuery(t)) }),
         t.shell ? null : /* @__PURE__ */ jsx25(IconButton16, { icon: "bar-chart-3", label: "Schema of this collection", variant: "ghost", onPress: guard(t.id, () => openSchema(t.ns, t.kind)) }),
@@ -12118,7 +12238,7 @@ import {
   KeyValue as KeyValue10,
   List,
   ListItem,
-  RadioGroup as RadioGroup9,
+  RadioGroup as RadioGroup10,
   read as read27,
   Row as Row23,
   Select as Select14,
@@ -12298,7 +12418,7 @@ function authSection(def) {
     ] }) : null,
     m === "MONGODB-AWS" ? /* @__PURE__ */ jsxs24(Box23, { gap: "sm", children: [
       /* @__PURE__ */ jsx26(
-        RadioGroup9,
+        RadioGroup10,
         {
           label: "Credentials",
           value: a.awsSource,
@@ -12368,7 +12488,7 @@ function sshSection(def) {
       ] }),
       textInput("SSH user name", s.username, (v) => edit((d) => d.ssh.username = v), { field: "ssh.username" }),
       /* @__PURE__ */ jsx26(
-        RadioGroup9,
+        RadioGroup10,
         {
           label: "Sign in with",
           orientation: "horizontal",
@@ -12456,7 +12576,7 @@ function ConnectionForm() {
         /* @__PURE__ */ jsx26(Text24, { muted: true, size: "xs", children: "Mongo Studio refuses every change through this connection: edits, imports, copies into it, administration and shell writes. Reading, exporting and comparing still work." })
       ] }),
       /* @__PURE__ */ jsx26(
-        RadioGroup9,
+        RadioGroup10,
         {
           label: "Edit as",
           orientation: "horizontal",
@@ -12516,6 +12636,8 @@ function saveColl(t) {
     ...base,
     type: "query",
     text: t.text,
+    queryMode: t.queryMode,
+    shellText: t.shellText,
     pageSize: t.pageSize,
     resultView: t.resultView,
     relaxed: t.relaxed,
@@ -12582,6 +12704,8 @@ function restoreColl(t, open) {
     }
     Object.assign(tab2, {
       text: { ...t.text },
+      queryMode: t.queryMode ?? tab2.queryMode,
+      shellText: t.shellText ?? queryStatement(t.ns.collection, t.text),
       pageSize: t.pageSize,
       resultView: t.resultView,
       relaxed: t.relaxed,
@@ -13163,6 +13287,7 @@ function SettingsView() {
 import { jsx as jsx30, jsxs as jsxs28 } from "orca/jsx-runtime";
 function setup(ctx) {
   resetLayoutRun();
+  resetQueryModeRun();
   ctx.subscriptions.push(
     plugin19.on("connections.changed", (state) => setConnections(state)),
     plugin19.on("ui.navigate", ({ view: target }) => {
