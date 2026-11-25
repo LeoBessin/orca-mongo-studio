@@ -418,7 +418,7 @@ describe('shell statements in the query bar', () => {
 
   function statements(extra: MockRequests = {}) {
     const s = setup({
-      'agg.preview': { before: { docs: [], ms: 1 }, after: { docs: [], ms: 1 } },
+      'agg.preview': { input: { docs: [], truncated: [], more: false, stoppedForSize: false }, output: { docs: [], truncated: [], more: false, stoppedForSize: false }, ms: 1 },
       'agg.run': { queryId: 'a1', offset: 0, docs: [], truncated: [], hasMore: false, stoppedForSize: false, ms: 1 },
       'agg.count': { count: 0, approximate: false, ms: 1 },
       'pipelines.list': { saved: [] },

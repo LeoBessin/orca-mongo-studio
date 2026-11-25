@@ -143,7 +143,7 @@ describe('statements: refused', () => {
   test('variables and functions other than BSON constructors', () => {
     assert.throws(() => readStatement('db.users.find({ age: minAge })', 'x'), /literal value.*minAge|literal value/)
     assert.throws(() => readStatement('db.users.aggregate(pipeline)', 'x'), /literal/)
-    assert.doesNotThrow(() => readStatement("db.users.find({ _id: ObjectId('64b7f0c2a1b2c3d4e5f60718'), at: { $gt: ISODate('2024-01-01') } })", 'x'))
+    assert.equal(readStatement("db.users.find({ _id: ObjectId('64b7f0c2a1b2c3d4e5f60718'), at: { $gt: ISODate('2024-01-01') } })", 'x').kind, 'find')
   })
   test('several statements, other code, and cursor methods that need running', () => {
     assert.throws(() => readStatement('db.a.find(); db.b.find()', 'x'), /2 statements/)
