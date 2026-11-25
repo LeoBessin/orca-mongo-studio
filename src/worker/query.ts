@@ -4,7 +4,7 @@
 // page stops early when its documents would pass the byte budget.
 import { createHash } from 'node:crypto'
 import { BSON, type AbstractCursor, type Collection, type Document, type MongoClient } from 'mongodb'
-import type { AggOptions, CountResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
+import type { AggOptions, CountResult, DistinctResult, Namespace, QueryLibrary, QueryPage, QuerySpec, QueryText, SavedQuery, WriteResult } from '../protocol'
 import { hasWriteStage } from '../shared/pipeline'
 import { base64Length, bsonType, isObject, type JsonObject, type JsonValue } from '../shared/ejson-view'
 import { fitsHost, HOST_MAX_BYTES, HOST_MAX_OBJECTS, hostSize, QUERY_TEXT_MAX } from '../shared/host-size'
@@ -25,6 +25,8 @@ export const FIND_MAX_TIME_MS = 60_000
 /** Reads keep every BSON type as it is: Int64 stays a Long, regexes keep their flags. */
 export const EXACT = { promoteValues: false, promoteLongs: false, bsonRegExp: true } as const
 export const COUNT_MAX_TIME_MS = 10_000
+/** Values `query.distinct` sends back, at most. */
+export const DISTINCT_MAX = 1000
 const IDLE_CURSOR_MS = 10 * 60_000
 
 const STRING_MAX = 4000
@@ -351,6 +353,31 @@ export async function countMatching(
     }
     return { count: null, approximate: false, ms: Date.now() - started, error: e.message ?? String(error) }
   }
+}
+
+/** A field's distinct values where `filter` matches: the first `DISTINCT_MAX`, each shortened like
+ *  a page's values, and together cut to what a page may carry. */
+export async function distinctValues(coll: Collection, field: string, filter: JsonObject, collation?: JsonObject): Promise<DistinctResult> {
+  if (typeof field !== 'string' || !field) throw invalid('distinct needs a field name.')
+  if (!isObject(filter)) throw invalid('The filter must be a document.')
+  const started = Date.now()
+  const options: Document = { maxTimeMS: FIND_MAX_TIME_MS }
+  if (collation && Object.keys(collation).length) options.collation = toBson(collation)
+  const all = (await coll.distinct(field, toBson(filter), options)) as unknown[]
+  const values: JsonValue[] = []
+  let cut = false
+  let bytes = 0
+  let objects = 0
+  for (const raw of all.slice(0, DISTINCT_MAX)) {
+    const s = shrink(toCanonical({ v: raw }).v!)
+    const size = hostSize(s.value)
+    if (bytes + size.bytes > PAGE_BYTE_BUDGET || objects + size.objects > PAGE_OBJECT_BUDGET) break
+    bytes += size.bytes
+    objects += size.objects
+    cut ||= s.cut
+    values.push(s.value)
+  }
+  return { values, total: all.length, cut, ms: Date.now() - started }
 }
 
 // ---- Document writes ----

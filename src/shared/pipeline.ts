@@ -3,6 +3,7 @@
 // pipelines a stage's preview runs. Pure; the panel and its tests use it.
 import { bsonType, isObject, toShell, toShellInline, type JsonObject, type JsonValue } from './ejson-view'
 import { parseShell, ShellParseError } from './shell-parse'
+import { isShellStatement, readStatement, ShellCallError, type AggregateReadOptions } from './shell-call'
 
 export type StageDraft = {
   id: string
@@ -116,9 +117,30 @@ export function bodyText(v: JsonValue): string {
   return inline.length <= 60 ? inline : toShell(v)
 }
 
-/** The whole pipeline typed as one array: `[{ $match: … }, …]`. */
-export function parsePipelineText(text: string, now = Date.now()): { stages?: StageDraft[]; error?: string } {
+/** Where an `aggregate` statement typed as the pipeline runs, and the options it gives. `db` is
+ *  there only when the statement names one with getSiblingDB. */
+export type PipelineSource = { db?: string; collection: string; pipeline: JsonObject[]; options: AggregateReadOptions; ignored: string[] }
+
+/** The whole pipeline typed as one array, `[{ $match: … }, …]`, or as a statement that runs it,
+ *  `db.orders.aggregate([…])`. */
+export function parsePipelineText(text: string, now = Date.now()): { stages?: StageDraft[]; error?: string; source?: PipelineSource } {
   if (!text.trim()) return { stages: [] }
+  if (isShellStatement(text)) {
+    try {
+      // An empty name can't be a database's: it stands for "the tab's".
+      const r = readStatement(text, '', now)
+      if (r.kind !== 'aggregate') {
+        const method = r.kind === 'find' || r.kind === 'count' || r.kind === 'shell' ? r.method : r.kind
+        return { error: `The aggregation editor takes a pipeline or an aggregate statement; this statement runs ${method}().` }
+      }
+      const { db, collection, pipeline } = r.op
+      const out = stagesFromPipeline(pipeline)
+      return out.stages ? { stages: out.stages, source: { ...(db ? { db } : {}), collection, pipeline, options: r.options, ignored: r.ignored } } : out
+    } catch (error) {
+      if (error instanceof ShellCallError) return { error: error.message }
+      throw error
+    }
+  }
   let value: JsonValue
   try {
     value = parseShell(text, { now })

@@ -48,7 +48,8 @@ function setup(extra: MockRequests = {}, storage: Record<string, JsonValue> = {}
   const calls: Calls = { previews: [], runs: [], pages: [], counts: [], explains: [], views: [], saves: [] }
   let saved: SavedPipeline[] = []
   const host = mockHost({
-    storage,
+    // A collection tab here types into the fields; Shell mode has its own tests in panel-data.
+    storage: { 'mongo-studio.queryMode': 'fields', ...storage },
     requests: {
       'connections.state': state,
       'data.count': { exists: true, count: 120, kind: 'collection' },

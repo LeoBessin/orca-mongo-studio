@@ -11,6 +11,8 @@ import { builderToFilter, emptyGroup, filterToBuilder, newCondition, type Builde
 import { fitsHost, QUERY_TEXT_MAX } from '../shared/host-size'
 import { nodeTarget, type NodeKind } from '../shared/nodes'
 import { parseShell, parseShellDocument, shellProblem, ShellParseError } from '../shared/shell-parse'
+import { isShellStatement, type StatementRead } from '../shared/shell-call'
+import { queryStatement } from '../shared/query-statement'
 import { compactQuery, formatQuery } from '../shared/query-format'
 import { mergeFilterText } from '../shared/table-filter'
 import { sortedOrder, type SortDirection } from '../shared/table-sort'
@@ -194,7 +196,28 @@ export type CollTab = {
   focus?: DocFocus
   /** A document tab: it shows only `focus`, for this `_id`, and has no query. */
   docTab?: { id: JsonValue }
+  /** A shell statement typed as the query or pipeline that needs a choice before it is used. */
+  statement?: StatementOffer
+  /** How the query is written: one shell statement, or the filter, projection and sort fields. */
+  queryMode: QueryMode
+  /** Shell mode's statement. Fields changed from elsewhere (history, the Query Builder, Filter by)
+   *  write it again; see `withShell`. */
+  shellText: string
+  /** The fields as last read from `shellText`: while `text` is this object, the statement stays
+   *  as typed (a count stays a count) instead of being written again from the fields. */
+  shellRead?: QueryText
+  /** Why the statement can't be run, shown under it. */
+  shellError?: string
 }
+
+export type QueryMode = 'shell' | 'fields'
+
+/** What to do with a statement read from the query bar or the pipeline's text:
+ *  - `elsewhere`: it names another collection or database; open that one, or use this tab's.
+ *  - `shell`: only the Mongo Shell runs it (it writes, or can't be read without running it). */
+export type StatementOffer =
+  | { kind: 'elsewhere'; read: StatementRead; target: Namespace }
+  | { kind: 'shell'; text: string; reason: string; writes: boolean; updateMany?: { filter: JsonObject; update: JsonObject | JsonObject[] } }
 
 export const collTabs = atom<Record<string, CollTab>>({})
 export const tabOrder = atom<string[]>([])
@@ -203,6 +226,8 @@ export const defaultPageSize = atom<number>('mongo-studio.pageSize', DEFAULT_PAG
  *  them; tabs brought back from the saved layout keep their own. They live in the plugin's
  *  storage rather than the `plugin` scope so that panels open in other windows follow along. */
 export const lastResultView = atom<ResultView>('mongo-studio.resultView', 'table', { persist: 'storage' })
+/** The query mode last chosen in a collection tab, which new tabs start in. */
+export const lastQueryMode = atom<QueryMode>('mongo-studio.queryMode', 'shell', { persist: 'storage' })
 export const lastDocView = atom<DocView>('mongo-studio.docView', 'tree', { persist: 'storage' })
 
 /** Every view and its toolbar label. A `Record` so that a new view can't be left out. */
@@ -237,7 +262,7 @@ export function change(id: string, fn: (t: CollTab) => CollTab | Partial<CollTab
     if (!t) return prev
     const next = fn(t)
     const out = 'id' in next && next.id === t.id ? (next as CollTab) : { ...t, ...next }
-    return { ...prev, [id]: withBoxes(t, out) }
+    return { ...prev, [id]: withShell(t, withBoxes(t, out)) }
   })
 }
 
@@ -252,6 +277,14 @@ function withBoxes(before: CollTab, after: CollTab): CollTab {
     delete multiline[field]
   }
   return multiline ? { ...after, multiline } : after
+}
+
+/** The fields changed from anywhere but the statement itself (typing in them, history, the Query
+ *  Builder, Filter by, a header sort, Reset): Shell mode's statement is written again from them,
+ *  unless the change wrote the statement too. */
+function withShell(before: CollTab, after: CollTab): CollTab {
+  if (after.text === before.text || after.text === after.shellRead || after.shellText !== before.shellText) return after
+  return { ...after, shellText: queryStatement(after.ns.collection, after.text), shellError: undefined }
 }
 
 function patch(id: string, values: Partial<CollTab>): void {
@@ -307,7 +340,10 @@ export async function openNamespace(ns: Namespace, kind: NodeKind, text?: QueryT
   }
   const id = tabIdFor(ns)
   const t: CollTab = { ...newTab(id, ns, kind, ns.collection), resultView: startResultView() }
-  if (text) t.text = text
+  if (text) {
+    t.text = text
+    t.shellText = queryStatement(ns.collection, text)
+  }
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => [...prev, id])
   set(view, id)
@@ -337,8 +373,36 @@ export function newTab(id: string, ns: Namespace, kind: NodeKind, title: string)
     builderProblems: [],
     builderOpen: false,
     optionsOpen: false,
-    saveName: ''
+    saveName: '',
+    queryMode: startQueryMode(),
+    shellText: queryStatement(ns.collection, emptyText)
   }
+}
+
+/** The mode chosen in this panel run. Switching twice within moments can let the storage write of
+ *  the first choice land after the second and bring the atom back to it, so the run's own choice
+ *  comes first; the atom carries it to the next run. */
+let chosenQueryMode: QueryMode | undefined
+
+export function chooseQueryMode(mode: QueryMode): void {
+  chosenQueryMode = mode
+  set(lastQueryMode, mode)
+}
+
+/** A new panel run starts from the stored choice. */
+export function resetQueryModeRun(): void {
+  chosenQueryMode = undefined
+}
+
+export function startQueryMode(): QueryMode {
+  const m = chosenQueryMode ?? read(lastQueryMode)
+  return m === 'fields' ? 'fields' : 'shell'
+}
+
+/** Whether a tab can be queried in Shell mode: a collection's own query, not shell results, an
+ *  aggregation or one document. */
+export function hasShellMode(t: CollTab): boolean {
+  return !t.shell && !t.agg && !t.docTab
 }
 
 export function closeTab(id: string): void {
@@ -436,7 +500,9 @@ export function setText(id: string, field: QueryField, value: string): void {
     // Typing keeps the box it is typed in: joining the last two lines doesn't swap a multi-line
     // box for a one-line one under the cursor.
     multiline: { ...t.multiline, [field]: isMultiline(t, field) || value.includes('\n') },
-    fieldErrors: withLiveProblem(t.fieldErrors, field, value)
+    fieldErrors: withLiveProblem(t.fieldErrors, field, value),
+    // A choice offered for the statement typed before no longer applies.
+    ...(field === 'filter' && t.statement ? { statement: undefined } : {})
   }))
 }
 
@@ -455,6 +521,8 @@ function replaceText(id: string, field: QueryField, value: string): void {
  *  typed at the end), which waits for Run. */
 export function liveProblem(field: QueryField, value: string, now = Date.now()): string | undefined {
   if (field === 'skip' || field === 'limit') return countProblem(field, value)
+  // A whole statement pasted as the filter is read on Run, not parsed as a document.
+  if (field === 'filter' && isShellStatement(value)) return undefined
   const problem = shellProblem(value, FIELD_NAMES[field], { now })
   return problem && !problem.unfinished ? problem.message : undefined
 }
@@ -547,7 +615,7 @@ export async function runQuery(id: string, record = true): Promise<void> {
   }
   if (t.queryId) void plugin.request('query.close', { queryId: t.queryId }).catch(() => undefined)
   const token = t.runToken + 1
-  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined })
+  patch(id, { ...dropBulkPreview(t), loading: true, error: undefined, fieldErrors: {}, runToken: token, spec, count: 'counting', selectedRows: [], editor: undefined, confirmDelete: undefined, treeSelected: undefined, treeExpanded: [], notice: undefined, statement: undefined, shellError: undefined })
   const input = { ns: t.ns, spec, pageSize: t.pageSize, ...(record ? { text: t.text } : {}) }
   const counting = countQuery(id, token, spec)
   try {

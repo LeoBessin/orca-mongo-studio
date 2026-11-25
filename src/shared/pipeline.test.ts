@@ -88,6 +88,26 @@ describe('pipeline: text', () => {
     assert.match(parsePipelineText('[{ $match: ').error!, /line 1/i)
   })
 
+  test('an aggregate statement, with where it runs and its options', () => {
+    // The statement from issue #32, as pasted from Compass.
+    const r = parsePipelineText(`db.getCollection("products").aggregate([
+  { "$match": { "category": "books", "status": "active",
+      "$or": [ { "options.featured": { "$exists": true } }, { "options.on_sale": true } ] } },
+  { "$project": { "_id": 0, "title": 1,
+      "len": { "$strLenCP": { "$trim": { "input": { "$ifNull": ["$title", ""] } } } } } },
+  { "$match": { "len": { "$gt": 40 } } },
+  { "$sort": { "len": -1 } }
+])`)
+    assert.equal(r.error, undefined)
+    assert.deepEqual(r.stages!.map((s) => s.op), ['$match', '$project', '$match', '$sort'])
+    assert.equal(r.source?.collection, 'products')
+    assert.equal(r.source?.db, undefined)
+    const sibling = parsePipelineText("db.getSiblingDB('blog').posts.aggregate([{ $limit: 1 }], { allowDiskUse: true });")
+    assert.deepEqual([sibling.source?.db, sibling.source?.collection, sibling.source?.options], ['blog', 'posts', { allowDiskUse: true }])
+    assert.match(parsePipelineText("db.posts.find({ a: 1 })").error!, /runs find\(\)/)
+    assert.match(parsePipelineText('db.posts.aggregate(stages)').error!, /literal/)
+  })
+
   test('bodies: short values on one line, long ones laid out', () => {
     assert.equal(bodyText({ a: int(1) }), '{ a: 1 }')
     assert.equal(bodyText('$items'), "'$items'")

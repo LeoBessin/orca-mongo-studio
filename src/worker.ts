@@ -28,7 +28,7 @@ import {
 import { createView, explainAggregate, explainFind, PipelineLibraryStore, previewStage } from './worker/aggregate'
 import { ClientPool } from './worker/client'
 import { testConnection } from './worker/diagnose'
-import { deleteDocuments, getDocument, insertDocuments, readWhole, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
+import { deleteDocuments, distinctValues, getDocument, insertDocuments, readWhole, QueryLibraryStore, QuerySessions, replaceDocument, updateField } from './worker/query'
 import { analyzeSchema } from './worker/schema'
 import { checkUpdate, previewUpdate, updateMany } from './worker/update'
 import { currentOps, killOp, serverStatus, sleep } from './worker/server'
@@ -281,6 +281,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     return sessions.page(queryId, ns, spec, offset, pageSize)
   })
   orca.panels.handle('query.count', ({ ns, spec }) => sessions.count(ns, spec))
+  orca.panels.handle('query.distinct', async ({ ns, field, filter, collation }) => {
+    await requireDef(ns.connectionId)
+    const client = await clientFor(ns.connectionId)
+    return distinctValues(client.db(ns.db).collection(ns.collection), field, filter, collation)
+  })
   orca.panels.handle('query.close', async ({ queryId }) => {
     await sessions.close(queryId)
     return null
@@ -298,6 +303,11 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('doc.insert', async ({ ns, docs }) => {
     await writable(ns.connectionId, 'inserting documents')
     return insertDocuments(await clientFor(ns.connectionId), ns, docs)
+  })
+  orca.panels.handle('clipboard.copyText', async ({ text }) => {
+    if (typeof text !== 'string' || !text) throw invalid('Nothing to copy.')
+    await systemClipboard.write(text)
+    return null
   })
   orca.panels.handle('clipboard.copyDocuments', async ({ ns, items, relaxed }) => {
     const docs: JsonObject[] = []
