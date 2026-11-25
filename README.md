@@ -51,6 +51,13 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
   several lines (Ctrl+Enter or Cmd+Enter runs it). Every tab names, under its title, the connection
   it works on, and for a copy, an import or a comparison, each side it reads and writes
   (`From: Prod › shop.orders · Into: Dev › shop.orders`).
+- **Paste a whole statement** into the filter, as it comes from a teammate, Compass or mongosh:
+  `db.orders.find({ status: 'A' }).sort({ at: -1 }).limit(5)` fills the query bar and runs,
+  `aggregate([...])` opens the collection's aggregation, and `countDocuments`, `count`,
+  `estimatedDocumentCount` and `distinct` show what they found. `db.<collection>`,
+  `db.getCollection('<name>')` and `db.getSiblingDB('<db>')` all work. The statement is read, never
+  run: one that uses variables, or one that writes, is offered to the Mongo Shell instead (and an
+  `updateMany` to **Update many**), and one on another collection asks before going there.
 - Tabs, their queries and pipelines, and the tree's open nodes come back when you return to the
   panel from another sidebar tab. Connections Orca closed while the panel was idle reopen by
   themselves, except ones that sign in through the browser.
@@ -82,7 +89,8 @@ Open **Mongo Studio** from Orca's right sidebar and add your first connection.
 
 - A stage-by-stage **aggregation editor**. It previews each stage's input and output, and stages
   can be turned off, reordered or duplicated.
-- Edit a pipeline as text, save it, or create a view from it. `$out` and `$merge` ask before they
+- Edit a pipeline as text (a `db.<collection>.aggregate([...])` statement works too), save it,
+  or create a view from it. `$out` and `$merge` ask before they
   write.
 - **Explain plans** for queries and pipelines: index use, documents examined against returned,
   in-memory sorts and the plan as a tree. Works with the classic and slot-based engines and with

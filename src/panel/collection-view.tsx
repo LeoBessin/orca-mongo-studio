@@ -43,7 +43,6 @@ import {
   loadBuilderFromFilter,
   nsLabel,
   resetQuery,
-  runQuery,
   sampledFields,
   saveQuery,
   setBuilder,
@@ -54,6 +53,9 @@ import {
   type QueryField
 } from './collection-state'
 import { openAggregation } from './aggregate-state'
+import { runBar } from './statement-state'
+import { StatementOfferView } from './statement-view'
+import { isShellStatement } from '../shared/shell-call'
 import { DocumentView } from './document-view'
 import { Editors } from './editors-view'
 import { UpdateMany } from './update-view'
@@ -71,7 +73,7 @@ import { GAP } from './layout'
 function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: QueryField; label: string; placeholder: string }): OrcaNode {
   const error = t.fieldErrors[field]
   const value = t.text[field]
-  const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v: string) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runQuery(t.id))() }
+  const box = { label, labelHidden: true, placeholder, value, invalid: Boolean(error), onChange: (v: string) => setText(t.id, field, v), onSubmit: () => void guard(t.id, () => runBar(t.id))() }
   // Skip and limit are numbers: nothing to format.
   const formats = field !== 'skip' && field !== 'limit'
   const multi = formats && isMultiline(t, field)
@@ -79,9 +81,10 @@ function QueryInput({ t, field, label, placeholder }: { t: CollTab; field: Query
   // keeps "one line", so it can always be put back.
   const button = formats && (multi || settings().formatButtons)
   const name = label.toLowerCase()
+  const statement = field === 'filter' && !t.shell && isShellStatement(value)
   const input = multi ? <Textarea {...box} rows={Math.min(12, Math.max(3, value.split('\n').length))} /> : <Input {...box} />
   return (
-    <Field label={label} {...(error ? { error } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
+    <Field label={label} {...(error ? { error } : statement ? { description: 'A shell statement: Run reads it into the query bar, or opens it where it belongs.' } : multi ? { description: 'Ctrl+Enter or Cmd+Enter runs the query.' } : {})}>
       {button ? (
         <Box direction="row" gap="xs" align="start">
           <Box grow>{input}</Box>
@@ -310,7 +313,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
       <Box gap="sm">
         <QueryBar t={t} />
         <Toolbar label="Query actions" gap="xs">
-          <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runQuery(t.id))}>
+          <Button variant="solid" tone="accent" icon="play" disabled={t.loading} onPress={guard(t.id, () => runBar(t.id))}>
             {t.loading ? 'Running…' : 'Run'}
           </Button>
           <IconButton icon="refresh" label="Reset the query" variant="ghost" onPress={guard(t.id, () => resetQuery(t.id))} />
@@ -326,6 +329,7 @@ export function CollectionTab({ id }: { id: string }): OrcaNode {
           {t.shell || t.readOnly ? null : <IconButton icon="download" label="Import into this collection" variant="ghost" size="sm" onPress={() => openImport(t.ns)} />}
           {t.shell ? null : <IconButton icon="settings" label="Manage: indexes, validation, rename, drop" variant="ghost" size="sm" onPress={guard(t.id, () => openManage(t.ns, t.kind))} />}
         </Toolbar>
+        <StatementOfferView t={t} />
         <TabNoticeView id={t.id} at="top" places={COLLECTION_PLACES} />
         {t.error ? <Callout tone="danger" icon="error" title="The query failed">{t.error}</Callout> : null}
         <Builder t={t} />

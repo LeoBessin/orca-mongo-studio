@@ -59,6 +59,7 @@ import {
 import { change, closeTab, collTabs, type AggState, type CollTab } from './collection-state'
 import { ExplainSection } from './explain-view'
 import { changeExplain, runExplain } from './explain-state'
+import { StatementOfferView } from './statement-view'
 import { guard } from './guard'
 import { AGGREGATION_PLACES, TabNoticeView } from './notice-view'
 import { Results } from './results-view'
@@ -196,9 +197,10 @@ function TextEditor({ t, a }: { t: CollTab; a: AggState }): OrcaNode {
     <Box gap={GAP.group}>
       <Box gap={GAP.tight}>
         <Textarea label="Pipeline" rows={16} value={a.text} invalid={Boolean(a.textError)} onChange={(v) => setPipelineText(t.id, v)} onSubmit={() => void guard(t.id, () => applyText(t.id))()} />
-        {a.textError ? <Text size="xs" tone="danger">{a.textError}</Text> : <Text size="xs" muted>An array of stages in shell syntax. Ctrl+Enter applies it.</Text>}
+        {a.textError ? <Text size="xs" tone="danger">{a.textError}</Text> : <Text size="xs" muted>An array of stages in shell syntax, or a db.collection.aggregate([…]) statement. Ctrl+Enter applies it.</Text>}
         {off ? <Text size="xs" tone="warning">{`${off} stage${off === 1 ? ' is' : 's are'} off and left out of the text; applying it removes ${off === 1 ? 'it' : 'them'}.`}</Text> : null}
       </Box>
+      <StatementOfferView t={t} />
       <Row gap="xs">
         <Button size="sm" variant="solid" tone="accent" icon="check" onPress={guard(t.id, () => applyText(t.id))}>Apply</Button>
         <Button size="sm" variant="ghost" onPress={() => leaveText(t.id)}>Cancel</Button>

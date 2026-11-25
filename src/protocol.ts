@@ -121,6 +121,10 @@ export type QueryPage = {
 
 export type CountResult = { count: number | null; approximate: boolean; ms: number; error?: string }
 
+/** `values` in canonical Extended JSON, the first 1,000 at most and fewer when they would not fit
+ *  a page; `total` counts them all, `cut` says a value was shortened. */
+export type DistinctResult = { values: JsonValue[]; total: number; cut: boolean; ms: number }
+
 export type WriteResult = { matched: number; modified: number }
 
 /** What an update many would do, before it runs. */
@@ -559,6 +563,9 @@ declare module 'orca' {
     /** Counted separately, with a time limit, so the first page never waits for it. */
     'query.count': { input: { ns: Namespace; spec: QuerySpec }; output: CountResult }
     'query.close': { input: { queryId: string }; output: null }
+    /** A field's distinct values among the documents a filter matches, as a `distinct` statement
+     *  read in the query bar asks. At most 1,000 values, each shortened like a page's. */
+    'query.distinct': { input: { ns: Namespace; field: string; filter: JsonObject; collation?: JsonObject }; output: DistinctResult }
     /** The whole document by `_id`, untruncated, for editing. */
     'doc.get': { input: { ns: Namespace; id: JsonValue }; output: { doc: JsonObject | null } }
     /** Sets (or with `remove`, unsets) one field by path; array items are numbers in the path. */
@@ -570,6 +577,8 @@ declare module 'orca' {
      *  object, several as an array, in order. Each is copied as the page holds it, unless `reread`
      *  asks for it to be read again whole by its `_id` from `ns` (a collection), for values the
      *  page shortened; one no longer there is copied as the page holds it, and counted in `gone`. */
+    /** Copies text to the system clipboard: a statement to paste into the Mongo Shell. */
+    'clipboard.copyText': { input: { text: string }; output: null }
     'clipboard.copyDocuments': { input: { ns?: Namespace; items: CopyItem[]; relaxed: boolean }; output: { copied: number; reread: number; gone: number } }
     /** Counts what an update many reaches and tries it on one document, saving nothing. */
     'doc.updatePreview': { input: { ns: Namespace; scope: UpdateScope; update: UpdateSpec }; output: UpdatePreview }

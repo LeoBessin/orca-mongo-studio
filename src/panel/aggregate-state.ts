@@ -19,8 +19,10 @@ import {
   stageTexts,
   templateFor,
   writeTarget,
+  type PipelineSource,
   type StageDraft
 } from '../shared/pipeline'
+import type { StatementRead } from '../shared/shell-call'
 import { collTabs, change, newTab, nsLabel, openNamespace, recount, say, startResultView, tab, tabIdFor, tabOrder, type AggState, type CollTab } from './collection-state'
 import { openExport } from './export-state'
 import { errorText, nodeIndex, refreshNode, view } from './state'
@@ -52,20 +54,32 @@ export function changeAgg(id: string, fn: (a: AggState, t: CollTab) => Partial<A
   change(id, (t) => (t.agg ? { agg: { ...t.agg, ...fn(t.agg, t) } } : {}))
 }
 
-/** Opens (or shows) the aggregation tab of a collection; `stages` replace its pipeline. */
-export async function openAggregation(ns: Namespace, kind: NodeKind, stages?: StageDraft[], from?: string): Promise<void> {
+/** What the aggregation editor leaves out of a statement's options, as a sentence, or ''. */
+function leftOut(source: Pick<PipelineSource, 'options' | 'ignored'> | undefined): string {
+  const left = [...(source?.ignored ?? []), ...(source?.options.collation ? ['collation'] : [])]
+  return left.length ? `Left out what the aggregation editor doesn't take: ${left.join(', ')}.` : ''
+}
+
+/** Opens (or shows) the aggregation tab of a collection; `stages` replace its pipeline, and
+ *  `source`, the statement they were read from, gives its options. */
+export async function openAggregation(ns: Namespace, kind: NodeKind, stages?: StageDraft[], from?: string, source?: Pick<PipelineSource, 'options' | 'ignored'>): Promise<void> {
   const id = aggTabId(ns)
+  const allowDiskUse = source?.options.allowDiskUse
+  const note = (start: string): string => [from ? `${start} ${from}.` : '', leftOut(source)].filter(Boolean).join(' ')
   if (tab(id)) {
     set(view, id)
     if (stages) {
-      changeAgg(id, () => ({ stages, selected: stages[0]?.id, errors: {}, textMode: false, confirmWrite: undefined }))
-      if (from) say(id, 'neutral', `Loaded the pipeline from ${from}.`)
+      changeAgg(id, () => ({ stages, selected: stages[0]?.id, errors: {}, textMode: false, confirmWrite: undefined, ...(allowDiskUse === undefined ? {} : { allowDiskUse }) }))
+      change(id, () => ({ statement: undefined }))
+      if (note('Loaded the pipeline from')) say(id, 'neutral', note('Loaded the pipeline from'))
       await refreshPreview(id)
     }
     return
   }
-  const t: CollTab = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg: newAgg(stages ?? [newStage('$match')]) }
-  if (from) t.notice = { tone: 'neutral', text: `Started from ${from}.` }
+  const agg = newAgg(stages ?? [newStage('$match')])
+  if (allowDiskUse !== undefined) agg.allowDiskUse = allowDiskUse
+  const t: CollTab = { ...newTab(id, ns, kind, `${ns.collection} · pipeline`), resultView: startResultView(), readOnly: true, agg }
+  if (note('Started from')) t.notice = { tone: 'neutral', text: note('Started from') }
   update(collTabs, (prev) => ({ ...prev, [id]: t }))
   update(tabOrder, (prev) => [...prev, id])
   set(view, id)
@@ -304,24 +318,34 @@ export function editAsText(id: string): void {
 
 export function setPipelineText(id: string, text: string): void {
   changeAgg(id, () => ({ text, textError: undefined }))
+  if (tab(id)?.statement) change(id, () => ({ statement: undefined }))
 }
 
 export function leaveText(id: string): void {
   changeAgg(id, () => ({ textMode: false, textError: undefined }))
 }
 
-/** Replaces the stages with the typed pipeline. */
+/** Replaces the stages with the typed pipeline. An `aggregate` statement on another collection
+ *  is not used here until asked: the tab offers to open that collection's aggregation instead. */
 export async function applyText(id: string): Promise<void> {
-  const a = tab(id)?.agg
-  if (!a) return
+  const t = tab(id)
+  const a = t?.agg
+  if (!t || !a) return
   const r = parsePipelineText(a.text)
   if (!r.stages) {
     changeAgg(id, () => ({ textError: r.error }))
     return
   }
+  const src = r.source
+  if (src && (src.collection !== t.ns.collection || (src.db !== undefined && src.db !== t.ns.db))) {
+    const target: Namespace = { connectionId: t.ns.connectionId, db: src.db ?? t.ns.db, collection: src.collection }
+    const read: StatementRead = { kind: 'aggregate', op: { kind: 'aggregate', db: target.db, collection: target.collection, pipeline: src.pipeline }, options: src.options, ignored: src.ignored }
+    change(id, () => ({ statement: { kind: 'elsewhere', read, target } }))
+    return
+  }
   const stages = r.stages.length ? r.stages : [newStage('$match')]
-  changeAgg(id, () => ({ stages, selected: stages[0]!.id, errors: {}, textMode: false, textError: undefined }))
-  await refreshPreview(id)
+  changeAgg(id, () => ({ textError: undefined }))
+  await openAggregation(t.ns, t.kind, stages, undefined, src)
 }
 
 // ---- Views ----

@@ -194,6 +194,22 @@ describe('Copy as JSON', () => {
   })
 })
 
+describe('Copy for the Mongo Shell', () => {
+  test('copies the text it is given, and refuses nothing to copy', async () => {
+    const written: string[] = []
+    const real = systemClipboard.write
+    systemClipboard.write = async (text) => void written.push(text)
+    try {
+      const worker = await mountWorker(main, { host: mockHost() })
+      assert.equal(await worker.request('clipboard.copyText', { text: 'db.orders.deleteMany({})' }), null)
+      assert.deepEqual(written, ['db.orders.deleteMany({})'])
+      await assert.rejects(worker.request('clipboard.copyText', { text: '' }), /Nothing to copy/)
+    } finally {
+      systemClipboard.write = real
+    }
+  })
+})
+
 describe('read-only connections', () => {
   async function setup() {
     const worker = await mountWorker(main, { host: mockHost() })

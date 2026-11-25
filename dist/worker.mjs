@@ -76636,6 +76636,264 @@ var QUERY_TEXT_MAX = 4e3;
 var import_mongodb = __toESM(require_lib2(), 1);
 import { createHash as createHash4 } from "node:crypto";
 
+// src/shared/js-scan.ts
+var PUNCTUATORS = [
+  ">>>=",
+  "...",
+  "===",
+  "!==",
+  "**=",
+  "<<=",
+  ">>=",
+  ">>>",
+  "&&=",
+  "||=",
+  "??=",
+  "=>",
+  "==",
+  "!=",
+  "<=",
+  ">=",
+  "&&",
+  "||",
+  "??",
+  "?.",
+  "++",
+  "--",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "&=",
+  "|=",
+  "^=",
+  "**",
+  "<<",
+  ">>"
+];
+var REGEX_AFTER_WORDS = /* @__PURE__ */ new Set(["return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "instanceof", "yield", "await"]);
+var IDENT_START = /[A-Za-z_$\u0080-￿]/;
+var IDENT_PART = /[A-Za-z0-9_$\u0080-￿]/;
+function regexAllowed(prev) {
+  if (!prev) return true;
+  if (prev.type === "punct") return prev.value !== ")" && prev.value !== "]" && prev.value !== "}";
+  if (prev.type === "ident") return REGEX_AFTER_WORDS.has(prev.value);
+  return false;
+}
+function lex(src, from, stopAtUnmatchedBrace, keepComments) {
+  const tokens = [];
+  let i6 = from;
+  let nl = false;
+  let braces = 0;
+  let prev;
+  const push = (t) => {
+    tokens.push(t);
+    if (t.type !== "comment") prev = t;
+    nl = false;
+  };
+  while (i6 < src.length) {
+    const c6 = src[i6];
+    if (c6 === "\n" || c6 === "\r" || c6 === "\u2028" || c6 === "\u2029") {
+      nl = true;
+      i6++;
+      continue;
+    }
+    if (c6 === " " || c6 === "	" || c6 === "\f" || c6 === "\v" || c6 === "\uFEFF" || c6 === " ") {
+      i6++;
+      continue;
+    }
+    const start = i6;
+    if (c6 === "/" && src[i6 + 1] === "/") {
+      while (i6 < src.length && src[i6] !== "\n" && src[i6] !== "\r") i6++;
+      if (keepComments) tokens.push({ type: "comment", value: src.slice(start, i6), start, end: i6, nl });
+      continue;
+    }
+    if (c6 === "/" && src[i6 + 1] === "*") {
+      const close = src.indexOf("*/", i6 + 2);
+      i6 = close < 0 ? src.length : close + 2;
+      const text = src.slice(start, i6);
+      if (/[\n\r]/.test(text)) nl = true;
+      if (keepComments) tokens.push({ type: "comment", value: text, start, end: i6, nl, ...close < 0 ? { open: true } : {} });
+      continue;
+    }
+    if (c6 === '"' || c6 === "'") {
+      i6++;
+      let closed = false;
+      while (i6 < src.length) {
+        const d6 = src[i6];
+        if (d6 === "\\") i6 += 2;
+        else if (d6 === c6) {
+          i6++;
+          closed = true;
+          break;
+        } else if (d6 === "\n" || d6 === "\r") break;
+        else i6++;
+      }
+      i6 = Math.min(i6, src.length);
+      push({ type: "string", value: src.slice(start, i6), start, end: i6, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (c6 === "`") {
+      i6++;
+      let closed = false;
+      while (i6 < src.length) {
+        const d6 = src[i6];
+        if (d6 === "\\") i6 += 2;
+        else if (d6 === "`") {
+          i6++;
+          closed = true;
+          break;
+        } else if (d6 === "$" && src[i6 + 1] === "{") {
+          const inner = lex(src, i6 + 2, true, false);
+          i6 = inner.end;
+        } else i6++;
+      }
+      i6 = Math.min(i6, src.length);
+      const text = src.slice(start, i6);
+      push({ type: "template", value: text, start, end: i6, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (c6 === "/" && regexAllowed(prev)) {
+      i6++;
+      let inClass = false;
+      let closed = false;
+      while (i6 < src.length) {
+        const d6 = src[i6];
+        if (d6 === "\\") i6 += 2;
+        else if (d6 === "\n" || d6 === "\r") break;
+        else if (inClass) {
+          if (d6 === "]") inClass = false;
+          i6++;
+        } else if (d6 === "[") {
+          inClass = true;
+          i6++;
+        } else if (d6 === "/") {
+          i6++;
+          closed = true;
+          break;
+        } else i6++;
+      }
+      if (closed) while (i6 < src.length && IDENT_PART.test(src[i6])) i6++;
+      i6 = Math.min(i6, src.length);
+      push({ type: "regex", value: src.slice(start, i6), start, end: i6, nl, ...closed ? {} : { open: true } });
+      continue;
+    }
+    if (/[0-9]/.test(c6) || c6 === "." && /[0-9]/.test(src[i6 + 1] ?? "")) {
+      i6++;
+      while (i6 < src.length && /[0-9A-Za-z_.]/.test(src[i6])) {
+        if ((src[i6] === "e" || src[i6] === "E") && (src[i6 + 1] === "+" || src[i6 + 1] === "-") && !/^0[xX]/.test(src.slice(start, i6))) i6 += 2;
+        else i6++;
+      }
+      push({ type: "number", value: src.slice(start, i6), start, end: i6, nl });
+      continue;
+    }
+    if (IDENT_START.test(c6) || c6 === "\\") {
+      i6++;
+      while (i6 < src.length && (IDENT_PART.test(src[i6]) || src[i6] === "\\")) i6++;
+      push({ type: "ident", value: src.slice(start, i6), start, end: i6, nl });
+      continue;
+    }
+    if (c6 === "#" && IDENT_START.test(src[i6 + 1] ?? "")) {
+      i6++;
+      while (i6 < src.length && IDENT_PART.test(src[i6])) i6++;
+      push({ type: "ident", value: src.slice(start, i6), start, end: i6, nl });
+      continue;
+    }
+    if (stopAtUnmatchedBrace) {
+      if (c6 === "{") braces++;
+      else if (c6 === "}") {
+        if (braces === 0) return { tokens, end: i6 + 1 };
+        braces--;
+      }
+    }
+    let p3 = PUNCTUATORS.find((q3) => src.startsWith(q3, i6));
+    if (p3 === "?." && /[0-9]/.test(src[i6 + 2] ?? "")) p3 = void 0;
+    const value = p3 ?? c6;
+    i6 += value.length;
+    push({ type: "punct", value, start, end: i6, nl });
+  }
+  return { tokens, end: src.length };
+}
+function tokenize(src, options = {}) {
+  return lex(src, 0, false, options.comments === true).tokens;
+}
+var OPEN = /* @__PURE__ */ new Set(["(", "[", "{"]);
+var CLOSE = /* @__PURE__ */ new Set([")", "]", "}"]);
+var CONTINUES_AFTER = (t) => {
+  if (t.type === "punct") return !CLOSE.has(t.value) && t.value !== "++" && t.value !== "--" && t.value !== ";";
+  if (t.type === "ident") return t.value === "else" || t.value === "do" || t.value === "in" || t.value === "instanceof" || t.value === "of" || t.value === "new" || t.value === "typeof" || t.value === "void" || t.value === "delete" || t.value === "await" || t.value === "yield";
+  return false;
+};
+var CONTINUES_BEFORE = (t) => {
+  if (t.type === "template") return true;
+  if (t.type === "punct") return !["++", "--", "!", "~", "{", ";"].includes(t.value);
+  if (t.type === "ident") return t.value === "else" || t.value === "catch" || t.value === "finally" || t.value === "in" || t.value === "instanceof" || t.value === "of";
+  return false;
+};
+function lineCol(src, offset) {
+  let line = 1;
+  let last = -1;
+  for (let i6 = 0; i6 < offset; i6++) {
+    if (src[i6] === "\n") {
+      line++;
+      last = i6;
+    }
+  }
+  return { line, column: offset - last };
+}
+function splitStatements(src) {
+  const tokens = tokenize(src);
+  const out = [];
+  let first = -1;
+  let depth = 0;
+  let headerDepth = -1;
+  let headerClosedAt = -1;
+  let startsWithDo = false;
+  const finish = (lastIndex) => {
+    if (first < 0) return;
+    const start = tokens[first].start;
+    const end = tokens[lastIndex].end;
+    out.push({ start, end, text: src.slice(start, end), ...lineCol(src, start) });
+    first = -1;
+    depth = 0;
+    headerDepth = -1;
+    headerClosedAt = -1;
+    startsWithDo = false;
+  };
+  for (let k6 = 0; k6 < tokens.length; k6++) {
+    const t = tokens[k6];
+    if (first >= 0 && depth === 0 && t.nl) {
+      const prev = tokens[k6 - 1];
+      const go = CONTINUES_AFTER(prev) || CONTINUES_BEFORE(t) || headerClosedAt === k6 - 1 || startsWithDo && prev.value === "}" && t.value === "while";
+      if (!go) finish(k6 - 1);
+    }
+    if (first < 0) {
+      if (t.type === "punct" && t.value === ";") continue;
+      first = k6;
+      startsWithDo = t.type === "ident" && t.value === "do";
+    }
+    if (t.type === "ident" && depth === 0 && (t.value === "if" || t.value === "for" || t.value === "while" || t.value === "with") && tokens[k6 + 1]?.value === "(") {
+      headerDepth = 0;
+    }
+    if (t.type === "punct") {
+      if (OPEN.has(t.value)) depth++;
+      else if (CLOSE.has(t.value)) {
+        depth = Math.max(0, depth - 1);
+        if (depth === 0 && headerDepth === 0 && t.value === ")") {
+          headerClosedAt = k6;
+          headerDepth = -1;
+        }
+      } else if (t.value === ";" && depth === 0) {
+        finish(k6);
+        continue;
+      }
+    }
+  }
+  if (first >= 0) finish(tokens.length - 1);
+  return out;
+}
+
 // src/shared/pipeline.ts
 var STAGE_TEMPLATES = [
   { op: "$match", body: "{ }", info: "Keeps documents that match a query." },
@@ -76683,6 +76941,7 @@ var DEPTH_MAX = 80;
 var FIND_MAX_TIME_MS = 6e4;
 var EXACT = { promoteValues: false, promoteLongs: false, bsonRegExp: true };
 var COUNT_MAX_TIME_MS = 1e4;
+var DISTINCT_MAX = 1e3;
 var IDLE_CURSOR_MS = 10 * 6e4;
 var STRING_MAX = 4e3;
 var STRING_PREVIEW = 500;
@@ -76952,6 +77211,28 @@ async function countMatching(coll, filter, options = {}) {
     }
     return { count: null, approximate: false, ms: Date.now() - started, error: e6.message ?? String(error) };
   }
+}
+async function distinctValues(coll, field, filter, collation) {
+  if (typeof field !== "string" || !field) throw invalid("distinct needs a field name.");
+  if (!isObject(filter)) throw invalid("The filter must be a document.");
+  const started = Date.now();
+  const options = { maxTimeMS: FIND_MAX_TIME_MS };
+  if (collation && Object.keys(collation).length) options.collation = toBson(collation);
+  const all = await coll.distinct(field, toBson(filter), options);
+  const values = [];
+  let cut = false;
+  let bytes = 0;
+  let objects = 0;
+  for (const raw of all.slice(0, DISTINCT_MAX)) {
+    const s2 = shrink(toCanonical({ v: raw }).v);
+    const size = hostSize(s2.value);
+    if (bytes + size.bytes > PAGE_BYTE_BUDGET || objects + size.objects > PAGE_OBJECT_BUDGET) break;
+    bytes += size.bytes;
+    objects += size.objects;
+    cut ||= s2.cut;
+    values.push(s2.value);
+  }
+  return { values, total: all.length, cut, ms: Date.now() - started };
 }
 function sameId(a6, b6) {
   return JSON.stringify(toCanonical({ v: toBson({ v: a6 }).v })) === JSON.stringify(toCanonical({ v: toBson({ v: b6 }).v }));
@@ -79748,264 +80029,6 @@ var import_mongodb6 = __toESM(require_lib2(), 1);
 import { randomUUID } from "node:crypto";
 import { createRequire as createRequire2 } from "node:module";
 import { MessageChannel, Worker } from "node:worker_threads";
-
-// src/shared/js-scan.ts
-var PUNCTUATORS = [
-  ">>>=",
-  "...",
-  "===",
-  "!==",
-  "**=",
-  "<<=",
-  ">>=",
-  ">>>",
-  "&&=",
-  "||=",
-  "??=",
-  "=>",
-  "==",
-  "!=",
-  "<=",
-  ">=",
-  "&&",
-  "||",
-  "??",
-  "?.",
-  "++",
-  "--",
-  "+=",
-  "-=",
-  "*=",
-  "/=",
-  "%=",
-  "&=",
-  "|=",
-  "^=",
-  "**",
-  "<<",
-  ">>"
-];
-var REGEX_AFTER_WORDS = /* @__PURE__ */ new Set(["return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "instanceof", "yield", "await"]);
-var IDENT_START = /[A-Za-z_$\u0080-￿]/;
-var IDENT_PART = /[A-Za-z0-9_$\u0080-￿]/;
-function regexAllowed(prev) {
-  if (!prev) return true;
-  if (prev.type === "punct") return prev.value !== ")" && prev.value !== "]" && prev.value !== "}";
-  if (prev.type === "ident") return REGEX_AFTER_WORDS.has(prev.value);
-  return false;
-}
-function lex(src, from, stopAtUnmatchedBrace, keepComments) {
-  const tokens = [];
-  let i6 = from;
-  let nl = false;
-  let braces = 0;
-  let prev;
-  const push = (t) => {
-    tokens.push(t);
-    if (t.type !== "comment") prev = t;
-    nl = false;
-  };
-  while (i6 < src.length) {
-    const c6 = src[i6];
-    if (c6 === "\n" || c6 === "\r" || c6 === "\u2028" || c6 === "\u2029") {
-      nl = true;
-      i6++;
-      continue;
-    }
-    if (c6 === " " || c6 === "	" || c6 === "\f" || c6 === "\v" || c6 === "\uFEFF" || c6 === " ") {
-      i6++;
-      continue;
-    }
-    const start = i6;
-    if (c6 === "/" && src[i6 + 1] === "/") {
-      while (i6 < src.length && src[i6] !== "\n" && src[i6] !== "\r") i6++;
-      if (keepComments) tokens.push({ type: "comment", value: src.slice(start, i6), start, end: i6, nl });
-      continue;
-    }
-    if (c6 === "/" && src[i6 + 1] === "*") {
-      const close = src.indexOf("*/", i6 + 2);
-      i6 = close < 0 ? src.length : close + 2;
-      const text = src.slice(start, i6);
-      if (/[\n\r]/.test(text)) nl = true;
-      if (keepComments) tokens.push({ type: "comment", value: text, start, end: i6, nl, ...close < 0 ? { open: true } : {} });
-      continue;
-    }
-    if (c6 === '"' || c6 === "'") {
-      i6++;
-      let closed = false;
-      while (i6 < src.length) {
-        const d6 = src[i6];
-        if (d6 === "\\") i6 += 2;
-        else if (d6 === c6) {
-          i6++;
-          closed = true;
-          break;
-        } else if (d6 === "\n" || d6 === "\r") break;
-        else i6++;
-      }
-      i6 = Math.min(i6, src.length);
-      push({ type: "string", value: src.slice(start, i6), start, end: i6, nl, ...closed ? {} : { open: true } });
-      continue;
-    }
-    if (c6 === "`") {
-      i6++;
-      let closed = false;
-      while (i6 < src.length) {
-        const d6 = src[i6];
-        if (d6 === "\\") i6 += 2;
-        else if (d6 === "`") {
-          i6++;
-          closed = true;
-          break;
-        } else if (d6 === "$" && src[i6 + 1] === "{") {
-          const inner = lex(src, i6 + 2, true, false);
-          i6 = inner.end;
-        } else i6++;
-      }
-      i6 = Math.min(i6, src.length);
-      const text = src.slice(start, i6);
-      push({ type: "template", value: text, start, end: i6, nl, ...closed ? {} : { open: true } });
-      continue;
-    }
-    if (c6 === "/" && regexAllowed(prev)) {
-      i6++;
-      let inClass = false;
-      let closed = false;
-      while (i6 < src.length) {
-        const d6 = src[i6];
-        if (d6 === "\\") i6 += 2;
-        else if (d6 === "\n" || d6 === "\r") break;
-        else if (inClass) {
-          if (d6 === "]") inClass = false;
-          i6++;
-        } else if (d6 === "[") {
-          inClass = true;
-          i6++;
-        } else if (d6 === "/") {
-          i6++;
-          closed = true;
-          break;
-        } else i6++;
-      }
-      if (closed) while (i6 < src.length && IDENT_PART.test(src[i6])) i6++;
-      i6 = Math.min(i6, src.length);
-      push({ type: "regex", value: src.slice(start, i6), start, end: i6, nl, ...closed ? {} : { open: true } });
-      continue;
-    }
-    if (/[0-9]/.test(c6) || c6 === "." && /[0-9]/.test(src[i6 + 1] ?? "")) {
-      i6++;
-      while (i6 < src.length && /[0-9A-Za-z_.]/.test(src[i6])) {
-        if ((src[i6] === "e" || src[i6] === "E") && (src[i6 + 1] === "+" || src[i6 + 1] === "-") && !/^0[xX]/.test(src.slice(start, i6))) i6 += 2;
-        else i6++;
-      }
-      push({ type: "number", value: src.slice(start, i6), start, end: i6, nl });
-      continue;
-    }
-    if (IDENT_START.test(c6) || c6 === "\\") {
-      i6++;
-      while (i6 < src.length && (IDENT_PART.test(src[i6]) || src[i6] === "\\")) i6++;
-      push({ type: "ident", value: src.slice(start, i6), start, end: i6, nl });
-      continue;
-    }
-    if (c6 === "#" && IDENT_START.test(src[i6 + 1] ?? "")) {
-      i6++;
-      while (i6 < src.length && IDENT_PART.test(src[i6])) i6++;
-      push({ type: "ident", value: src.slice(start, i6), start, end: i6, nl });
-      continue;
-    }
-    if (stopAtUnmatchedBrace) {
-      if (c6 === "{") braces++;
-      else if (c6 === "}") {
-        if (braces === 0) return { tokens, end: i6 + 1 };
-        braces--;
-      }
-    }
-    let p3 = PUNCTUATORS.find((q3) => src.startsWith(q3, i6));
-    if (p3 === "?." && /[0-9]/.test(src[i6 + 2] ?? "")) p3 = void 0;
-    const value = p3 ?? c6;
-    i6 += value.length;
-    push({ type: "punct", value, start, end: i6, nl });
-  }
-  return { tokens, end: src.length };
-}
-function tokenize(src, options = {}) {
-  return lex(src, 0, false, options.comments === true).tokens;
-}
-var OPEN = /* @__PURE__ */ new Set(["(", "[", "{"]);
-var CLOSE = /* @__PURE__ */ new Set([")", "]", "}"]);
-var CONTINUES_AFTER = (t) => {
-  if (t.type === "punct") return !CLOSE.has(t.value) && t.value !== "++" && t.value !== "--" && t.value !== ";";
-  if (t.type === "ident") return t.value === "else" || t.value === "do" || t.value === "in" || t.value === "instanceof" || t.value === "of" || t.value === "new" || t.value === "typeof" || t.value === "void" || t.value === "delete" || t.value === "await" || t.value === "yield";
-  return false;
-};
-var CONTINUES_BEFORE = (t) => {
-  if (t.type === "template") return true;
-  if (t.type === "punct") return !["++", "--", "!", "~", "{", ";"].includes(t.value);
-  if (t.type === "ident") return t.value === "else" || t.value === "catch" || t.value === "finally" || t.value === "in" || t.value === "instanceof" || t.value === "of";
-  return false;
-};
-function lineCol(src, offset) {
-  let line = 1;
-  let last = -1;
-  for (let i6 = 0; i6 < offset; i6++) {
-    if (src[i6] === "\n") {
-      line++;
-      last = i6;
-    }
-  }
-  return { line, column: offset - last };
-}
-function splitStatements(src) {
-  const tokens = tokenize(src);
-  const out = [];
-  let first = -1;
-  let depth = 0;
-  let headerDepth = -1;
-  let headerClosedAt = -1;
-  let startsWithDo = false;
-  const finish = (lastIndex) => {
-    if (first < 0) return;
-    const start = tokens[first].start;
-    const end = tokens[lastIndex].end;
-    out.push({ start, end, text: src.slice(start, end), ...lineCol(src, start) });
-    first = -1;
-    depth = 0;
-    headerDepth = -1;
-    headerClosedAt = -1;
-    startsWithDo = false;
-  };
-  for (let k6 = 0; k6 < tokens.length; k6++) {
-    const t = tokens[k6];
-    if (first >= 0 && depth === 0 && t.nl) {
-      const prev = tokens[k6 - 1];
-      const go = CONTINUES_AFTER(prev) || CONTINUES_BEFORE(t) || headerClosedAt === k6 - 1 || startsWithDo && prev.value === "}" && t.value === "while";
-      if (!go) finish(k6 - 1);
-    }
-    if (first < 0) {
-      if (t.type === "punct" && t.value === ";") continue;
-      first = k6;
-      startsWithDo = t.type === "ident" && t.value === "do";
-    }
-    if (t.type === "ident" && depth === 0 && (t.value === "if" || t.value === "for" || t.value === "while" || t.value === "with") && tokens[k6 + 1]?.value === "(") {
-      headerDepth = 0;
-    }
-    if (t.type === "punct") {
-      if (OPEN.has(t.value)) depth++;
-      else if (CLOSE.has(t.value)) {
-        depth = Math.max(0, depth - 1);
-        if (depth === 0 && headerDepth === 0 && t.value === ")") {
-          headerClosedAt = k6;
-          headerDepth = -1;
-        }
-      } else if (t.value === ";" && depth === 0) {
-        finish(k6);
-        continue;
-      }
-    }
-  }
-  if (first >= 0) finish(tokens.length - 1);
-  return out;
-}
 
 // src/shared/shell-prepare.ts
 function blank(text) {
@@ -83318,6 +83341,11 @@ function activate(orca) {
     return sessions.page(queryId, ns, spec, offset, pageSize);
   });
   orca.panels.handle("query.count", ({ ns, spec }) => sessions.count(ns, spec));
+  orca.panels.handle("query.distinct", async ({ ns, field, filter, collation }) => {
+    await requireDef(ns.connectionId);
+    const client = await clientFor(ns.connectionId);
+    return distinctValues(client.db(ns.db).collection(ns.collection), field, filter, collation);
+  });
   orca.panels.handle("query.close", async ({ queryId }) => {
     await sessions.close(queryId);
     return null;
@@ -83334,6 +83362,11 @@ function activate(orca) {
   orca.panels.handle("doc.insert", async ({ ns, docs: docs2 }) => {
     await writable(ns.connectionId, "inserting documents");
     return insertDocuments(await clientFor(ns.connectionId), ns, docs2);
+  });
+  orca.panels.handle("clipboard.copyText", async ({ text }) => {
+    if (typeof text !== "string" || !text) throw invalid3("Nothing to copy.");
+    await systemClipboard.write(text);
+    return null;
   });
   orca.panels.handle("clipboard.copyDocuments", async ({ ns, items, relaxed }) => {
     const docs2 = [];

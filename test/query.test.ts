@@ -82,6 +82,25 @@ describe('querying the seeded shop', () => {
     }
   })
 
+  test('distinct values, filtered, and capped at what a page carries', async () => {
+    if (!ON) return
+    const { worker, ns } = await setup()
+    try {
+      const orders = ns('shop', 'orders')
+      const all = await worker.request('query.distinct', { ns: orders, field: 'status', filter: {} })
+      assert.deepEqual([...all.values].sort(), ['cancelled', 'delivered', 'paid', 'pending', 'refunded', 'shipped'])
+      assert.deepEqual([all.total, all.cut], [6, false])
+      const some = await worker.request('query.distinct', { ns: orders, field: 'status', filter: { status: { $in: ['paid', 'nope'] } } })
+      assert.deepEqual(some.values, ['paid'])
+      const many = await worker.request('query.distinct', { ns: orders, field: 'orderNo', filter: {} })
+      assert.equal(many.total, 20000)
+      assert.equal(many.values.length, 1000)
+      assert.ok(fitsHost(many, 1))
+    } finally {
+      await worker.deactivate()
+    }
+  })
+
   test('counts separately: estimated with no filter, exact with one, within skip and limit', async () => {
     if (!ON) return
     const { worker, ns } = await setup()
